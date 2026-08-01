@@ -1,0 +1,547 @@
+// !$*UTF8*$!
+{
+	archiveVersion = 1;
+	classes = {
+	};
+	objectVersion = 77;
+	objects = {
+
+/* Begin PBXBuildFile section */
+		04F49D1217C077504C4F0CC9 /* Quartz.framework in Frameworks */ = {isa = PBXBuildFile; fileRef = C19A1BA9A77D9F6F545EEBA7 /* Quartz.framework */; };
+		148CF4887D755F0579EAF8F8 /* LitematicaType.swift in Sources */ = {isa = PBXBuildFile; fileRef = B11BBAB3A152B48CA2932C43 /* LitematicaType.swift */; };
+		14DEA5793F46839DF279BBB6 /* LitematicFile.swift in Sources */ = {isa = PBXBuildFile; fileRef = B1A1925EDAA8DE5EC973D716 /* LitematicFile.swift */; };
+		28AECF0A29A72768BD93CD6F /* SchematicWebView.swift in Sources */ = {isa = PBXBuildFile; fileRef = B115285C4BD1DF374B9DDCBE /* SchematicWebView.swift */; };
+		56E79A79AE7C05498E4232D6 /* third-party in Resources */ = {isa = PBXBuildFile; fileRef = 2F6741452205E046F4F50561 /* third-party */; };
+		70B47465CEBA091BC564C754 /* PreviewViewController.swift in Sources */ = {isa = PBXBuildFile; fileRef = 17496F839D28E34831AB119E /* PreviewViewController.swift */; };
+		86AFB07660A66D67DEAE659E /* WebKit.framework in Frameworks */ = {isa = PBXBuildFile; fileRef = ED77B0D181D2D767E5420A81 /* WebKit.framework */; };
+		8DDB3175C751D9EF40842D1C /* SchematicWebViewController.swift in Sources */ = {isa = PBXBuildFile; fileRef = 1924DBDB3F04157805F1A0A7 /* SchematicWebViewController.swift */; };
+		90618732273EDA23FB0CAAFD /* LitematicFile.swift in Sources */ = {isa = PBXBuildFile; fileRef = B1A1925EDAA8DE5EC973D716 /* LitematicFile.swift */; };
+		BDFA34F9047C7768229725D1 /* LitematicaQL-Demo.litematic in Resources */ = {isa = PBXBuildFile; fileRef = 93A80A3F384360EA9BD4A90F /* LitematicaQL-Demo.litematic */; };
+		D4DB61D9A64F80304E7B25BD /* LitematicaQL.icon in Resources */ = {isa = PBXBuildFile; fileRef = F74465552D8FB63AFA213C81 /* LitematicaQL.icon */; };
+		D5D90087572EE64C50B2311C /* LitematicaQLApp.swift in Sources */ = {isa = PBXBuildFile; fileRef = 47F2DA4055F7517863368E23 /* LitematicaQLApp.swift */; };
+		EBC89290D891707B8BA85B85 /* LitematicaQLPreview.appex in Embed Foundation Extensions */ = {isa = PBXBuildFile; fileRef = DA17F55FCEA9A62E5785DFBD /* LitematicaQLPreview.appex */; settings = {ATTRIBUTES = (RemoveHeadersOnCopy, ); }; };
+		F232B24290B91BF87A274733 /* Renderer in Resources */ = {isa = PBXBuildFile; fileRef = CD5CF0664C729B59021BC0A5 /* Renderer */; };
+		F9ABB5C2FB2A660568FEB463 /* Renderer in Resources */ = {isa = PBXBuildFile; fileRef = CD5CF0664C729B59021BC0A5 /* Renderer */; };
+		FC1EB75021CA17144B5149D8 /* ContentView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 41426C6CB3826011D9D7DBC3 /* ContentView.swift */; };
+		FE305FF6BBDCD4E388B35F45 /* SchematicWebViewController.swift in Sources */ = {isa = PBXBuildFile; fileRef = 1924DBDB3F04157805F1A0A7 /* SchematicWebViewController.swift */; };
+/* End PBXBuildFile section */
+
+/* Begin PBXContainerItemProxy section */
+		AE79F0355FA3C360105C4569 /* PBXContainerItemProxy */ = {
+			isa = PBXContainerItemProxy;
+			containerPortal = 7F3B766AEAE9711BBBA1CD97 /* Project object */;
+			proxyType = 1;
+			remoteGlobalIDString = AFA9ED8DB5C6BAA301397B40;
+			remoteInfo = LitematicaQLPreview;
+		};
+/* End PBXContainerItemProxy section */
+
+/* Begin PBXCopyFilesBuildPhase section */
+		C9102C653B1AE32D6DCCCDED /* Embed Foundation Extensions */ = {
+			isa = PBXCopyFilesBuildPhase;
+			buildActionMask = 2147483647;
+			dstPath = "";
+			dstSubfolderSpec = 13;
+			files = (
+				EBC89290D891707B8BA85B85 /* LitematicaQLPreview.appex in Embed Foundation Extensions */,
+			);
+			name = "Embed Foundation Extensions";
+			runOnlyForDeploymentPostprocessing = 0;
+		};
+/* End PBXCopyFilesBuildPhase section */
+
+/* Begin PBXFileReference section */
+		10189E9EF5A7E6B3EDEDA12E /* Info.plist */ = {isa = PBXFileReference; lastKnownFileType = text.plist; path = Info.plist; sourceTree = "<group>"; };
+		17496F839D28E34831AB119E /* PreviewViewController.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = PreviewViewController.swift; sourceTree = "<group>"; };
+		1924DBDB3F04157805F1A0A7 /* SchematicWebViewController.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SchematicWebViewController.swift; sourceTree = "<group>"; };
+		2F6741452205E046F4F50561 /* third-party */ = {isa = PBXFileReference; lastKnownFileType = folder; name = "third-party"; path = "Renderer/third-party"; sourceTree = SOURCE_ROOT; };
+		41426C6CB3826011D9D7DBC3 /* ContentView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ContentView.swift; sourceTree = "<group>"; };
+		47F2DA4055F7517863368E23 /* LitematicaQLApp.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = LitematicaQLApp.swift; sourceTree = "<group>"; };
+		54C62792CD501EF5BEDB2117 /* LitematicaQLPreview.entitlements */ = {isa = PBXFileReference; lastKnownFileType = text.plist.entitlements; path = LitematicaQLPreview.entitlements; sourceTree = "<group>"; };
+		5F5F39B25C3B118B7DB5A126 /* LitematicaQL.entitlements */ = {isa = PBXFileReference; lastKnownFileType = text.plist.entitlements; path = LitematicaQL.entitlements; sourceTree = "<group>"; };
+		6E3511B97FBAA1018D96F48B /* LitematicaQL.app */ = {isa = PBXFileReference; explicitFileType = wrapper.application; includeInIndex = 0; path = LitematicaQL.app; sourceTree = BUILT_PRODUCTS_DIR; };
+		93A80A3F384360EA9BD4A90F /* LitematicaQL-Demo.litematic */ = {isa = PBXFileReference; path = "LitematicaQL-Demo.litematic"; sourceTree = "<group>"; };
+		B115285C4BD1DF374B9DDCBE /* SchematicWebView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SchematicWebView.swift; sourceTree = "<group>"; };
+		B11BBAB3A152B48CA2932C43 /* LitematicaType.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = LitematicaType.swift; sourceTree = "<group>"; };
+		B1A1925EDAA8DE5EC973D716 /* LitematicFile.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = LitematicFile.swift; sourceTree = "<group>"; };
+		C19A1BA9A77D9F6F545EEBA7 /* Quartz.framework */ = {isa = PBXFileReference; lastKnownFileType = wrapper.framework; name = Quartz.framework; path = System/Library/Frameworks/Quartz.framework; sourceTree = SDKROOT; };
+		CD5CF0664C729B59021BC0A5 /* Renderer */ = {isa = PBXFileReference; lastKnownFileType = folder; name = Renderer; path = Resources/Renderer; sourceTree = SOURCE_ROOT; };
+		DA17F55FCEA9A62E5785DFBD /* LitematicaQLPreview.appex */ = {isa = PBXFileReference; explicitFileType = "wrapper.app-extension"; includeInIndex = 0; path = LitematicaQLPreview.appex; sourceTree = BUILT_PRODUCTS_DIR; };
+		ED77B0D181D2D767E5420A81 /* WebKit.framework */ = {isa = PBXFileReference; lastKnownFileType = wrapper.framework; name = WebKit.framework; path = System/Library/Frameworks/WebKit.framework; sourceTree = SDKROOT; };
+		F74465552D8FB63AFA213C81 /* LitematicaQL.icon */ = {isa = PBXFileReference; lastKnownFileType = wrapper.icon; path = LitematicaQL.icon; sourceTree = "<group>"; };
+		F8757780D24E478C1043A705 /* Info.plist */ = {isa = PBXFileReference; lastKnownFileType = text.plist; path = Info.plist; sourceTree = "<group>"; };
+/* End PBXFileReference section */
+
+/* Begin PBXFrameworksBuildPhase section */
+		B172F89B91AE2D8FCE8A1CB7 /* Frameworks */ = {
+			isa = PBXFrameworksBuildPhase;
+			buildActionMask = 2147483647;
+			files = (
+				04F49D1217C077504C4F0CC9 /* Quartz.framework in Frameworks */,
+				86AFB07660A66D67DEAE659E /* WebKit.framework in Frameworks */,
+			);
+			runOnlyForDeploymentPostprocessing = 0;
+		};
+/* End PBXFrameworksBuildPhase section */
+
+/* Begin PBXGroup section */
+		2F7BB8F1D12B4D4C4F2A7C08 /* Shared */ = {
+			isa = PBXGroup;
+			children = (
+				B1A1925EDAA8DE5EC973D716 /* LitematicFile.swift */,
+				1924DBDB3F04157805F1A0A7 /* SchematicWebViewController.swift */,
+			);
+			path = Shared;
+			sourceTree = "<group>";
+		};
+		3EBC2F0B54C485707E417589 /* Fixtures */ = {
+			isa = PBXGroup;
+			children = (
+				93A80A3F384360EA9BD4A90F /* LitematicaQL-Demo.litematic */,
+			);
+			path = Fixtures;
+			sourceTree = "<group>";
+		};
+		5D15D40133A27EBB686A217D /* Frameworks */ = {
+			isa = PBXGroup;
+			children = (
+				C19A1BA9A77D9F6F545EEBA7 /* Quartz.framework */,
+				ED77B0D181D2D767E5420A81 /* WebKit.framework */,
+			);
+			name = Frameworks;
+			sourceTree = "<group>";
+		};
+		62E0998CB88ABB2375D6D63C /* PreviewExtension */ = {
+			isa = PBXGroup;
+			children = (
+				F8757780D24E478C1043A705 /* Info.plist */,
+				54C62792CD501EF5BEDB2117 /* LitematicaQLPreview.entitlements */,
+				17496F839D28E34831AB119E /* PreviewViewController.swift */,
+			);
+			path = PreviewExtension;
+			sourceTree = "<group>";
+		};
+		7836F723A024AD82CBA0D580 /* Products */ = {
+			isa = PBXGroup;
+			children = (
+				6E3511B97FBAA1018D96F48B /* LitematicaQL.app */,
+				DA17F55FCEA9A62E5785DFBD /* LitematicaQLPreview.appex */,
+			);
+			name = Products;
+			sourceTree = "<group>";
+		};
+		848B29EE1E14A1386D24E692 /* Renderer */ = {
+			isa = PBXGroup;
+			children = (
+				2F6741452205E046F4F50561 /* third-party */,
+			);
+			path = Renderer;
+			sourceTree = "<group>";
+		};
+		87298A61D74416A655F5FF9E = {
+			isa = PBXGroup;
+			children = (
+				C23E2C76D195A3A1F3A4C6FA /* App */,
+				3EBC2F0B54C485707E417589 /* Fixtures */,
+				62E0998CB88ABB2375D6D63C /* PreviewExtension */,
+				848B29EE1E14A1386D24E692 /* Renderer */,
+				E7D05821E9C38507CF454B6E /* Resources */,
+				2F7BB8F1D12B4D4C4F2A7C08 /* Shared */,
+				F74465552D8FB63AFA213C81 /* LitematicaQL.icon */,
+				5D15D40133A27EBB686A217D /* Frameworks */,
+				7836F723A024AD82CBA0D580 /* Products */,
+			);
+			sourceTree = "<group>";
+		};
+		C23E2C76D195A3A1F3A4C6FA /* App */ = {
+			isa = PBXGroup;
+			children = (
+				41426C6CB3826011D9D7DBC3 /* ContentView.swift */,
+				10189E9EF5A7E6B3EDEDA12E /* Info.plist */,
+				5F5F39B25C3B118B7DB5A126 /* LitematicaQL.entitlements */,
+				47F2DA4055F7517863368E23 /* LitematicaQLApp.swift */,
+				B11BBAB3A152B48CA2932C43 /* LitematicaType.swift */,
+				B115285C4BD1DF374B9DDCBE /* SchematicWebView.swift */,
+			);
+			path = App;
+			sourceTree = "<group>";
+		};
+		E7D05821E9C38507CF454B6E /* Resources */ = {
+			isa = PBXGroup;
+			children = (
+				CD5CF0664C729B59021BC0A5 /* Renderer */,
+			);
+			path = Resources;
+			sourceTree = "<group>";
+		};
+/* End PBXGroup section */
+
+/* Begin PBXNativeTarget section */
+		7363BBD2F4B801537B96F23C /* LitematicaQL */ = {
+			isa = PBXNativeTarget;
+			buildConfigurationList = C547B391AB0B4BC437DF4655 /* Build configuration list for PBXNativeTarget "LitematicaQL" */;
+			buildPhases = (
+				E2F8D72B7C91D591743C92A5 /* Sources */,
+				5BC37A6E0988D1333A206C17 /* Resources */,
+				C9102C653B1AE32D6DCCCDED /* Embed Foundation Extensions */,
+			);
+			buildRules = (
+			);
+			dependencies = (
+				6A07FE0FC1D085C8DCAF1CC2 /* PBXTargetDependency */,
+			);
+			name = LitematicaQL;
+			packageProductDependencies = (
+			);
+			productName = LitematicaQL;
+			productReference = 6E3511B97FBAA1018D96F48B /* LitematicaQL.app */;
+			productType = "com.apple.product-type.application";
+		};
+		AFA9ED8DB5C6BAA301397B40 /* LitematicaQLPreview */ = {
+			isa = PBXNativeTarget;
+			buildConfigurationList = AD3862D800492BB80FC224F6 /* Build configuration list for PBXNativeTarget "LitematicaQLPreview" */;
+			buildPhases = (
+				3FC708885A9A432030F93CB8 /* Sources */,
+				877AF38210A434D28FC6256B /* Resources */,
+				B172F89B91AE2D8FCE8A1CB7 /* Frameworks */,
+			);
+			buildRules = (
+			);
+			dependencies = (
+			);
+			name = LitematicaQLPreview;
+			packageProductDependencies = (
+			);
+			productName = LitematicaQLPreview;
+			productReference = DA17F55FCEA9A62E5785DFBD /* LitematicaQLPreview.appex */;
+			productType = "com.apple.product-type.app-extension";
+		};
+/* End PBXNativeTarget section */
+
+/* Begin PBXProject section */
+		7F3B766AEAE9711BBBA1CD97 /* Project object */ = {
+			isa = PBXProject;
+			attributes = {
+				BuildIndependentTargetsInParallel = YES;
+				LastUpgradeCheck = 1430;
+				TargetAttributes = {
+					7363BBD2F4B801537B96F23C = {
+						DevelopmentTeam = "";
+					};
+					AFA9ED8DB5C6BAA301397B40 = {
+						DevelopmentTeam = "";
+					};
+				};
+			};
+			buildConfigurationList = 59A96A8A1ED852E4EC1CC11C /* Build configuration list for PBXProject "LitematicaQL" */;
+			developmentRegion = en;
+			hasScannedForEncodings = 0;
+			knownRegions = (
+				Base,
+				en,
+			);
+			mainGroup = 87298A61D74416A655F5FF9E;
+			minimizedProjectReferenceProxies = 1;
+			preferredProjectObjectVersion = 77;
+			productRefGroup = 7836F723A024AD82CBA0D580 /* Products */;
+			projectDirPath = "";
+			projectRoot = "";
+			targets = (
+				7363BBD2F4B801537B96F23C /* LitematicaQL */,
+				AFA9ED8DB5C6BAA301397B40 /* LitematicaQLPreview */,
+			);
+		};
+/* End PBXProject section */
+
+/* Begin PBXResourcesBuildPhase section */
+		5BC37A6E0988D1333A206C17 /* Resources */ = {
+			isa = PBXResourcesBuildPhase;
+			buildActionMask = 2147483647;
+			files = (
+				BDFA34F9047C7768229725D1 /* LitematicaQL-Demo.litematic in Resources */,
+				D4DB61D9A64F80304E7B25BD /* LitematicaQL.icon in Resources */,
+				F9ABB5C2FB2A660568FEB463 /* Renderer in Resources */,
+				56E79A79AE7C05498E4232D6 /* third-party in Resources */,
+			);
+			runOnlyForDeploymentPostprocessing = 0;
+		};
+		877AF38210A434D28FC6256B /* Resources */ = {
+			isa = PBXResourcesBuildPhase;
+			buildActionMask = 2147483647;
+			files = (
+				F232B24290B91BF87A274733 /* Renderer in Resources */,
+			);
+			runOnlyForDeploymentPostprocessing = 0;
+		};
+/* End PBXResourcesBuildPhase section */
+
+/* Begin PBXSourcesBuildPhase section */
+		3FC708885A9A432030F93CB8 /* Sources */ = {
+			isa = PBXSourcesBuildPhase;
+			buildActionMask = 2147483647;
+			files = (
+				90618732273EDA23FB0CAAFD /* LitematicFile.swift in Sources */,
+				70B47465CEBA091BC564C754 /* PreviewViewController.swift in Sources */,
+				FE305FF6BBDCD4E388B35F45 /* SchematicWebViewController.swift in Sources */,
+			);
+			runOnlyForDeploymentPostprocessing = 0;
+		};
+		E2F8D72B7C91D591743C92A5 /* Sources */ = {
+			isa = PBXSourcesBuildPhase;
+			buildActionMask = 2147483647;
+			files = (
+				FC1EB75021CA17144B5149D8 /* ContentView.swift in Sources */,
+				14DEA5793F46839DF279BBB6 /* LitematicFile.swift in Sources */,
+				D5D90087572EE64C50B2311C /* LitematicaQLApp.swift in Sources */,
+				148CF4887D755F0579EAF8F8 /* LitematicaType.swift in Sources */,
+				28AECF0A29A72768BD93CD6F /* SchematicWebView.swift in Sources */,
+				8DDB3175C751D9EF40842D1C /* SchematicWebViewController.swift in Sources */,
+			);
+			runOnlyForDeploymentPostprocessing = 0;
+		};
+/* End PBXSourcesBuildPhase section */
+
+/* Begin PBXTargetDependency section */
+		6A07FE0FC1D085C8DCAF1CC2 /* PBXTargetDependency */ = {
+			isa = PBXTargetDependency;
+			target = AFA9ED8DB5C6BAA301397B40 /* LitematicaQLPreview */;
+			targetProxy = AE79F0355FA3C360105C4569 /* PBXContainerItemProxy */;
+		};
+/* End PBXTargetDependency section */
+
+/* Begin XCBuildConfiguration section */
+		00253EEC1E117496DF0D6A95 /* Release */ = {
+			isa = XCBuildConfiguration;
+			buildSettings = {
+				APPLICATION_EXTENSION_API_ONLY = YES;
+				CODE_SIGN_ENTITLEMENTS = PreviewExtension/LitematicaQLPreview.entitlements;
+				COMBINE_HIDPI_IMAGES = YES;
+				INFOPLIST_FILE = PreviewExtension/Info.plist;
+				LD_RUNPATH_SEARCH_PATHS = (
+					"$(inherited)",
+					"@executable_path/../Frameworks",
+					"@executable_path/../../../../Frameworks",
+				);
+				PRODUCT_BUNDLE_IDENTIFIER = dev.arcadi4.LitematicaQL.PreviewExtension;
+				PRODUCT_NAME = LitematicaQLPreview;
+				SDKROOT = macosx;
+				SKIP_INSTALL = YES;
+			};
+			name = Release;
+		};
+		0C0751B6C81FFC3996153738 /* Debug */ = {
+			isa = XCBuildConfiguration;
+			buildSettings = {
+				ASSETCATALOG_COMPILER_APPICON_NAME = LitematicaQL;
+				CODE_SIGN_ENTITLEMENTS = App/LitematicaQL.entitlements;
+				COMBINE_HIDPI_IMAGES = YES;
+				INFOPLIST_FILE = App/Info.plist;
+				LD_RUNPATH_SEARCH_PATHS = (
+					"$(inherited)",
+					"@executable_path/../Frameworks",
+				);
+				PRODUCT_BUNDLE_IDENTIFIER = dev.arcadi4.LitematicaQL;
+				PRODUCT_NAME = LitematicaQL;
+				SDKROOT = macosx;
+			};
+			name = Debug;
+		};
+		149EB7606E0B65EDDC32494A /* Release */ = {
+			isa = XCBuildConfiguration;
+			buildSettings = {
+				ASSETCATALOG_COMPILER_APPICON_NAME = LitematicaQL;
+				CODE_SIGN_ENTITLEMENTS = App/LitematicaQL.entitlements;
+				COMBINE_HIDPI_IMAGES = YES;
+				INFOPLIST_FILE = App/Info.plist;
+				LD_RUNPATH_SEARCH_PATHS = (
+					"$(inherited)",
+					"@executable_path/../Frameworks",
+				);
+				PRODUCT_BUNDLE_IDENTIFIER = dev.arcadi4.LitematicaQL;
+				PRODUCT_NAME = LitematicaQL;
+				SDKROOT = macosx;
+			};
+			name = Release;
+		};
+		C1DB2C54F9D6574FB22FA864 /* Debug */ = {
+			isa = XCBuildConfiguration;
+			buildSettings = {
+				ALWAYS_SEARCH_USER_PATHS = NO;
+				CLANG_ANALYZER_NONNULL = YES;
+				CLANG_ANALYZER_NUMBER_OBJECT_CONVERSION = YES_AGGRESSIVE;
+				CLANG_CXX_LANGUAGE_STANDARD = "gnu++14";
+				CLANG_CXX_LIBRARY = "libc++";
+				CLANG_ENABLE_MODULES = YES;
+				CLANG_ENABLE_OBJC_ARC = YES;
+				CLANG_ENABLE_OBJC_WEAK = YES;
+				CLANG_WARN_BLOCK_CAPTURE_AUTORELEASING = YES;
+				CLANG_WARN_BOOL_CONVERSION = YES;
+				CLANG_WARN_COMMA = YES;
+				CLANG_WARN_CONSTANT_CONVERSION = YES;
+				CLANG_WARN_DEPRECATED_OBJC_IMPLEMENTATIONS = YES;
+				CLANG_WARN_DIRECT_OBJC_ISA_USAGE = YES_ERROR;
+				CLANG_WARN_DOCUMENTATION_COMMENTS = YES;
+				CLANG_WARN_EMPTY_BODY = YES;
+				CLANG_WARN_ENUM_CONVERSION = YES;
+				CLANG_WARN_INFINITE_RECURSION = YES;
+				CLANG_WARN_INT_CONVERSION = YES;
+				CLANG_WARN_NON_LITERAL_NULL_CONVERSION = YES;
+				CLANG_WARN_OBJC_IMPLICIT_RETAIN_SELF = YES;
+				CLANG_WARN_OBJC_LITERAL_CONVERSION = YES;
+				CLANG_WARN_OBJC_ROOT_CLASS = YES_ERROR;
+				CLANG_WARN_QUOTED_INCLUDE_IN_FRAMEWORK_HEADER = YES;
+				CLANG_WARN_RANGE_LOOP_ANALYSIS = YES;
+				CLANG_WARN_STRICT_PROTOTYPES = YES;
+				CLANG_WARN_SUSPICIOUS_MOVE = YES;
+				CLANG_WARN_UNGUARDED_AVAILABILITY = YES_AGGRESSIVE;
+				CLANG_WARN_UNREACHABLE_CODE = YES;
+				CLANG_WARN__DUPLICATE_METHOD_MATCH = YES;
+				COPY_PHASE_STRIP = NO;
+				CURRENT_PROJECT_VERSION = 1;
+				DEBUG_INFORMATION_FORMAT = dwarf;
+				DEVELOPMENT_TEAM = "";
+				ENABLE_HARDENED_RUNTIME = YES;
+				ENABLE_STRICT_OBJC_MSGSEND = YES;
+				ENABLE_TESTABILITY = YES;
+				GCC_C_LANGUAGE_STANDARD = gnu11;
+				GCC_DYNAMIC_NO_PIC = NO;
+				GCC_NO_COMMON_BLOCKS = YES;
+				GCC_OPTIMIZATION_LEVEL = 0;
+				GCC_PREPROCESSOR_DEFINITIONS = (
+					"$(inherited)",
+					"DEBUG=1",
+				);
+				GCC_WARN_64_TO_32_BIT_CONVERSION = YES;
+				GCC_WARN_ABOUT_RETURN_TYPE = YES_ERROR;
+				GCC_WARN_UNDECLARED_SELECTOR = YES;
+				GCC_WARN_UNINITIALIZED_AUTOS = YES_AGGRESSIVE;
+				GCC_WARN_UNUSED_FUNCTION = YES;
+				GCC_WARN_UNUSED_VARIABLE = YES;
+				MACOSX_DEPLOYMENT_TARGET = 13.0;
+				MARKETING_VERSION = 0.1.0;
+				MTL_ENABLE_DEBUG_INFO = INCLUDE_SOURCE;
+				MTL_FAST_MATH = YES;
+				ONLY_ACTIVE_ARCH = YES;
+				PRODUCT_NAME = "$(TARGET_NAME)";
+				SDKROOT = macosx;
+				SWIFT_ACTIVE_COMPILATION_CONDITIONS = DEBUG;
+				SWIFT_OPTIMIZATION_LEVEL = "-Onone";
+				SWIFT_STRICT_CONCURRENCY = complete;
+				SWIFT_VERSION = 6.0;
+			};
+			name = Debug;
+		};
+		D4E737E6BA87ED29F5F37C1F /* Release */ = {
+			isa = XCBuildConfiguration;
+			buildSettings = {
+				ALWAYS_SEARCH_USER_PATHS = NO;
+				CLANG_ANALYZER_NONNULL = YES;
+				CLANG_ANALYZER_NUMBER_OBJECT_CONVERSION = YES_AGGRESSIVE;
+				CLANG_CXX_LANGUAGE_STANDARD = "gnu++14";
+				CLANG_CXX_LIBRARY = "libc++";
+				CLANG_ENABLE_MODULES = YES;
+				CLANG_ENABLE_OBJC_ARC = YES;
+				CLANG_ENABLE_OBJC_WEAK = YES;
+				CLANG_WARN_BLOCK_CAPTURE_AUTORELEASING = YES;
+				CLANG_WARN_BOOL_CONVERSION = YES;
+				CLANG_WARN_COMMA = YES;
+				CLANG_WARN_CONSTANT_CONVERSION = YES;
+				CLANG_WARN_DEPRECATED_OBJC_IMPLEMENTATIONS = YES;
+				CLANG_WARN_DIRECT_OBJC_ISA_USAGE = YES_ERROR;
+				CLANG_WARN_DOCUMENTATION_COMMENTS = YES;
+				CLANG_WARN_EMPTY_BODY = YES;
+				CLANG_WARN_ENUM_CONVERSION = YES;
+				CLANG_WARN_INFINITE_RECURSION = YES;
+				CLANG_WARN_INT_CONVERSION = YES;
+				CLANG_WARN_NON_LITERAL_NULL_CONVERSION = YES;
+				CLANG_WARN_OBJC_IMPLICIT_RETAIN_SELF = YES;
+				CLANG_WARN_OBJC_LITERAL_CONVERSION = YES;
+				CLANG_WARN_OBJC_ROOT_CLASS = YES_ERROR;
+				CLANG_WARN_QUOTED_INCLUDE_IN_FRAMEWORK_HEADER = YES;
+				CLANG_WARN_RANGE_LOOP_ANALYSIS = YES;
+				CLANG_WARN_STRICT_PROTOTYPES = YES;
+				CLANG_WARN_SUSPICIOUS_MOVE = YES;
+				CLANG_WARN_UNGUARDED_AVAILABILITY = YES_AGGRESSIVE;
+				CLANG_WARN_UNREACHABLE_CODE = YES;
+				CLANG_WARN__DUPLICATE_METHOD_MATCH = YES;
+				COPY_PHASE_STRIP = NO;
+				CURRENT_PROJECT_VERSION = 1;
+				DEBUG_INFORMATION_FORMAT = "dwarf-with-dsym";
+				DEVELOPMENT_TEAM = "";
+				ENABLE_HARDENED_RUNTIME = YES;
+				ENABLE_NS_ASSERTIONS = NO;
+				ENABLE_STRICT_OBJC_MSGSEND = YES;
+				GCC_C_LANGUAGE_STANDARD = gnu11;
+				GCC_NO_COMMON_BLOCKS = YES;
+				GCC_WARN_64_TO_32_BIT_CONVERSION = YES;
+				GCC_WARN_ABOUT_RETURN_TYPE = YES_ERROR;
+				GCC_WARN_UNDECLARED_SELECTOR = YES;
+				GCC_WARN_UNINITIALIZED_AUTOS = YES_AGGRESSIVE;
+				GCC_WARN_UNUSED_FUNCTION = YES;
+				GCC_WARN_UNUSED_VARIABLE = YES;
+				MACOSX_DEPLOYMENT_TARGET = 13.0;
+				MARKETING_VERSION = 0.1.0;
+				MTL_ENABLE_DEBUG_INFO = NO;
+				MTL_FAST_MATH = YES;
+				PRODUCT_NAME = "$(TARGET_NAME)";
+				SDKROOT = macosx;
+				SWIFT_COMPILATION_MODE = wholemodule;
+				SWIFT_OPTIMIZATION_LEVEL = "-O";
+				SWIFT_STRICT_CONCURRENCY = complete;
+				SWIFT_VERSION = 6.0;
+			};
+			name = Release;
+		};
+		F009C0D24C5ACB77EB0CF192 /* Debug */ = {
+			isa = XCBuildConfiguration;
+			buildSettings = {
+				APPLICATION_EXTENSION_API_ONLY = YES;
+				CODE_SIGN_ENTITLEMENTS = PreviewExtension/LitematicaQLPreview.entitlements;
+				COMBINE_HIDPI_IMAGES = YES;
+				INFOPLIST_FILE = PreviewExtension/Info.plist;
+				LD_RUNPATH_SEARCH_PATHS = (
+					"$(inherited)",
+					"@executable_path/../Frameworks",
+					"@executable_path/../../../../Frameworks",
+				);
+				PRODUCT_BUNDLE_IDENTIFIER = dev.arcadi4.LitematicaQL.PreviewExtension;
+				PRODUCT_NAME = LitematicaQLPreview;
+				SDKROOT = macosx;
+				SKIP_INSTALL = YES;
+			};
+			name = Debug;
+		};
+/* End XCBuildConfiguration section */
+
+/* Begin XCConfigurationList section */
+		59A96A8A1ED852E4EC1CC11C /* Build configuration list for PBXProject "LitematicaQL" */ = {
+			isa = XCConfigurationList;
+			buildConfigurations = (
+				C1DB2C54F9D6574FB22FA864 /* Debug */,
+				D4E737E6BA87ED29F5F37C1F /* Release */,
+			);
+			defaultConfigurationIsVisible = 0;
+			defaultConfigurationName = Debug;
+		};
+		AD3862D800492BB80FC224F6 /* Build configuration list for PBXNativeTarget "LitematicaQLPreview" */ = {
+			isa = XCConfigurationList;
+			buildConfigurations = (
+				F009C0D24C5ACB77EB0CF192 /* Debug */,
+				00253EEC1E117496DF0D6A95 /* Release */,
+			);
+			defaultConfigurationIsVisible = 0;
+			defaultConfigurationName = Debug;
+		};
+		C547B391AB0B4BC437DF4655 /* Build configuration list for PBXNativeTarget "LitematicaQL" */ = {
+			isa = XCConfigurationList;
+			buildConfigurations = (
+				0C0751B6C81FFC3996153738 /* Debug */,
+				149EB7606E0B65EDDC32494A /* Release */,
+			);
+			defaultConfigurationIsVisible = 0;
+			defaultConfigurationName = Debug;
+		};
+/* End XCConfigurationList section */
+	};
+	rootObject = 7F3B766AEAE9711BBBA1CD97 /* Project object */;
+}

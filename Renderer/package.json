@@ -1,0 +1,28 @@
+{
+  "name": "litematicaql-renderer",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "sync-assets": "node scripts/sync-assets.mjs",
+    "dev": "node scripts/sync-assets.mjs && vp dev",
+    "test": "vp test run",
+    "build": "node scripts/sync-assets.mjs && vp build && node scripts/verify-build.mjs",
+    "check": "vp check && vp test run && node scripts/sync-assets.mjs && vp build && node scripts/verify-build.mjs"
+  },
+  "dependencies": {
+    "pako": "2.2.0",
+    "schematic-renderer": "1.6.1"
+  },
+  "devDependencies": {
+    "@types/pako": "2.0.4",
+    "typescript": "7.0.2",
+    "vite-plugin-singlefile": "2.3.3",
+    "vite-plus": "0.2.7"
+  },
+  "overrides": {
+    "http-proxy-middleware": "4.2.0",
+    "uuid": "11.1.1"
+  },
+  "packageManager": "pnpm@11.19.0+sha512.7881f3ed590d472c4a955e2b88b2121791116066dcc88cbca3849ec9b60f1bbaa6d2ccb221fa91da4e1c65bef2bcbe379365aea7ac539c7bf86dedc3a1b22dce"
+}

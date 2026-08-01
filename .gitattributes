@@ -1,0 +1,6 @@
+*.litematic binary
+*.png binary
+*.zip binary
+
+LitematicaQL.xcodeproj/project.pbxproj linguist-generated=true
+Resources/Renderer/index.html binary linguist-generated=true
