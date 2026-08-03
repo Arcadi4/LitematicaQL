@@ -20,3 +20,19 @@
 // Quick Look can suspend requestAnimationFrame while preparing a hidden preview.
 // The incremental pipeline yields with timers and does not wait for animation frames.
 export const quickLookSafeMeshBuildingMode = "incremental" as const;
+
+// Screen-space ambient occlusion restores contact shading between adjacent
+// blocks. The tighter radius keeps the orthographic preview from looking dirty.
+export const quickLookPostProcessingOptions = {
+  enabled: true,
+  enableSSAO: true,
+  enableSMAA: true,
+  enableGamma: false,
+  ssaoPresets: {
+    isometric: {
+      aoRadius: 0.3,
+      distanceFalloff: 0.1,
+      intensity: 0.8,
+    },
+  },
+} as const;

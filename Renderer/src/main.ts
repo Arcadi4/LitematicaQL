@@ -20,7 +20,10 @@
 import { SchematicRenderer, SchematicWrapper } from "schematic-renderer";
 import { decodeBase64, formatDimensions, postNativeMessage } from "./bridge";
 import { presentRendererFrame } from "./render-presentation";
-import { quickLookSafeMeshBuildingMode } from "./renderer-configuration";
+import {
+  quickLookPostProcessingOptions,
+  quickLookSafeMeshBuildingMode,
+} from "./renderer-configuration";
 import { loadBundledResourcePackIntoCubane } from "./resource-pack";
 import { assertParsedSchematicWithinBudget, inspectCompressedLitematic } from "./schematic-budget";
 import "./style.css";
@@ -82,9 +85,7 @@ try {
       enableProgressBar: false,
       maxPixelRatio: 1.5,
       meshBuildingMode: quickLookSafeMeshBuildingMode,
-      postProcessingOptions: {
-        enabled: false,
-      },
+      postProcessingOptions: quickLookPostProcessingOptions,
       resourcePackOptions: {
         showMissingPackNotice: false,
       },
@@ -220,6 +221,7 @@ async function renderSchematic(request: number, name: string, encodedData: strin
 async function completeRendererInitialization(renderer: SchematicRenderer): Promise<void> {
   try {
     await loadBundledResourcePackIntoCubane(renderer.cubane);
+    renderer.setSSAOParameters(quickLookPostProcessingOptions.ssaoPresets.isometric);
   } catch (error) {
     renderer.dispose();
     failRendererInitialization(normalizeError(error));
