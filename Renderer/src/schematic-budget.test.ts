@@ -64,6 +64,14 @@ describe("compressed schematic budgets", () => {
     expect(inspection.totalVolume).toBe(2);
   });
 
+  it("accepts empty entity lists whose element type is TAG_End", () => {
+    const inspection = inspectCompressedLitematic(
+      compressedLitematic([{ position: [0, 0, 0], size: [1, 1, 1] }], { emptyEntityLists: true }),
+    );
+
+    expect(inspection.regionCount).toBe(1);
+  });
+
   it("rejects small regions whose combined position span is enormous", () => {
     const compressed = compressedLitematic([
       { position: [-2_147_483_648, 0, 0], size: [1, 1, 1] },
@@ -79,13 +87,25 @@ type RegionDefinition = {
   size: [number, number, number];
 };
 
-function compressedLitematic(regions: RegionDefinition[]): Uint8Array {
+type LitematicOptions = {
+  emptyEntityLists?: boolean;
+};
+
+function compressedLitematic(
+  regions: RegionDefinition[],
+  options: LitematicOptions = {},
+): Uint8Array {
   const bytes: number[] = [10, 0, 0];
   pushTagHeader(bytes, 10, "Regions");
   for (const [index, region] of regions.entries()) {
     pushTagHeader(bytes, 10, `region-${index}`);
     pushVector(bytes, "Position", region.position);
     pushVector(bytes, "Size", region.size);
+
+    if (options.emptyEntityLists) {
+      pushEmptyEndList(bytes, "Entities");
+      pushEmptyEndList(bytes, "TileEntities");
+    }
 
     pushTagHeader(bytes, 9, "BlockStatePalette");
     bytes.push(10);
@@ -103,6 +123,12 @@ function compressedLitematic(regions: RegionDefinition[]): Uint8Array {
   }
   bytes.push(0, 0);
   return gzip(Uint8Array.from(bytes));
+}
+
+function pushEmptyEndList(bytes: number[], name: string): void {
+  pushTagHeader(bytes, 9, name);
+  bytes.push(0);
+  pushInt(bytes, 0);
 }
 
 function pushVector(bytes: number[], name: string, values: [number, number, number]): void {

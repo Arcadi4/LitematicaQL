@@ -282,7 +282,9 @@ class LitematicNbtInspector {
   private readEntityList(name: string, depth: number): void {
     const elementType = this.readUnsignedByte();
     const length = this.readLength(name);
-    if (elementType !== tag.compound || length > maximumEntityEntries) {
+    const hasValidElementType =
+      elementType === tag.compound || (elementType === tag.end && length === 0);
+    if (!hasValidElementType || length > maximumEntityEntries) {
       throw invalidStructure(`${name} exceeds the supported preview structure.`);
     }
     for (let index = 0; index < length; index += 1) {
