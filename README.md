@@ -13,19 +13,21 @@ LitematicaQL adds a Quick Look preview extension for `.litematic` files. Select 
 
 <div align=center>
 
-https://github.com/user-attachments/assets/18cfaf53-2068-4995-adcd-4de2e11b8f07
+<https://github.com/user-attachments/assets/18cfaf53-2068-4995-adcd-4de2e11b8f07>
 
 </div>
 
-## Features
+## Install
 
-- Native macOS app with an embedded Quick Look preview extension
-- Textured Three.js/WebGL rendering via [`schematic-renderer`](https://www.npmjs.com/package/schematic-renderer)
-- Interactive orbit, zoom, and pan controls
+1. Download from the [release page](https://github.com/Arcadi4/LitematicaQL/releases)
+2. Move `LitematicaQL.app` to `/Applications`.
+3. Open the app once so macOS registers its preview extension.
+4. Select a `.litematic` file in Finder and press Space.
 
-## Requirements
+This app requires macOS 13 Ventura or later.
 
-- macOS 13 Ventura or later
+> [!NOTE]
+> If the preview doesn't show up, enable LitematicaQL under **System Settings → General → Login Items & Extensions → Quick Look**.
 
 ## Build
 
@@ -48,17 +50,6 @@ xcodebuild \
   -derivedDataPath DerivedData \
   build
 ```
-
-## Install
-
-1. Move `LitematicaQL.app` to `/Applications`.
-2. Open the app once so macOS registers its preview extension.
-3. Select a `.litematic` file in Finder and press Space.
-
-Try it with [`Fixtures/LitematicaQL-Demo.litematic`](Fixtures/LitematicaQL-Demo.litematic), or click **View Example** in the app.
-
-> [!NOTE]
-> If the preview doesn't show up, enable LitematicaQL under **System Settings → General → Login Items & Extensions → Quick Look**.
 
 ## Development
 

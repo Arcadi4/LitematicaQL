@@ -11,15 +11,23 @@
 
 LitematicaQL 为 `.litematic` 文件提供快速查看预览扩展。在访达中选中原理图，按下空格键，即可环绕、缩放、平移渲染出的方块——无需启动 Minecraft 或 Litematica。
 
-## 功能特性
+<div align=center>
 
-- 原生 macOS 应用，内嵌快速查看预览扩展
-- 基于 [`schematic-renderer`](https://www.npmjs.com/package/schematic-renderer) 的 Three.js/WebGL 带纹理渲染
-- 可交互的环绕、缩放与平移控制
+<https://github.com/user-attachments/assets/18cfaf53-2068-4995-adcd-4de2e11b8f07>
 
-## 环境要求
+</div>
 
-- macOS 13 Ventura 或更高
+## 安装
+
+1. 从[发布页面](https://github.com/Arcadi4/LitematicaQL/releases)下载
+2. 将 `LitematicaQL.app` 移动到 `/Applications`。
+3. 打开一次应用，让 macOS 注册其预览扩展。
+4. 在访达中选中 `.litematic` 文件，按下空格键。
+
+本应用需要 macOS 13 Ventura 或更高版本。
+
+> [!NOTE]
+> 如果预览没有出现，请在 **系统设置 → 通用 → 登录项与扩展 → 快速查看** 中启用 LitematicaQL。
 
 ## 构建
 
@@ -42,17 +50,6 @@ xcodebuild \
   -derivedDataPath DerivedData \
   build
 ```
-
-## 安装
-
-1. 将 `LitematicaQL.app` 移动到 `/Applications`。
-2. 打开一次应用，让 macOS 注册其预览扩展。
-3. 在访达中选中 `.litematic` 文件，按下空格键。
-
-可以使用 [`Fixtures/LitematicaQL-Demo.litematic`](Fixtures/LitematicaQL-Demo.litematic) 试用，或在应用中点击 **View Example**。
-
-> [!NOTE]
-> 如果预览没有出现，请在 **系统设置 → 通用 → 登录项与扩展 → 快速查看** 中启用 LitematicaQL。
 
 ## 开发
 
