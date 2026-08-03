@@ -1,0 +1,24 @@
+LitematicaQL's original source code is distributed under the GNU Affero
+General Public License, version 3 or later. See LICENSE.
+
+Third-party Minecraft resource pack
+------------------------------------
+
+The file `pack.zip`, including its generated copies at
+`Renderer/public/pack.zip` and `Resources/Renderer/pack.zip`, is a separate
+third-party Minecraft resource pack. Its Minecraft assets are copyrighted by
+Mojang AB and/or its licensors. They are not original LitematicaQL material,
+are not covered by the AGPL license in LICENSE, and are not offered under the
+AGPL by this project.
+
+LitematicaQL includes this resource pack solely to provide a legitimate,
+non-commercial, offline preview of Minecraft schematics. The maintainers
+believe this limited use is the kind of fan use Mojang may tacitly permit, but
+this notice is not a representation that Mojang has reviewed, endorsed, or
+licensed LitematicaQL. No ownership of or permission to redistribute Mojang's
+assets is claimed here; all rights remain with Mojang AB and its licensors.
+
+Anyone redistributing a build containing `pack.zip` is responsible for
+ensuring that their use and redistribution of those assets is permitted under
+the applicable Mojang terms. The archive may be omitted or replaced with a
+resource pack obtained with the necessary permission.
