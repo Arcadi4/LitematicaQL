@@ -167,11 +167,17 @@ struct ContentView: View {
 
 private struct AppIconMark: View {
     private var icon: NSImage? {
-        guard let iconURL = Bundle.main.url(forResource: "LitematicaQL", withExtension: "icns") else {
+        guard let iconURL = Bundle.main.url(forResource: "LitematicaQL", withExtension: "icns"),
+              let source = NSImage(contentsOf: iconURL),
+              let representation = source.representations
+                  .compactMap({ $0 as? NSBitmapImageRep })
+                  .max(by: { $0.pixelsWide < $1.pixelsWide }) else {
             return nil
         }
 
-        return NSImage(contentsOf: iconURL)
+        let resolved = NSImage(size: representation.size)
+        resolved.addRepresentation(representation)
+        return resolved
     }
 
     var body: some View {
