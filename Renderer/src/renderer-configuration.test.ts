@@ -18,11 +18,32 @@
 // See the LICENSE file for the full license text.
 
 import { describe, expect, it } from "vite-plus/test";
-import { quickLookSafeMeshBuildingMode } from "./renderer-configuration";
+import {
+  quickLookPostProcessingOptions,
+  quickLookSafeMeshBuildingMode,
+} from "./renderer-configuration";
 
 describe("quickLookSafeMeshBuildingMode", () => {
   it("avoids the animation-frame-dependent batched pipeline", () => {
     expect(quickLookSafeMeshBuildingMode).toBe("incremental");
     expect(quickLookSafeMeshBuildingMode).not.toBe("batched");
+  });
+});
+
+describe("quickLookPostProcessingOptions", () => {
+  it("enables geometry-aware shading without changing texture gamma", () => {
+    expect(quickLookPostProcessingOptions).toMatchObject({
+      enabled: true,
+      enableSSAO: true,
+      enableSMAA: true,
+      enableGamma: false,
+      ssaoPresets: {
+        isometric: {
+          aoRadius: 0.3,
+          distanceFalloff: 0.1,
+          intensity: 0.8,
+        },
+      },
+    });
   });
 });
