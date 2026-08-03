@@ -1,0 +1,132 @@
+name: Release
+
+on:
+  push:
+    tags:
+      - "v*.*.*"
+
+permissions:
+  contents: write
+
+concurrency:
+  group: release-${{ github.ref }}
+  cancel-in-progress: false
+
+jobs:
+  release:
+    name: Build and publish macOS release
+    runs-on: macos-latest
+    env:
+      APP_NAME: LitematicaQL
+      CI: true
+      CONFIGURATION: Release
+      XCODE_PROJECT: LitematicaQL.xcodeproj
+      XCODE_SCHEME: LitematicaQL
+
+    steps:
+      - name: Check out source
+        uses: actions/checkout@v7
+        with:
+          fetch-depth: 0
+          persist-credentials: false
+
+      - name: Set up pnpm
+        uses: pnpm/action-setup@v6
+        with:
+          version: 11.19.0
+
+      - name: Set up Node.js
+        uses: actions/setup-node@v7
+        with:
+          node-version: 24
+          cache: pnpm
+          cache-dependency-path: Renderer/pnpm-lock.yaml
+
+      - name: Validate release tag
+        id: release
+        shell: bash
+        run: |
+          set -euo pipefail
+
+          if [[ ! "$GITHUB_REF_NAME" =~ ^v[0-9]+\.[0-9]+\.[0-9]+([-.][0-9A-Za-z.-]+)?$ ]]; then
+            echo "Release tags must use semantic versioning, for example v0.1.0." >&2
+            exit 1
+          fi
+
+          echo "version=${GITHUB_REF_NAME#v}" >> "$GITHUB_OUTPUT"
+
+      - name: Install renderer dependencies
+        run: pnpm --dir Renderer install --frozen-lockfile
+
+      - name: Test renderer
+        run: pnpm --dir Renderer run test
+
+      - name: Build renderer
+        run: pnpm --dir Renderer run build
+
+      - name: Run native tests
+        run: swift test --parallel
+
+      - name: Install XcodeGen
+        run: brew install xcodegen
+
+      - name: Generate Xcode project
+        run: xcodegen generate
+
+      - name: Build ad-hoc signed archive
+        env:
+          VERSION: ${{ steps.release.outputs.version }}
+        shell: bash
+        run: |
+          set -euo pipefail
+
+          archive_path="$GITHUB_WORKSPACE/build/LitematicaQL.xcarchive"
+
+          xcodebuild \
+            -project "$XCODE_PROJECT" \
+            -scheme "$XCODE_SCHEME" \
+            -configuration "$CONFIGURATION" \
+            -destination "generic/platform=macOS" \
+            -archivePath "$archive_path" \
+            MARKETING_VERSION="$VERSION" \
+            CURRENT_PROJECT_VERSION="$GITHUB_RUN_NUMBER" \
+            CODE_SIGN_STYLE=Manual \
+            CODE_SIGN_IDENTITY=- \
+            CODE_SIGNING_REQUIRED=YES \
+            CODE_SIGNING_ALLOWED=YES \
+            DEVELOPMENT_TEAM= \
+            ARCHS="arm64 x86_64" \
+            ONLY_ACTIVE_ARCH=NO \
+            archive
+
+          app_path="$archive_path/Products/Applications/$APP_NAME.app"
+          test -d "$app_path"
+
+          actual_version=$(/usr/libexec/PlistBuddy -c "Print :CFBundleShortVersionString" "$app_path/Contents/Info.plist")
+          test "$actual_version" = "$VERSION"
+
+          codesign --verify --deep --strict --verbose=2 "$app_path"
+          codesign --display --verbose=4 "$app_path" 2>&1 | sed -n '1,24p'
+
+          release_dir="$GITHUB_WORKSPACE/build/release"
+          zip_path="$release_dir/$APP_NAME-$VERSION.zip"
+          mkdir -p "$release_dir"
+          ditto -c -k --keepParent "$app_path" "$zip_path"
+          (cd "$release_dir" && shasum -a 256 "$(basename "$zip_path")" > "$(basename "$zip_path").sha256")
+
+      - name: Publish GitHub release
+        env:
+          GH_TOKEN: ${{ github.token }}
+          VERSION: ${{ steps.release.outputs.version }}
+        shell: bash
+        run: |
+          set -euo pipefail
+
+          gh release create "$GITHUB_REF_NAME" \
+            "$GITHUB_WORKSPACE/build/release/$APP_NAME-$VERSION.zip" \
+            "$GITHUB_WORKSPACE/build/release/$APP_NAME-$VERSION.zip.sha256" \
+            --repo "$GITHUB_REPOSITORY" \
+            --verify-tag \
+            --title "$APP_NAME $VERSION" \
+            --generate-notes \
+            --notes $'This release contains an ad-hoc signed macOS app.\n\nBecause this build is not signed with a paid Apple Developer ID certificate or notarized, macOS may require you to approve it in System Settings > Privacy & Security after opening the app.'
