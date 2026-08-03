@@ -1,0 +1,87 @@
+name: CI
+
+on:
+  push:
+    branches:
+      - main
+  pull_request:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: ci-${{ github.workflow }}-${{ github.event.pull_request.number || github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  build-and-test:
+    name: Build and test macOS app
+    runs-on: macos-latest
+    env:
+      APP_NAME: LitematicaQL
+      CI: true
+      CONFIGURATION: Debug
+      XCODE_PROJECT: LitematicaQL.xcodeproj
+      XCODE_SCHEME: LitematicaQL
+
+    steps:
+      - name: Check out source
+        uses: actions/checkout@v7
+        with:
+          persist-credentials: false
+
+      - name: Set up pnpm
+        uses: pnpm/action-setup@v6
+        with:
+          version: 11.19.0
+
+      - name: Set up Node.js
+        uses: actions/setup-node@v7
+        with:
+          node-version: 24
+          cache: pnpm
+          cache-dependency-path: Renderer/pnpm-lock.yaml
+
+      - name: Install renderer dependencies
+        run: pnpm --dir Renderer install --frozen-lockfile
+
+      - name: Test renderer
+        run: pnpm --dir Renderer run test
+
+      - name: Build renderer
+        run: pnpm --dir Renderer run build
+
+      - name: Run native tests
+        run: swift test --parallel
+
+      - name: Install XcodeGen
+        run: brew install xcodegen
+
+      - name: Generate Xcode project
+        run: xcodegen generate
+
+      - name: Build ad-hoc signed app
+        shell: bash
+        run: |
+          set -euo pipefail
+
+          derived_data_path="$GITHUB_WORKSPACE/build/DerivedData"
+
+          xcodebuild \
+            -project "$XCODE_PROJECT" \
+            -scheme "$XCODE_SCHEME" \
+            -configuration "$CONFIGURATION" \
+            -destination "generic/platform=macOS" \
+            -derivedDataPath "$derived_data_path" \
+            CODE_SIGN_STYLE=Manual \
+            CODE_SIGN_IDENTITY=- \
+            CODE_SIGNING_REQUIRED=YES \
+            CODE_SIGNING_ALLOWED=YES \
+            DEVELOPMENT_TEAM= \
+            ARCHS="arm64 x86_64" \
+            ONLY_ACTIVE_ARCH=NO \
+            build
+
+          app_path=$(find "$derived_data_path/Build/Products/$CONFIGURATION" -maxdepth 1 -name "$APP_NAME.app" -print -quit)
+          test -n "$app_path"
+          codesign --verify --deep --strict "$app_path"
