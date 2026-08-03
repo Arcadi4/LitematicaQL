@@ -11,6 +11,12 @@
 
 LitematicaQL adds a Quick Look preview extension for `.litematic` files. Select a schematic in Finder, press Space, then orbit, zoom, and pan around the rendered blocks — no Minecraft or Litematica required.
 
+<div align=center>
+
+https://github.com/user-attachments/assets/18cfaf53-2068-4995-adcd-4de2e11b8f07
+
+</div>
+
 ## Features
 
 - Native macOS app with an embedded Quick Look preview extension
