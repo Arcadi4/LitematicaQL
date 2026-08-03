@@ -1,8 +1,10 @@
+<div align=center>
+<img src=icon.png alt=icon width=200px/>
 <h1 align="center">LitematicaQL</h1>
-
-<p align="center">
+<h4>
   Quick Look preview for Litematica schematics on macOS.
-</p>
+</h4>
+</div>
 
 LitematicaQL adds a Quick Look preview extension for `.litematic` files. Select a schematic in Finder, press Space, then orbit, zoom, and pan around the rendered blocks without opening Minecraft or Litematica.
 
