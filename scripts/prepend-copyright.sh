@@ -199,12 +199,9 @@ done < <(
       -name '*.ts' -o \
       -name '*.mjs' -o \
       -name '*.css' -o \
-      -name '*.html' -o \
       -name '*.sh' -o \
       -name '*.plist' -o \
       -name '*.entitlements' -o \
-      -name '*.yml' -o \
-      -name '*.yaml' \
     \) \
     ! -path './.git/*' \
     ! -path './.build/*' \
