@@ -16,7 +16,7 @@ concurrency:
 jobs:
   build-and-test:
     name: Build and test macOS app
-    runs-on: macos-latest
+    runs-on: xcode-27
     env:
       APP_NAME: LitematicaQL
       CI: true
