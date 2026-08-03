@@ -1,33 +1,31 @@
-<div align=center>
-<img src=icon.png alt=icon width=200px/>
-<h1 align="center">LitematicaQL</h1>
-<h4>
-  Quick Look preview for Litematica schematics on macOS.
-</h4>
+<div align="center">
+  <img src="icon.png" alt="LitematicaQL icon" width="200"/>
+  <h1>LitematicaQL</h1>
+  <p><strong>Quick Look preview for Litematica schematics on macOS</strong></p>
+  <!-- README-I18N:START -->
+
+  **English** | [中文](./README.zh.md)
+
+  <!-- README-I18N:END -->
 </div>
 
-LitematicaQL adds a Quick Look preview extension for `.litematic` files. Select a schematic in Finder, press Space, then orbit, zoom, and pan around the rendered blocks without opening Minecraft or Litematica.
+LitematicaQL adds a Quick Look preview extension for `.litematic` files. Select a schematic in Finder, press Space, then orbit, zoom, and pan around the rendered blocks — no Minecraft or Litematica required.
 
 ## Features
 
 - Native macOS app with an embedded Quick Look preview extension
-- Textured Three.js/WebGL rendering through [`schematic-renderer`](https://www.npmjs.com/package/schematic-renderer)
+- Textured Three.js/WebGL rendering via [`schematic-renderer`](https://www.npmjs.com/package/schematic-renderer)
 - Interactive orbit, zoom, and pan controls
 
 ## Requirements
 
-- macOS 13 Ventura or newer
-- Xcode 26 or newer
-- Node.js and pnpm
-- [XcodeGen](https://github.com/yonaskolb/XcodeGen) 2.46 or newer
-
-Install the supporting command-line tools with Homebrew:
-
-```sh
-brew install xcodegen
-```
+- macOS 13 Ventura or later
 
 ## Build
+
+- Xcode 26 or later
+- Node.js and pnpm
+- [XcodeGen](https://github.com/yonaskolb/XcodeGen)
 
 ```sh
 git clone https://github.com/Arcadi4/LitematicaQL.git
@@ -45,15 +43,16 @@ xcodebuild \
   build
 ```
 
-## Install and test
+## Install
 
 1. Move `LitematicaQL.app` to `/Applications`.
 2. Open the app once so macOS registers its preview extension.
 3. Select a `.litematic` file in Finder and press Space.
 
-You can test with [`Fixtures/LitematicaQL-Demo.litematic`](Fixtures/LitematicaQL-Demo.litematic), or click **View Example** in the app.
+Try it with [`Fixtures/LitematicaQL-Demo.litematic`](Fixtures/LitematicaQL-Demo.litematic), or click **View Example** in the app.
 
-If the extension was disabled manually, enable LitematicaQL under **System Settings → General → Login Items & Extensions → Quick Look**.
+> [!NOTE]
+> If the preview doesn't show up, enable LitematicaQL under **System Settings → General → Login Items & Extensions → Quick Look**.
 
 ## Development
 
@@ -69,7 +68,7 @@ Run the native file-validation tests:
 swift test
 ```
 
-## Layout
+## Project structure
 
 | Path | Purpose |
 | --- | --- |
@@ -78,5 +77,5 @@ swift test
 | `Shared/` | File validation and shared WKWebView controller |
 | `Renderer/` | Vite+/TypeScript renderer source and tests |
 | `Resources/Renderer/` | Generated self-contained renderer bundle |
-| `Fixtures/` | Testable `.litematic` fixture |
+| `Fixtures/` | Sample `.litematic` fixture |
 | `Tests/` | Swift package tests |
