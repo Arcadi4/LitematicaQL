@@ -61,15 +61,17 @@ fastlane/Preview.html
 fastlane/screenshots/**/*.png
 fastlane/test_output
 
+# pnpm
+.pnpm-store
 
-
+# misc
 .DS_Store
 .build/
 DerivedData/
 build/
 *.xcuserstate
-xcuserdata/
 
+# renderer
 Renderer/node_modules/
 Renderer/public/pack.zip
 Renderer/coverage/
