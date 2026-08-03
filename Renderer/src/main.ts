@@ -24,6 +24,7 @@ import {
   configureQuickLookLighting,
   quickLookPostProcessingOptions,
   quickLookSafeMeshBuildingMode,
+  withQuickLookTimerBackedAnimationFrames,
 } from "./renderer-configuration";
 import { loadBundledResourcePackIntoCubane } from "./resource-pack";
 import { assertParsedSchematicWithinBudget, inspectCompressedLitematic } from "./schematic-budget";
@@ -168,31 +169,43 @@ async function renderSchematic(request: number, name: string, encodedData: strin
       return;
     }
 
-    await manager.removeAllSchematics();
-    if (request !== latestLoadRequest) {
-      return;
+    const schematicToLoad = parsedSchematic;
+    if (!schematicToLoad) {
+      throw new Error("The schematic parser did not produce a schematic.");
     }
 
-    await manager.loadSchematic(name, parsedSchematic, undefined, {
-      onProgress: ({ message }) => {
-        if (request === latestLoadRequest) {
-          setStatus("Building preview", message);
-        }
-      },
+    const shouldPresent = await withQuickLookTimerBackedAnimationFrames(async () => {
+      await manager.removeAllSchematics();
+      if (request !== latestLoadRequest) {
+        return false;
+      }
+
+      await manager.loadSchematic(name, schematicToLoad, undefined, {
+        onProgress: ({ message }) => {
+          if (request === latestLoadRequest) {
+            setStatus("Building preview", message);
+          }
+        },
+      });
+      schematicTransferred = true;
+
+      if (request !== latestLoadRequest) {
+        return false;
+      }
+
+      const schematic = manager.getSchematic(name);
+      if (!schematic) {
+        throw new Error("The schematic renderer did not retain the loaded schematic.");
+      }
+
+      if (request === latestLoadRequest) {
+        setStatus("Building preview", "Preparing block geometry…");
+      }
+      await schematic.getMeshes();
+      return true;
     });
-    schematicTransferred = true;
 
-    const schematic = manager.getSchematic(name);
-    if (!schematic) {
-      throw new Error("The schematic renderer did not retain the loaded schematic.");
-    }
-
-    if (request === latestLoadRequest) {
-      setStatus("Building preview", "Preparing block geometry…");
-    }
-    await schematic.getMeshes();
-
-    if (request !== latestLoadRequest) {
+    if (!shouldPresent || request !== latestLoadRequest) {
       return;
     }
 

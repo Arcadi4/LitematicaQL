@@ -22,11 +22,12 @@ import {
   configureQuickLookLighting,
   quickLookPostProcessingOptions,
   quickLookSafeMeshBuildingMode,
+  withQuickLookTimerBackedAnimationFrames,
 } from "./renderer-configuration";
 
 describe("quickLookSafeMeshBuildingMode", () => {
-  it("uses animation-frame-independent instanced mesh building", () => {
-    expect(quickLookSafeMeshBuildingMode).toBe("instanced");
+  it("uses the state-preserving batched mesh pipeline", () => {
+    expect(quickLookSafeMeshBuildingMode).toBe("batched");
   });
 });
 
@@ -38,6 +39,51 @@ describe("quickLookPostProcessingOptions", () => {
       enableSMAA: false,
       enableGamma: false,
     });
+  });
+});
+
+describe("withQuickLookTimerBackedAnimationFrames", () => {
+  it("uses timer callbacks during the operation and restores the host", async () => {
+    let nextHandle = 0;
+    const pendingTimers = new Map<number, ReturnType<typeof setTimeout>>();
+    const originalRequestAnimationFrame = (_callback: FrameRequestCallback) => 1;
+    const originalCancelAnimationFrame = (_handle: number) => undefined;
+    const host = {
+      requestAnimationFrame: originalRequestAnimationFrame,
+      cancelAnimationFrame: originalCancelAnimationFrame,
+      setTimeout(callback: () => void, delay: number) {
+        const handle = ++nextHandle;
+        pendingTimers.set(
+          handle,
+          setTimeout(() => {
+            pendingTimers.delete(handle);
+            callback();
+          }, delay),
+        );
+        return handle;
+      },
+      clearTimeout(handle: number) {
+        const timer = pendingTimers.get(handle);
+        if (timer) {
+          clearTimeout(timer);
+        }
+        pendingTimers.delete(handle);
+      },
+    };
+    let timestamp: number | undefined;
+
+    await withQuickLookTimerBackedAnimationFrames(async () => {
+      await new Promise<void>((resolve) => {
+        host.requestAnimationFrame((nextTimestamp) => {
+          timestamp = nextTimestamp;
+          resolve();
+        });
+      });
+    }, host);
+
+    expect(timestamp).toEqual(expect.any(Number));
+    expect(host.requestAnimationFrame).toBe(originalRequestAnimationFrame);
+    expect(host.cancelAnimationFrame).toBe(originalCancelAnimationFrame);
   });
 });
 

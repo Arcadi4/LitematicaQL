@@ -17,9 +17,56 @@
 //
 // See the LICENSE file for the full license text.
 
-// Quick Look can suspend requestAnimationFrame while preparing a hidden preview.
-// The instanced pipeline does not depend on animation frames during mesh construction.
-export const quickLookSafeMeshBuildingMode = "instanced" as const;
+// The batched pipeline preserves each block's palette index while yielding with
+// timers, so hidden Quick Look previews do not depend on animation frames.
+export const quickLookSafeMeshBuildingMode = "batched" as const;
+
+// schematic-renderer@1.6.1 hard-codes requestAnimationFrame as the yield
+// mechanism in its batched mesh builder. Quick Look may suspend that callback
+// while the preview is hidden, so scope a timer-backed scheduler to mesh loading.
+interface QuickLookAnimationFrameHost {
+  requestAnimationFrame: (callback: FrameRequestCallback) => number;
+  cancelAnimationFrame: (handle: number) => void;
+  setTimeout: (callback: () => void, delay: number) => number;
+  clearTimeout: (handle: number) => void;
+}
+
+export async function withQuickLookTimerBackedAnimationFrames<T>(
+  operation: () => Promise<T>,
+  host: QuickLookAnimationFrameHost = window,
+): Promise<T> {
+  const originalRequestAnimationFrame = host.requestAnimationFrame;
+  const originalCancelAnimationFrame = host.cancelAnimationFrame;
+  const pendingTimerHandles = new Set<number>();
+
+  host.requestAnimationFrame = (callback) => {
+    let handle = 0;
+    handle = host.setTimeout(() => {
+      pendingTimerHandles.delete(handle);
+      callback(performance.now());
+    }, 0);
+    pendingTimerHandles.add(handle);
+    return handle;
+  };
+  host.cancelAnimationFrame = (handle) => {
+    if (!pendingTimerHandles.delete(handle)) {
+      originalCancelAnimationFrame.call(host, handle);
+      return;
+    }
+
+    host.clearTimeout(handle);
+  };
+
+  try {
+    return await operation();
+  } finally {
+    for (const handle of pendingTimerHandles) {
+      host.clearTimeout(handle);
+    }
+    host.requestAnimationFrame = originalRequestAnimationFrame;
+    host.cancelAnimationFrame = originalCancelAnimationFrame;
+  }
+}
 
 // Quick Look hosts this renderer in WKWebView. schematic-renderer's
 // EffectComposer path does not present scene color there, so keep the direct
