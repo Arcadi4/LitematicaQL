@@ -25,9 +25,8 @@ import {
 } from "./renderer-configuration";
 
 describe("quickLookSafeMeshBuildingMode", () => {
-  it("avoids the animation-frame-dependent batched pipeline", () => {
-    expect(quickLookSafeMeshBuildingMode).toBe("incremental");
-    expect(quickLookSafeMeshBuildingMode).not.toBe("batched");
+  it("uses animation-frame-independent instanced mesh building", () => {
+    expect(quickLookSafeMeshBuildingMode).toBe("instanced");
   });
 });
 

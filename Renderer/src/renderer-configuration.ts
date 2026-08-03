@@ -18,8 +18,8 @@
 // See the LICENSE file for the full license text.
 
 // Quick Look can suspend requestAnimationFrame while preparing a hidden preview.
-// The incremental pipeline yields with timers and does not wait for animation frames.
-export const quickLookSafeMeshBuildingMode = "incremental" as const;
+// The instanced pipeline does not depend on animation frames during mesh construction.
+export const quickLookSafeMeshBuildingMode = "instanced" as const;
 
 // Quick Look hosts this renderer in WKWebView. schematic-renderer's
 // EffectComposer path does not present scene color there, so keep the direct
