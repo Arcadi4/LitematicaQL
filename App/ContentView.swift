@@ -17,6 +17,7 @@
 //
 // See the LICENSE file for the full license text.
 
+import AppKit
 import SwiftUI
 import UniformTypeIdentifiers
 
@@ -74,8 +75,7 @@ struct ContentView: View {
 
     private var welcome: some View {
         VStack(spacing: 28) {
-            BlueprintMark()
-                .frame(width: 112, height: 112)
+            AppIconMark()
 
             VStack(spacing: 9) {
                 Text("LitematicaQL")
@@ -165,24 +165,25 @@ struct ContentView: View {
     }
 }
 
-private struct BlueprintMark: View {
-    var body: some View {
-        ZStack {
-            RoundedRectangle(cornerRadius: 28, style: .continuous)
-                .fill(
-                    LinearGradient(
-                        colors: [Color(red: 0.08, green: 0.17, blue: 0.20),
-                                 Color(red: 0.10, green: 0.29, blue: 0.23)],
-                        startPoint: .topLeading,
-                        endPoint: .bottomTrailing
-                    )
-                )
-                .shadow(color: .black.opacity(0.22), radius: 22, y: 10)
-
-            Image(systemName: "cube.transparent")
-                .font(.system(size: 54, weight: .medium))
-                .foregroundStyle(Color(red: 0.55, green: 0.90, blue: 0.70))
+private struct AppIconMark: View {
+    private var icon: NSImage? {
+        guard let iconURL = Bundle.main.url(forResource: "LitematicaQL", withExtension: "icns") else {
+            return nil
         }
-        .accessibilityHidden(true)
+
+        return NSImage(contentsOf: iconURL)
+    }
+
+    var body: some View {
+        Group {
+            if let icon {
+                Image(nsImage: icon)
+                    .resizable()
+                    .scaledToFit()
+                    .shadow(color: .black.opacity(0.22), radius: 18, y: 8)
+            }
+        }
+        .frame(width: 112, height: 112)
+        .accessibilityLabel("LitematicaQL")
     }
 }
