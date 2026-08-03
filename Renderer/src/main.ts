@@ -19,6 +19,7 @@
 
 import { SchematicRenderer, SchematicWrapper } from "schematic-renderer";
 import { decodeBase64, formatDimensions, postNativeMessage } from "./bridge";
+import { presentRendererFrame } from "./render-presentation";
 import { loadBundledResourcePack } from "./resource-pack";
 import { assertParsedSchematicWithinBudget, inspectCompressedLitematic } from "./schematic-budget";
 import "./style.css";
@@ -197,6 +198,11 @@ async function renderSchematic(request: number, name: string, encodedData: strin
       padding: 1.18,
       useTightBounds: true,
     });
+
+    await presentRendererFrame(renderer);
+    if (request !== latestLoadRequest) {
+      return;
+    }
 
     const dimensions = formatDimensions(renderer.getSchematicDimensions(name));
     showPreviewMetadata(name, dimensions);
