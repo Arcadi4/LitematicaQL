@@ -68,6 +68,13 @@ pnpm --prefix Renderer run check
 swift test
 ```
 
+清理 LitematicaQL 的旧 Quick Look 注册记录，同时保留已安装的
+`/Applications` 版本：
+
+```sh
+./scripts/clean-quick-look-registrations.sh
+```
+
 ## 项目结构
 
 | 路径 | 用途 |

@@ -68,6 +68,13 @@ Run the native file-validation tests:
 swift test
 ```
 
+Clean stale LitematicaQL Quick Look registrations while keeping the installed
+`/Applications` copy with:
+
+```sh
+./scripts/clean-quick-look-registrations.sh
+```
+
 ## Project structure
 
 | Path | Purpose |

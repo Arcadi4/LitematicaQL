@@ -322,7 +322,7 @@
 					"@executable_path/../Frameworks",
 					"@executable_path/../../../../Frameworks",
 				);
-				PRODUCT_BUNDLE_IDENTIFIER = dev.arcadi4.LitematicaQL.PreviewExtension;
+				PRODUCT_BUNDLE_IDENTIFIER = moe.arcadia.LitematicaQL.PreviewExtension;
 				PRODUCT_NAME = LitematicaQLPreview;
 				SDKROOT = macosx;
 				SKIP_INSTALL = YES;
@@ -340,7 +340,7 @@
 					"$(inherited)",
 					"@executable_path/../Frameworks",
 				);
-				PRODUCT_BUNDLE_IDENTIFIER = dev.arcadi4.LitematicaQL;
+				PRODUCT_BUNDLE_IDENTIFIER = moe.arcadia.LitematicaQL;
 				PRODUCT_NAME = LitematicaQL;
 				SDKROOT = macosx;
 			};
@@ -357,7 +357,7 @@
 					"$(inherited)",
 					"@executable_path/../Frameworks",
 				);
-				PRODUCT_BUNDLE_IDENTIFIER = dev.arcadi4.LitematicaQL;
+				PRODUCT_BUNDLE_IDENTIFIER = moe.arcadia.LitematicaQL;
 				PRODUCT_NAME = LitematicaQL;
 				SDKROOT = macosx;
 			};
@@ -504,7 +504,7 @@
 					"@executable_path/../Frameworks",
 					"@executable_path/../../../../Frameworks",
 				);
-				PRODUCT_BUNDLE_IDENTIFIER = dev.arcadi4.LitematicaQL.PreviewExtension;
+				PRODUCT_BUNDLE_IDENTIFIER = moe.arcadia.LitematicaQL.PreviewExtension;
 				PRODUCT_NAME = LitematicaQLPreview;
 				SDKROOT = macosx;
 				SKIP_INSTALL = YES;
