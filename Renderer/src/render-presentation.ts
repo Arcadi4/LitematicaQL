@@ -9,23 +9,11 @@ interface RenderPresentationTarget {
   };
 }
 
-type RequestFrame = (callback: FrameRequestCallback) => number;
-
-export function presentRendererFrame(
-  renderer: RenderPresentationTarget,
-  requestFrame: RequestFrame = (callback) => window.requestAnimationFrame(callback),
-): Promise<void> {
+export function presentRendererFrame(renderer: RenderPresentationTarget): void {
   if (!renderer.renderManager) {
     throw new Error("The schematic renderer did not finish initializing its render manager.");
   }
 
   renderer.invalidate();
   renderer.renderManager.render();
-
-  return new Promise((resolve) => {
-    // The second callback runs after the browser has had a chance to composite the rendered canvas.
-    requestFrame(() => {
-      requestFrame(() => resolve());
-    });
-  });
 }

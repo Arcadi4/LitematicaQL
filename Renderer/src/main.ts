@@ -199,7 +199,7 @@ async function renderSchematic(request: number, name: string, encodedData: strin
       useTightBounds: true,
     });
 
-    await presentRendererFrame(renderer);
+    presentRendererFrame(renderer);
     if (request !== latestLoadRequest) {
       return;
     }
