@@ -18,7 +18,7 @@
 // See the LICENSE file for the full license text.
 
 import { describe, expect, it, vi } from "vite-plus/test";
-import { loadBundledResourcePack } from "./resource-pack";
+import { loadBundledResourcePack, loadBundledResourcePackIntoCubane } from "./resource-pack";
 
 describe("loadBundledResourcePack", () => {
   it("turns the native base64 reply into a ZIP blob", async () => {
@@ -47,5 +47,23 @@ describe("loadBundledResourcePack", () => {
     await expect(loadBundledResourcePack(handler)).rejects.toThrow(
       "bundled block resources could not be read",
     );
+  });
+});
+
+describe("loadBundledResourcePackIntoCubane", () => {
+  it("loads the bundled ZIP directly into the in-memory asset loader", async () => {
+    const pack = new Blob([new Uint8Array([80, 75, 3, 4])], { type: "application/zip" });
+    const loadResourcePack = vi.fn().mockResolvedValue(undefined);
+    const buildTextureAtlas = vi.fn().mockResolvedValue(undefined);
+    const cubane = {
+      buildTextureAtlas,
+      getAssetLoader: () => ({ loadResourcePack }),
+    };
+
+    await loadBundledResourcePackIntoCubane(cubane, async () => pack);
+
+    expect(loadResourcePack).toHaveBeenCalledOnce();
+    expect(loadResourcePack).toHaveBeenCalledWith(pack);
+    expect(buildTextureAtlas).toHaveBeenCalledOnce();
   });
 });

@@ -20,7 +20,8 @@
 import { SchematicRenderer, SchematicWrapper } from "schematic-renderer";
 import { decodeBase64, formatDimensions, postNativeMessage } from "./bridge";
 import { presentRendererFrame } from "./render-presentation";
-import { loadBundledResourcePack } from "./resource-pack";
+import { quickLookSafeMeshBuildingMode } from "./renderer-configuration";
+import { loadBundledResourcePackIntoCubane } from "./resource-pack";
 import { assertParsedSchematicWithinBudget, inspectCompressedLitematic } from "./schematic-budget";
 import "./style.css";
 
@@ -61,7 +62,7 @@ try {
   new SchematicRenderer(
     canvas,
     {},
-    { vanilla: loadBundledResourcePack },
+    {},
     {
       backgroundColor: 0x0b1016,
       cameraOptions: {
@@ -80,7 +81,7 @@ try {
       enableInteraction: true,
       enableProgressBar: false,
       maxPixelRatio: 1.5,
-      meshBuildingMode: "batched",
+      meshBuildingMode: quickLookSafeMeshBuildingMode,
       postProcessingOptions: {
         enabled: false,
       },
@@ -106,11 +107,7 @@ try {
             return;
           }
 
-          rendererInitializationSettled = true;
-          window.clearTimeout(rendererInitializationTimeout);
-          resolveRenderer(renderer);
-          setStatus("Ready", "Waiting for a .litematic file…");
-          postNativeMessage({ type: "ready" });
+          void completeRendererInitialization(renderer);
         },
       },
     },
@@ -218,6 +215,27 @@ async function renderSchematic(request: number, name: string, encodedData: strin
       parsedSchematic.free();
     }
   }
+}
+
+async function completeRendererInitialization(renderer: SchematicRenderer): Promise<void> {
+  try {
+    await loadBundledResourcePackIntoCubane(renderer.cubane);
+  } catch (error) {
+    renderer.dispose();
+    failRendererInitialization(normalizeError(error));
+    return;
+  }
+
+  if (rendererInitializationSettled) {
+    renderer.dispose();
+    return;
+  }
+
+  rendererInitializationSettled = true;
+  window.clearTimeout(rendererInitializationTimeout);
+  resolveRenderer(renderer);
+  setStatus("Ready", "Waiting for a .litematic file…");
+  postNativeMessage({ type: "ready" });
 }
 
 function failRendererInitialization(error: Error): void {

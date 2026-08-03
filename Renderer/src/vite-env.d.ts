@@ -18,3 +18,4 @@
 //
 // See the LICENSE file for the full license text.
 
+declare module "*.css";

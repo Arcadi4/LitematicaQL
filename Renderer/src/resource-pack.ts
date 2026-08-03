@@ -41,3 +41,19 @@ export async function loadBundledResourcePack(
 
   return new Blob([decodeBase64(encodedData)], { type: "application/zip" });
 }
+
+interface InMemoryResourcePackTarget {
+  buildTextureAtlas(): Promise<unknown>;
+  getAssetLoader(): {
+    loadResourcePack(pack: Blob): Promise<void>;
+  };
+}
+
+export async function loadBundledResourcePackIntoCubane(
+  cubane: InMemoryResourcePackTarget,
+  loadPack: () => Promise<Blob> = loadBundledResourcePack,
+): Promise<void> {
+  const pack = await loadPack();
+  await cubane.getAssetLoader().loadResourcePack(pack);
+  await cubane.buildTextureAtlas();
+}
