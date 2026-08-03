@@ -11,7 +11,7 @@
     "check": "vp check && vp test run && node scripts/sync-assets.mjs && vp build && node scripts/verify-build.mjs"
   },
   "dependencies": {
-    "pako": "2.2.0",
+    "pako": "3.0.1",
     "schematic-renderer": "1.6.1"
   },
   "devDependencies": {
