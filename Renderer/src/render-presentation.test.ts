@@ -6,36 +6,27 @@ import { describe, expect, it } from "vite-plus/test";
 import { presentRendererFrame } from "./render-presentation";
 
 describe("presentRendererFrame", () => {
-  it("renders immediately and waits until that frame can be presented", async () => {
-    const calls: string[] = [];
-    const pendingFrames: FrameRequestCallback[] = [];
-    let settled = false;
+  it("does not depend on animation-frame scheduling", () => {
+    const renderer = {
+      invalidate: () => undefined,
+      renderManager: {
+        render: () => undefined,
+      },
+    };
 
-    const presentation = presentRendererFrame(
-      {
-        invalidate: () => calls.push("invalidate"),
-        renderManager: {
-          render: () => calls.push("render"),
-        },
+    expect(presentRendererFrame(renderer)).toBeUndefined();
+  });
+
+  it("renders the completed scene immediately", () => {
+    const calls: string[] = [];
+
+    presentRendererFrame({
+      invalidate: () => calls.push("invalidate"),
+      renderManager: {
+        render: () => calls.push("render"),
       },
-      (callback) => {
-        pendingFrames.push(callback);
-        return pendingFrames.length;
-      },
-    ).then(() => {
-      settled = true;
     });
 
     expect(calls).toEqual(["invalidate", "render"]);
-    expect(pendingFrames).toHaveLength(1);
-
-    pendingFrames.shift()?.(0);
-    await Promise.resolve();
-    expect(settled).toBe(false);
-    expect(pendingFrames).toHaveLength(1);
-
-    pendingFrames.shift()?.(16);
-    await presentation;
-    expect(settled).toBe(true);
   });
 });
