@@ -201,7 +201,7 @@ done < <(
       -name '*.css' -o \
       -name '*.sh' -o \
       -name '*.plist' -o \
-      -name '*.entitlements' -o \
+      -name '*.entitlements' \
     \) \
     ! -path './.git/*' \
     ! -path './.build/*' \
