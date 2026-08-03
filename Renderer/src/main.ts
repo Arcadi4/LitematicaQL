@@ -43,6 +43,8 @@ const statusDetail = requiredElement<HTMLElement>("status-detail");
 const fileInfo = requiredElement<HTMLElement>("file-info");
 const fileName = requiredElement<HTMLElement>("file-name");
 const fileDimensions = requiredElement<HTMLElement>("file-dimensions");
+const fileBlockCount = requiredElement<HTMLElement>("file-block-count");
+const fileBlockEntities = requiredElement<HTMLElement>("file-block-entities");
 const controlsHint = requiredElement<HTMLElement>("controls-hint");
 const rendererInitializationTimeoutMilliseconds = 20_000;
 
@@ -154,8 +156,10 @@ async function renderSchematic(request: number, name: string, encodedData: strin
     inspectCompressedLitematic(new Uint8Array(data));
     parsedSchematic = new SchematicWrapper();
     parsedSchematic.from_litematic(new Uint8Array(data));
+    const blockCount = parsedSchematic.get_block_count();
+    const blockEntityCount = parsedSchematic.get_all_block_entities().length;
     assertParsedSchematicWithinBudget({
-      blockCount: parsedSchematic.get_block_count(),
+      blockCount,
       dimensions: parsedSchematic.get_dimensions(),
       volume: parsedSchematic.get_volume(),
     });
@@ -203,7 +207,7 @@ async function renderSchematic(request: number, name: string, encodedData: strin
     }
 
     const dimensions = formatDimensions(renderer.getSchematicDimensions(name));
-    showPreviewMetadata(name, dimensions);
+    showPreviewMetadata(name, dimensions, blockCount, blockEntityCount);
     postNativeMessage({ type: "loaded", detail: name });
   } catch (error) {
     const normalized = normalizeError(error);
@@ -251,11 +255,18 @@ function failRendererInitialization(error: Error): void {
   showFatalError(error.message);
 }
 
-function showPreviewMetadata(name: string, dimensions: [number, number, number] | undefined): void {
+function showPreviewMetadata(
+  name: string,
+  dimensions: [number, number, number] | undefined,
+  blockCount: number,
+  blockEntityCount: number,
+): void {
   fileName.textContent = name;
   fileDimensions.textContent = dimensions
-    ? `${dimensions[0]} × ${dimensions[1]} × ${dimensions[2]} blocks`
+    ? `${dimensions[0]} × ${dimensions[1]} × ${dimensions[2]}`
     : "Litematica schematic";
+  fileBlockCount.textContent = `${blockCount.toLocaleString()} blocks`;
+  fileBlockEntities.textContent = `${blockEntityCount.toLocaleString()} block entities`;
   fileInfo.hidden = false;
   controlsHint.hidden = false;
   status.hidden = true;
