@@ -19,6 +19,7 @@
 
 import { describe, expect, it } from "vite-plus/test";
 import {
+  configureQuickLookLighting,
   quickLookPostProcessingOptions,
   quickLookSafeMeshBuildingMode,
 } from "./renderer-configuration";
@@ -31,19 +32,33 @@ describe("quickLookSafeMeshBuildingMode", () => {
 });
 
 describe("quickLookPostProcessingOptions", () => {
-  it("enables geometry-aware shading without changing texture gamma", () => {
-    expect(quickLookPostProcessingOptions).toMatchObject({
-      enabled: true,
-      enableSSAO: true,
-      enableSMAA: true,
+  it("keeps WKWebView on the direct WebGL presentation path", () => {
+    expect(quickLookPostProcessingOptions).toEqual({
+      enabled: false,
+      enableSSAO: false,
+      enableSMAA: false,
       enableGamma: false,
-      ssaoPresets: {
-        isometric: {
-          aoRadius: 0.3,
-          distanceFalloff: 0.1,
-          intensity: 0.8,
+    });
+  });
+});
+
+describe("configureQuickLookLighting", () => {
+  it("adds face contrast without removing the ambient readability floor", () => {
+    const intensities = new Map([
+      ["ambientLight", 2.2],
+      ["directionalLight", 1],
+    ]);
+
+    configureQuickLookLighting({
+      sceneManager: {
+        updateLight(name, { intensity }) {
+          intensities.set(name, intensity);
         },
       },
     });
+
+    expect(intensities.get("ambientLight")).toBeGreaterThanOrEqual(1.5);
+    expect(intensities.get("ambientLight")).toBeLessThan(2.2);
+    expect(intensities.get("directionalLight")).toBeGreaterThan(1);
   });
 });

@@ -21,18 +21,29 @@
 // The incremental pipeline yields with timers and does not wait for animation frames.
 export const quickLookSafeMeshBuildingMode = "incremental" as const;
 
-// Screen-space ambient occlusion restores contact shading between adjacent
-// blocks. The tighter radius keeps the orthographic preview from looking dirty.
+// Quick Look hosts this renderer in WKWebView. schematic-renderer's
+// EffectComposer path does not present scene color there, so keep the direct
+// WebGL path and create readable face shading with the renderer's scene lights.
 export const quickLookPostProcessingOptions = {
-  enabled: true,
-  enableSSAO: true,
-  enableSMAA: true,
+  enabled: false,
+  enableSSAO: false,
+  enableSMAA: false,
   enableGamma: false,
-  ssaoPresets: {
-    isometric: {
-      aoRadius: 0.3,
-      distanceFalloff: 0.1,
-      intensity: 0.8,
-    },
-  },
 } as const;
+
+interface QuickLookLightingTarget {
+  sceneManager: {
+    updateLight(name: string, properties: { intensity: number }): void;
+  };
+}
+
+const quickLookLightIntensity = {
+  ambientLight: 1.5,
+  directionalLight: 1.4,
+} as const;
+
+export function configureQuickLookLighting(renderer: QuickLookLightingTarget): void {
+  for (const [name, intensity] of Object.entries(quickLookLightIntensity)) {
+    renderer.sceneManager.updateLight(name, { intensity });
+  }
+}

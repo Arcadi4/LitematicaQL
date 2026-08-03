@@ -21,6 +21,7 @@ import { SchematicRenderer, SchematicWrapper } from "schematic-renderer";
 import { decodeBase64, formatDimensions, postNativeMessage } from "./bridge";
 import { presentRendererFrame } from "./render-presentation";
 import {
+  configureQuickLookLighting,
   quickLookPostProcessingOptions,
   quickLookSafeMeshBuildingMode,
 } from "./renderer-configuration";
@@ -225,7 +226,7 @@ async function renderSchematic(request: number, name: string, encodedData: strin
 async function completeRendererInitialization(renderer: SchematicRenderer): Promise<void> {
   try {
     await loadBundledResourcePackIntoCubane(renderer.cubane);
-    renderer.setSSAOParameters(quickLookPostProcessingOptions.ssaoPresets.isometric);
+    configureQuickLookLighting(renderer);
   } catch (error) {
     renderer.dispose();
     failRendererInitialization(normalizeError(error));
