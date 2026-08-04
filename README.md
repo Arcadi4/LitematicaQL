@@ -19,6 +19,14 @@ LitematicaQL adds a Quick Look preview extension for `.litematic` files. Select 
 
 ## Install
 
+Install with Homebrew:
+
+```sh
+brew install --cask arcadi4/tap/litematicaql
+```
+
+Or install manually:
+
 1. Download from the [release page](https://github.com/Arcadi4/LitematicaQL/releases)
 2. Move `LitematicaQL.app` to `/Applications`.
 3. Open the app once so macOS registers its preview extension.

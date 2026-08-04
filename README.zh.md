@@ -19,6 +19,14 @@ LitematicaQL 为 `.litematic` 文件提供快速查看预览扩展。在访达�
 
 ## 安装
 
+使用 Homebrew 安装：
+
+```sh
+brew install --cask arcadi4/tap/litematicaql
+```
+
+也可以手动安装：
+
 1. 从[发布页面](https://github.com/Arcadi4/LitematicaQL/releases)下载
 2. 将 `LitematicaQL.app` 移动到 `/Applications`。
 3. 打开一次应用，让 macOS 注册其预览扩展。
