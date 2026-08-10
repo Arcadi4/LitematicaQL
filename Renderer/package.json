@@ -18,7 +18,7 @@
     "@types/pako": "3.0.0",
     "typescript": "7.0.2",
     "vite-plugin-singlefile": "2.3.3",
-    "vite-plus": "0.2.7"
+    "vite-plus": "0.2.8"
   },
   "overrides": {
     "http-proxy-middleware": "4.2.0",
