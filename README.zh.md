@@ -78,3 +78,7 @@ xcodebuild \
   -derivedDataPath DerivedData \
   build
 ```
+
+## 致谢
+
+特别感谢 @Nano112 的项目 [Nucleation](https://github.com/Schem-at/Nucleation) 为原理图解析与渲染提供支持。

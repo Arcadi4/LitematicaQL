@@ -78,3 +78,7 @@ xcodebuild \
   -derivedDataPath DerivedData \
   build
 ```
+
+## Acknowledgements
+
+Great thanks to @Nano112 's project [Nucleation](https://github.com/Schem-at/Nucleation) for powering the whole parsing and meshing pipeline.
