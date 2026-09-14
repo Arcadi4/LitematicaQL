@@ -1,0 +1,1 @@
+{DataVersion:3953,size:[4,2,2],palette:["minecraft:oak_log{axis=y}","minecraft:chest"],data:[{pos:[0,0,0],state:"minecraft:oak_log{axis=y}"},{pos:[2,0,0],state:"minecraft:chest",nbt:{id:"minecraft:chest",Items:[]}}],entities:[]}

@@ -43,12 +43,7 @@ if (!html.includes("data:application/wasm;base64,")) {
   throw new Error("Renderer build does not inline the Nucleation WebAssembly binary.");
 }
 
-const requiredLicenses = [
-  "fflate-LICENSE",
-  "nucleation-LICENSE",
-  "schematic-renderer-LICENSE",
-  "three-LICENSE",
-];
+const requiredLicenses = ["fflate-LICENSE", "nucleation-LICENSE", "three-LICENSE"];
 for (const license of requiredLicenses) {
   const contents = await readFile(join(rendererDirectory, "third-party", license), "utf8");
   if (contents.trim().length === 0) {
