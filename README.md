@@ -9,7 +9,7 @@
   <!-- README-I18N:END -->
 </div>
 
-LitematicaQL adds a Quick Look preview extension for `.litematic` files. Select a schematic in Finder, press Space, then orbit, zoom, and pan around the rendered blocks — no Minecraft or Litematica required.
+LitematicaQL adds a macOS Quick Look preview extension for `.litematic` files.
 
 <div align=center>
 
@@ -37,7 +37,27 @@ This app requires macOS 13 Ventura or later.
 > [!NOTE]
 > If the preview doesn't show up, enable LitematicaQL under **System Settings → General → Login Items & Extensions → Quick Look**.
 
-## Build
+## Development
+
+Run all renderer checks and rebuild the artifact:
+
+```sh
+pnpm --prefix Renderer run check
+```
+
+Run the Swift tests:
+
+```sh
+swift test
+```
+
+Clean stale LitematicaQL Quick Look registrations while keeping the installed `/Applications` copy with:
+
+```sh
+./scripts/clean-quick-look-registrations.sh
+```
+
+### Build
 
 - Xcode 26 or later
 - Node.js and pnpm
@@ -58,36 +78,3 @@ xcodebuild \
   -derivedDataPath DerivedData \
   build
 ```
-
-## Development
-
-Run all renderer checks and rebuild its distributable assets:
-
-```sh
-pnpm --prefix Renderer run check
-```
-
-Run the native file-validation tests:
-
-```sh
-swift test
-```
-
-Clean stale LitematicaQL Quick Look registrations while keeping the installed
-`/Applications` copy with:
-
-```sh
-./scripts/clean-quick-look-registrations.sh
-```
-
-## Project structure
-
-| Path | Purpose |
-| --- | --- |
-| `App/` | SwiftUI host app and document integration |
-| `PreviewExtension/` | Quick Look extension entry point |
-| `Shared/` | File validation and shared WKWebView controller |
-| `Renderer/` | Vite+/TypeScript renderer source and tests |
-| `Resources/Renderer/` | Generated self-contained renderer bundle |
-| `Fixtures/` | Sample `.litematic` fixture |
-| `Tests/` | Swift package tests |
