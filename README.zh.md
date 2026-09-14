@@ -37,6 +37,18 @@ brew install --cask arcadi4/tap/litematicaql
 > [!NOTE]
 > 如果预览没有出现，请在 **系统设置 → 通用 → 登录项与扩展 → 快速查看** 中启用 LitematicaQL。
 
+## 支持格式
+
+| 扩展名 | 文件格式 |
+| --- | --- |
+| `.litematic` | Litematica |
+| `.schem` | Sponge 原理图 |
+| `.schematic` | MCEdit |
+| `.nbt` | Java 结构方块 |
+| `.snbt` | 结构 SNBT，花括号或方括号方块状态 |
+| `.mcstructure` | 基岩版结构 |
+| `.nusn` | Nucleation 快照 |
+
 ## 开发
 
 运行渲染器的全部检查并重新构建产物：
@@ -78,20 +90,6 @@ xcodebuild \
   -derivedDataPath DerivedData \
   build
 ```
-
-## 支持格式
-
-| 扩展名 | 文件格式 |
-| --- | --- |
-| `.litematic` | Litematica |
-| `.schem` | Sponge 原理图，v2 与 v3 |
-| `.schematic` | MCEdit，1.13 之前的格式 |
-| `.nbt` | Java 结构方块 |
-| `.snbt` | 结构 SNBT，花括号或方括号方块状态 |
-| `.mcstructure` | 基岩版结构 |
-| `.nusn` | Nucleation 快照 |
-
-应用还为每种文件格式内置了一份示例原理图，可从欢迎界面进入。
 
 ## 致谢
 

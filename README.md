@@ -37,6 +37,18 @@ This app requires macOS 13 Ventura or later.
 > [!NOTE]
 > If the preview doesn't show up, enable LitematicaQL under **System Settings → General → Login Items & Extensions → Quick Look**.
 
+## Supported Formats
+
+| Extension | File format |
+| --- | --- |
+| `.litematic` | Litematica |
+| `.schem` | Sponge schematic |
+| `.schematic` | MCEdit |
+| `.nbt` | Java structure block |
+| `.snbt` | Structure SNBT, brace or bracket block states |
+| `.mcstructure` | Bedrock structure |
+| `.nusn` | Nucleation snapshot |
+
 ## Development
 
 Run all renderer checks and rebuild the artifact:
@@ -79,19 +91,7 @@ xcodebuild \
   build
 ```
 
-## Formats
 
-| Extension | File format |
-| --- | --- |
-| `.litematic` | Litematica |
-| `.schem` | Sponge schematic, v2 and v3 |
-| `.schematic` | MCEdit, the pre-1.13 format |
-| `.nbt` | Java structure block |
-| `.snbt` | Structure SNBT, brace or bracket block states |
-| `.mcstructure` | Bedrock structure |
-| `.nusn` | Nucleation snapshot |
-
-The app also bundles one demo schematic per file format, reachable from its welcome screen.
 
 ## Acknowledgements
 
