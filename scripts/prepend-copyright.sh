@@ -1,49 +1,15 @@
 #!/bin/zsh
 
-# LitematicaQL: macOS Quick Look plugin for Litematica schematics.
-# Copyright (C) 2026 4rcadia
-# SPDX-License-Identifier: AGPL-3.0-or-later
-#
-# This program is free software: you can redistribute it and/or modify
-# it under the terms of the GNU Affero General Public License as published
-# by the Free Software Foundation, either version 3 of the License, or
-# (at your option) any later version.
-#
-# This program is distributed in the hope that it will be useful,
-# but WITHOUT ANY WARRANTY; without even the implied warranty of
-# MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE. See the
-# GNU Affero General Public License for more details.
-#
-# You should have received a copy of the GNU Affero General Public License
-# along with this program. If not, see <https://www.gnu.org/licenses/>.
-#
-# See the LICENSE file for the full license text.
-
 set -euo pipefail
 
 repo_root="$(cd -- "$(dirname -- "$0")/.." && pwd)"
 cd "$repo_root"
 
-copyright_marker='Copyright (C) 2026 4rcadia'
+copyright_marker='Copyright (c) 2026 4rcadia'
 notice_lines=(
-  'LitematicaQL: macOS Quick Look plugin for Litematica schematics.'
+  'LitematicaQL: Quick Look preview for Minecraft schematics on macOS.'
   "$copyright_marker"
-  'SPDX-License-Identifier: AGPL-3.0-or-later'
-  ''
-  'This program is free software: you can redistribute it and/or modify'
-  'it under the terms of the GNU Affero General Public License as published'
-  'by the Free Software Foundation, either version 3 of the License, or'
-  '(at your option) any later version.'
-  ''
-  'This program is distributed in the hope that it will be useful,'
-  'but WITHOUT ANY WARRANTY; without even the implied warranty of'
-  'MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE. See the'
-  'GNU Affero General Public License for more details.'
-  ''
-  'You should have received a copy of the GNU Affero General Public License'
-  'along with this program. If not, see <https://www.gnu.org/licenses/>.'
-  ''
-  'See the LICENSE file for the full license text.'
+  'SPDX-License-Identifier: MIT'
 )
 
 render_header() {
@@ -193,21 +159,10 @@ trap cleanup EXIT
 while IFS= read -r -d '' file; do
   prepend_file "$file"
 done < <(
-  find . -type f \
-    \( \
-      -name '*.swift' -o \
-      -name '*.ts' -o \
-      -name '*.mjs' -o \
-      -name '*.css' -o \
-      -name '*.sh' -o \
-      -name '*.plist' -o \
-      -name '*.entitlements' \
-    \) \
-    ! -path './.git/*' \
-    ! -path './.build/*' \
-    ! -path './DerivedData/*' \
-    ! -path './Renderer/node_modules/*' \
-    ! -path './Renderer/third-party/*' \
-    ! -path './Resources/Renderer/*' \
-    -print0
+  # Tracked files only: `find` would also match lockfiles, build output, and
+  # untracked scratch files, none of which carry a license header.
+  git ls-files -z -- \
+    '*.swift' '*.ts' '*.mjs' '*.css' '*.sh' '*.plist' '*.entitlements' \
+    ':!scripts/*' ':!.github/*' \
+    ':!Renderer/third-party/*' ':!Resources/Renderer/*'
 )
