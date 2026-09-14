@@ -22,7 +22,6 @@ import Foundation
 enum LitematicFileError: Equatable, LocalizedError {
     case emptyFile
     case fileTooLarge(maximumBytes: Int)
-    case invalidHeader
     case notAFile
     case unreadable(String)
     case unsupportedExtension
@@ -34,25 +33,44 @@ enum LitematicFileError: Equatable, LocalizedError {
         case let .fileTooLarge(maximumBytes):
             let limit = ByteCountFormatter.string(fromByteCount: Int64(maximumBytes), countStyle: .binary)
             return "The schematic is too large to preview. LitematicaQL supports files up to \(limit)."
-        case .invalidHeader:
-            return "The file is not a valid gzip-compressed Litematica schematic."
         case .notAFile:
             return "The selected item is not a regular file."
         case let .unreadable(message):
             return "The schematic could not be read: \(message)"
         case .unsupportedExtension:
-            return "LitematicaQL can only preview .litematic files."
+            return "LitematicaQL can preview \(LitematicFile.extensionList) files."
         }
     }
 }
 
 enum LitematicFile {
-    static let fileExtension = "litematic"
-    static let maximumCompressedFileSize = 32 * 1_024 * 1_024
-    private static let gzipHeader: [UInt8] = [0x1f, 0x8b]
+    static let supportedFileExtensions = [
+        "litematic",
+        "schem",
+        "schematic",
+        "nbt",
+        "snbt",
+        "mcstructure",
+        "nusn",
+    ]
+    static let maximumFileSize = 32 * 1_024 * 1_024
 
+    /// Dotted extension list in the same wording the renderer uses.
+    static let extensionList = supportedFileExtensions
+        .map { ".\($0)" }
+        .formatted(.list(type: .and))
+
+    static func supports(_ url: URL) -> Bool {
+        supportedFileExtensions.contains(url.pathExtension.lowercased())
+    }
+
+    /// Reads a file that passed the extension, regular-file, and size gates.
+    ///
+    /// Content is deliberately not validated here: the renderer owns every
+    /// format decision so it can report a failure in that format's own terms,
+    /// and several supported file formats are uncompressed.
     static func readValidatedData(from url: URL) throws -> Data {
-        guard url.pathExtension.lowercased() == fileExtension else {
+        guard supports(url) else {
             throw LitematicFileError.unsupportedExtension
         }
 
@@ -68,8 +86,8 @@ enum LitematicFile {
             guard values.isRegularFile == true else {
                 throw LitematicFileError.notAFile
             }
-            if let fileSize = values.fileSize, fileSize > maximumCompressedFileSize {
-                throw LitematicFileError.fileTooLarge(maximumBytes: maximumCompressedFileSize)
+            if let fileSize = values.fileSize, fileSize > maximumFileSize {
+                throw LitematicFileError.fileTooLarge(maximumBytes: maximumFileSize)
             }
         } catch let error as LitematicFileError {
             throw error
@@ -87,12 +105,8 @@ enum LitematicFile {
         guard !data.isEmpty else {
             throw LitematicFileError.emptyFile
         }
-        guard data.count <= maximumCompressedFileSize else {
-            throw LitematicFileError.fileTooLarge(maximumBytes: maximumCompressedFileSize)
-        }
-        guard data.count >= gzipHeader.count,
-              Array(data.prefix(gzipHeader.count)) == gzipHeader else {
-            throw LitematicFileError.invalidHeader
+        guard data.count <= maximumFileSize else {
+            throw LitematicFileError.fileTooLarge(maximumBytes: maximumFileSize)
         }
 
         return data

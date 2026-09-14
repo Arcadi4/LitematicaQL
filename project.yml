@@ -51,7 +51,8 @@ targets:
       - path: Resources/Renderer
         type: folder
         buildPhase: resources
-      - path: Fixtures/LitematicaQL-Demo.litematic
+      - path: Fixtures/Demos
+        type: folder
         buildPhase: resources
       - path: Renderer/third-party
         type: folder
@@ -68,6 +69,16 @@ targets:
             LSHandlerRank: Alternate
             LSItemContentTypes:
               - moe.arcadia.litematic
+          - CFBundleTypeName: Minecraft Schematic
+            CFBundleTypeRole: Viewer
+            LSHandlerRank: Alternate
+            LSItemContentTypes:
+              - moe.arcadia.minecraft-schematic
+          - CFBundleTypeName: Minecraft Structure
+            CFBundleTypeRole: Viewer
+            LSHandlerRank: Alternate
+            LSItemContentTypes:
+              - moe.arcadia.minecraft-structure
         LSApplicationCategoryType: public.app-category.utilities
         LSSupportsOpeningDocumentsInPlace: true
         NSHumanReadableCopyright: Copyright © 2026 4rcadia
@@ -81,6 +92,26 @@ targets:
               public.filename-extension:
                 - litematic
               public.mime-type: application/x-litematic
+          - UTTypeIdentifier: moe.arcadia.minecraft-schematic
+            UTTypeDescription: Minecraft Schematic
+            UTTypeConformsTo:
+              - public.data
+              - public.content
+            UTTypeTagSpecification:
+              public.filename-extension:
+                - schem
+                - schematic
+          - UTTypeIdentifier: moe.arcadia.minecraft-structure
+            UTTypeDescription: Minecraft Structure
+            UTTypeConformsTo:
+              - public.data
+              - public.content
+            UTTypeTagSpecification:
+              public.filename-extension:
+                - nbt
+                - snbt
+                - mcstructure
+                - nusn
     entitlements:
       path: App/LitematicaQL.entitlements
       properties:
@@ -118,6 +149,8 @@ targets:
             QLIsDataBasedPreview: false
             QLSupportedContentTypes:
               - moe.arcadia.litematic
+              - moe.arcadia.minecraft-schematic
+              - moe.arcadia.minecraft-structure
             QLSupportsSearchableItems: false
           NSExtensionPointIdentifier: com.apple.quicklook.preview
           NSExtensionPrincipalClass: $(PRODUCT_MODULE_NAME).PreviewViewController

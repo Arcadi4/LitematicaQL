@@ -50,6 +50,8 @@
 			<key>QLSupportedContentTypes</key>
 			<array>
 				<string>moe.arcadia.litematic</string>
+				<string>moe.arcadia.minecraft-schematic</string>
+				<string>moe.arcadia.minecraft-structure</string>
 			</array>
 			<key>QLSupportsSearchableItems</key>
 			<false/>

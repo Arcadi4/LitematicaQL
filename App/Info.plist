@@ -41,6 +41,30 @@
 				<string>moe.arcadia.litematic</string>
 			</array>
 		</dict>
+		<dict>
+			<key>CFBundleTypeName</key>
+			<string>Minecraft Schematic</string>
+			<key>CFBundleTypeRole</key>
+			<string>Viewer</string>
+			<key>LSHandlerRank</key>
+			<string>Alternate</string>
+			<key>LSItemContentTypes</key>
+			<array>
+				<string>moe.arcadia.minecraft-schematic</string>
+			</array>
+		</dict>
+		<dict>
+			<key>CFBundleTypeName</key>
+			<string>Minecraft Structure</string>
+			<key>CFBundleTypeRole</key>
+			<string>Viewer</string>
+			<key>LSHandlerRank</key>
+			<string>Alternate</string>
+			<key>LSItemContentTypes</key>
+			<array>
+				<string>moe.arcadia.minecraft-structure</string>
+			</array>
+		</dict>
 	</array>
 	<key>CFBundleExecutable</key>
 	<string>$(EXECUTABLE_NAME)</string>
@@ -82,6 +106,46 @@
 				</array>
 				<key>public.mime-type</key>
 				<string>application/x-litematic</string>
+			</dict>
+		</dict>
+		<dict>
+			<key>UTTypeConformsTo</key>
+			<array>
+				<string>public.data</string>
+				<string>public.content</string>
+			</array>
+			<key>UTTypeDescription</key>
+			<string>Minecraft Schematic</string>
+			<key>UTTypeIdentifier</key>
+			<string>moe.arcadia.minecraft-schematic</string>
+			<key>UTTypeTagSpecification</key>
+			<dict>
+				<key>public.filename-extension</key>
+				<array>
+					<string>schem</string>
+					<string>schematic</string>
+				</array>
+			</dict>
+		</dict>
+		<dict>
+			<key>UTTypeConformsTo</key>
+			<array>
+				<string>public.data</string>
+				<string>public.content</string>
+			</array>
+			<key>UTTypeDescription</key>
+			<string>Minecraft Structure</string>
+			<key>UTTypeIdentifier</key>
+			<string>moe.arcadia.minecraft-structure</string>
+			<key>UTTypeTagSpecification</key>
+			<dict>
+				<key>public.filename-extension</key>
+				<array>
+					<string>nbt</string>
+					<string>snbt</string>
+					<string>mcstructure</string>
+					<string>nusn</string>
+				</array>
 			</dict>
 		</dict>
 	</array>

@@ -11,12 +11,12 @@
 		148CF4887D755F0579EAF8F8 /* LitematicaType.swift in Sources */ = {isa = PBXBuildFile; fileRef = B11BBAB3A152B48CA2932C43 /* LitematicaType.swift */; };
 		14DEA5793F46839DF279BBB6 /* LitematicFile.swift in Sources */ = {isa = PBXBuildFile; fileRef = B1A1925EDAA8DE5EC973D716 /* LitematicFile.swift */; };
 		28AECF0A29A72768BD93CD6F /* SchematicWebView.swift in Sources */ = {isa = PBXBuildFile; fileRef = B115285C4BD1DF374B9DDCBE /* SchematicWebView.swift */; };
+		30C3D1AAE7FD8EE28D936E95 /* Demos in Resources */ = {isa = PBXBuildFile; fileRef = D28BABB57DAE08167DFAF8C2 /* Demos */; };
 		56E79A79AE7C05498E4232D6 /* third-party in Resources */ = {isa = PBXBuildFile; fileRef = 2F6741452205E046F4F50561 /* third-party */; };
 		70B47465CEBA091BC564C754 /* PreviewViewController.swift in Sources */ = {isa = PBXBuildFile; fileRef = 17496F839D28E34831AB119E /* PreviewViewController.swift */; };
 		86AFB07660A66D67DEAE659E /* WebKit.framework in Frameworks */ = {isa = PBXBuildFile; fileRef = ED77B0D181D2D767E5420A81 /* WebKit.framework */; };
 		8DDB3175C751D9EF40842D1C /* SchematicWebViewController.swift in Sources */ = {isa = PBXBuildFile; fileRef = 1924DBDB3F04157805F1A0A7 /* SchematicWebViewController.swift */; };
 		90618732273EDA23FB0CAAFD /* LitematicFile.swift in Sources */ = {isa = PBXBuildFile; fileRef = B1A1925EDAA8DE5EC973D716 /* LitematicFile.swift */; };
-		BDFA34F9047C7768229725D1 /* LitematicaQL-Demo.litematic in Resources */ = {isa = PBXBuildFile; fileRef = 93A80A3F384360EA9BD4A90F /* LitematicaQL-Demo.litematic */; };
 		D4DB61D9A64F80304E7B25BD /* LitematicaQL.icon in Resources */ = {isa = PBXBuildFile; fileRef = F74465552D8FB63AFA213C81 /* LitematicaQL.icon */; };
 		D5D90087572EE64C50B2311C /* LitematicaQLApp.swift in Sources */ = {isa = PBXBuildFile; fileRef = 47F2DA4055F7517863368E23 /* LitematicaQLApp.swift */; };
 		EBC89290D891707B8BA85B85 /* LitematicaQLPreview.appex in Embed Foundation Extensions */ = {isa = PBXBuildFile; fileRef = DA17F55FCEA9A62E5785DFBD /* LitematicaQLPreview.appex */; settings = {ATTRIBUTES = (RemoveHeadersOnCopy, ); }; };
@@ -60,12 +60,12 @@
 		54C62792CD501EF5BEDB2117 /* LitematicaQLPreview.entitlements */ = {isa = PBXFileReference; lastKnownFileType = text.plist.entitlements; path = LitematicaQLPreview.entitlements; sourceTree = "<group>"; };
 		5F5F39B25C3B118B7DB5A126 /* LitematicaQL.entitlements */ = {isa = PBXFileReference; lastKnownFileType = text.plist.entitlements; path = LitematicaQL.entitlements; sourceTree = "<group>"; };
 		6E3511B97FBAA1018D96F48B /* LitematicaQL.app */ = {isa = PBXFileReference; explicitFileType = wrapper.application; includeInIndex = 0; path = LitematicaQL.app; sourceTree = BUILT_PRODUCTS_DIR; };
-		93A80A3F384360EA9BD4A90F /* LitematicaQL-Demo.litematic */ = {isa = PBXFileReference; path = "LitematicaQL-Demo.litematic"; sourceTree = "<group>"; };
 		B115285C4BD1DF374B9DDCBE /* SchematicWebView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SchematicWebView.swift; sourceTree = "<group>"; };
 		B11BBAB3A152B48CA2932C43 /* LitematicaType.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = LitematicaType.swift; sourceTree = "<group>"; };
 		B1A1925EDAA8DE5EC973D716 /* LitematicFile.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = LitematicFile.swift; sourceTree = "<group>"; };
 		C19A1BA9A77D9F6F545EEBA7 /* Quartz.framework */ = {isa = PBXFileReference; lastKnownFileType = wrapper.framework; name = Quartz.framework; path = System/Library/Frameworks/Quartz.framework; sourceTree = SDKROOT; };
 		CD5CF0664C729B59021BC0A5 /* Renderer */ = {isa = PBXFileReference; lastKnownFileType = folder; name = Renderer; path = Resources/Renderer; sourceTree = SOURCE_ROOT; };
+		D28BABB57DAE08167DFAF8C2 /* Demos */ = {isa = PBXFileReference; lastKnownFileType = folder; name = Demos; path = Fixtures/Demos; sourceTree = SOURCE_ROOT; };
 		DA17F55FCEA9A62E5785DFBD /* LitematicaQLPreview.appex */ = {isa = PBXFileReference; explicitFileType = "wrapper.app-extension"; includeInIndex = 0; path = LitematicaQLPreview.appex; sourceTree = BUILT_PRODUCTS_DIR; };
 		ED77B0D181D2D767E5420A81 /* WebKit.framework */ = {isa = PBXFileReference; lastKnownFileType = wrapper.framework; name = WebKit.framework; path = System/Library/Frameworks/WebKit.framework; sourceTree = SDKROOT; };
 		F74465552D8FB63AFA213C81 /* LitematicaQL.icon */ = {isa = PBXFileReference; lastKnownFileType = wrapper.icon; path = LitematicaQL.icon; sourceTree = "<group>"; };
@@ -97,7 +97,7 @@
 		3EBC2F0B54C485707E417589 /* Fixtures */ = {
 			isa = PBXGroup;
 			children = (
-				93A80A3F384360EA9BD4A90F /* LitematicaQL-Demo.litematic */,
+				D28BABB57DAE08167DFAF8C2 /* Demos */,
 			);
 			path = Fixtures;
 			sourceTree = "<group>";
@@ -258,7 +258,7 @@
 			isa = PBXResourcesBuildPhase;
 			buildActionMask = 2147483647;
 			files = (
-				BDFA34F9047C7768229725D1 /* LitematicaQL-Demo.litematic in Resources */,
+				30C3D1AAE7FD8EE28D936E95 /* Demos in Resources */,
 				D4DB61D9A64F80304E7B25BD /* LitematicaQL.icon in Resources */,
 				F9ABB5C2FB2A660568FEB463 /* Renderer in Resources */,
 				56E79A79AE7C05498E4232D6 /* third-party in Resources */,

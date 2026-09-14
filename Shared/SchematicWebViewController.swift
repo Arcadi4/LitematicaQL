@@ -150,9 +150,9 @@ final class SchematicWebViewController: NSViewController {
             }
 
             _ = try await webView.callAsyncJavaScript(
-                "return window.litematicaQL.loadSchematic(name, encodedData);",
+                "return window.litematicaQL.loadSchematic(fileName, encodedData);",
                 arguments: [
-                    "name": url.deletingPathExtension().lastPathComponent,
+                    "fileName": url.lastPathComponent,
                     "encodedData": encodedData,
                 ],
                 in: nil,
