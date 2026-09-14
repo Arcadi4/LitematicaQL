@@ -1,7 +1,7 @@
 <div align="center">
   <img src="icon.png" alt="LitematicaQL 图标" width="200"/>
   <h1>LitematicaQL</h1>
-  <p><strong>在 macOS 上快速预览 Litematica 原理图</strong></p>
+  <p><strong>在 macOS 上快速预览 Minecraft 原理图</strong></p>
   <!-- README-I18N:START -->
 
   [English](./README.md) | **中文**
@@ -9,7 +9,7 @@
   <!-- README-I18N:END -->
 </div>
 
-LitematicaQL 为 `.litematic` 文件提供了 macOS 快速查看预览扩展。
+LitematicaQL 为 Minecraft 原理图与结构提供了 macOS 快速查看预览扩展，支持 `.litematic`、`.schem`、`.schematic`、`.nbt`、`.snbt`、`.mcstructure` 与 `.nusn` 格式。
 
 <div align=center>
 
@@ -30,7 +30,7 @@ brew install --cask arcadi4/tap/litematicaql
 1. 从[发布页面](https://github.com/Arcadi4/LitematicaQL/releases)下载
 2. 将 `LitematicaQL.app` 移动到 `/Applications`。
 3. 打开一次应用，让 macOS 注册其预览扩展。
-4. 在访达中选中 `.litematic` 文件，按下空格键。
+4. 在访达中选中受支持的文件，按下空格键。
 
 需要 macOS 13 Ventura 或更高版本。
 
@@ -78,6 +78,20 @@ xcodebuild \
   -derivedDataPath DerivedData \
   build
 ```
+
+## 支持格式
+
+| 扩展名 | 文件格式 |
+| --- | --- |
+| `.litematic` | Litematica |
+| `.schem` | Sponge 原理图，v2 与 v3 |
+| `.schematic` | MCEdit，1.13 之前的格式 |
+| `.nbt` | Java 结构方块 |
+| `.snbt` | 结构 SNBT，花括号或方括号方块状态 |
+| `.mcstructure` | 基岩版结构 |
+| `.nusn` | Nucleation 快照 |
+
+应用还为每种文件格式内置了一份示例原理图，可从欢迎界面进入。
 
 ## 致谢
 

@@ -1,7 +1,7 @@
 <div align="center">
   <img src="icon.png" alt="LitematicaQL icon" width="200"/>
   <h1>LitematicaQL</h1>
-  <p><strong>Quick Look preview for Litematica schematics on macOS</strong></p>
+  <p><strong>Quick Look preview for Minecraft schematics on macOS</strong></p>
   <!-- README-I18N:START -->
 
   **English** | [中文](./README.zh.md)
@@ -9,7 +9,7 @@
   <!-- README-I18N:END -->
 </div>
 
-LitematicaQL adds a macOS Quick Look preview extension for `.litematic` files.
+LitematicaQL adds a macOS Quick Look preview extension for Minecraft schematics and structures. It previews `.litematic`, `.schem`, `.schematic`, `.nbt`, `.snbt`, `.mcstructure`, and `.nusn`.
 
 <div align=center>
 
@@ -30,7 +30,7 @@ Or install manually:
 1. Download from the [release page](https://github.com/Arcadi4/LitematicaQL/releases)
 2. Move `LitematicaQL.app` to `/Applications`.
 3. Open the app once so macOS registers its preview extension.
-4. Select a `.litematic` file in Finder and press Space.
+4. Select a supported file in Finder and press Space.
 
 This app requires macOS 13 Ventura or later.
 
@@ -78,6 +78,20 @@ xcodebuild \
   -derivedDataPath DerivedData \
   build
 ```
+
+## Formats
+
+| Extension | File format |
+| --- | --- |
+| `.litematic` | Litematica |
+| `.schem` | Sponge schematic, v2 and v3 |
+| `.schematic` | MCEdit, the pre-1.13 format |
+| `.nbt` | Java structure block |
+| `.snbt` | Structure SNBT, brace or bracket block states |
+| `.mcstructure` | Bedrock structure |
+| `.nusn` | Nucleation snapshot |
+
+The app also bundles one demo schematic per file format, reachable from its welcome screen.
 
 ## Acknowledgements
 
