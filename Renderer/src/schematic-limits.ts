@@ -33,8 +33,19 @@ export const maximumEntityEntries = 100_000;
 export const maximumBlockEntityEntries = 100_000;
 export const maximumNbtDepth = 64;
 export const maximumNbtStringBytes = 1_000_000;
-export const maximumNbtCollectionItems = 1_000_000;
-export const maximumNbtNodes = 500_000;
+
+/**
+ * A Sponge `BlockData` byte array declares one VarInt per padded cell, so a
+ * region that fills `maximumSchematicVolume` entries needs that count widened
+ * by the width of a VarInt to stay readable.
+ */
+export const maximumNbtCollectionItems = maximumSchematicVolume * 2;
+
+/**
+ * A 565 KB Sponge schematic declaring a 256³ region holds 1,070,312 tags, so
+ * this has to sit well above the volume bound. Nucleation's own default is 64M.
+ */
+export const maximumNbtNodes = 4_194_304;
 
 /**
  * Nucleation bounds the schematic volume but not the number of non-empty
@@ -96,6 +107,25 @@ export class SchematicFormatError extends Error {
   }
 }
 
+/**
+ * Thrown when Nucleation traps on a schematic instead of reporting an error.
+ *
+ * A WebAssembly trap poisons the instance for the rest of the page, so a trap
+ * must never be followed by a second decode, and the input must not be reported
+ * as unreadable.
+ */
+export class SchematicComplexityError extends Error {
+  override name = "SchematicComplexityError";
+
+  constructor(message: string, options?: ErrorOptions) {
+    super(message, options);
+  }
+}
+
+function isWebAssemblyTrap(error: unknown): error is WebAssembly.RuntimeError {
+  return error instanceof WebAssembly.RuntimeError;
+}
+
 function parseWithinLimits(bytes: Uint8Array, limits: object): Schematic {
   // Nucleation's generated declarations type byte inputs as `Array<number>`,
   // but its Diplomat runtime reads any typed array without copying. Converting
@@ -109,10 +139,13 @@ function measuredDimensions(schematic: Schematic): [number, number, number] {
 }
 
 /**
- * Decodes a `.litematic` schematic, refusing anything outside the preview
- * budget. Nucleation reports every rejection as the same opaque parse error, so
- * a second decode with the preview allowances lifted decides whether the input
- * was oversized or unreadable and lets the preview explain which.
+ * Decodes a schematic, refusing anything outside the preview budget.
+ *
+ * Nucleation reports every rejection as the same opaque parse error, so a
+ * second decode with the preview allowances lifted decides whether the input
+ * was oversized or unreadable and lets the preview explain which. A trap is the
+ * one exception: it means the decoder exhausted itself, and it leaves the
+ * instance unusable, so it short-circuits both passes.
  */
 export function parseSchematicWithinBudget(bytes: Uint8Array): Schematic {
   const schematic = decodeOrExplain(bytes);
@@ -125,21 +158,38 @@ export function parseSchematicWithinBudget(bytes: Uint8Array): Schematic {
 }
 
 function decodeOrExplain(bytes: Uint8Array): Schematic {
+  let previewFailure: unknown;
   try {
     return parseWithinLimits(bytes, decodingLimits);
   } catch (error) {
-    let diagnostic: Schematic;
-    try {
-      diagnostic = parseWithinLimits(bytes, diagnosticLimits);
-    } catch {
-      throw new SchematicFormatError(
-        `This file is not a readable Litematica schematic, or it expands beyond the ${maximumDecompressedBytes / 1_048_576} MiB preview limit.`,
+    if (isWebAssemblyTrap(error)) {
+      throw new SchematicComplexityError(
+        "This schematic is too large or too detailed to decode in the preview.",
         { cause: error },
       );
     }
 
-    throw oversizedSchematicError(diagnostic.blockCount(), measuredDimensions(diagnostic));
+    previewFailure = error;
   }
+
+  let diagnostic: Schematic;
+  try {
+    diagnostic = parseWithinLimits(bytes, diagnosticLimits);
+  } catch (error) {
+    if (isWebAssemblyTrap(error)) {
+      throw new SchematicComplexityError(
+        "This schematic is too large or too detailed to decode in the preview.",
+        { cause: error },
+      );
+    }
+
+    throw new SchematicFormatError(
+      `This file is not a readable Minecraft schematic, or it expands beyond the ${maximumDecompressedBytes / 1_048_576} MiB preview limit.`,
+      { cause: previewFailure },
+    );
+  }
+
+  throw oversizedSchematicError(diagnostic.blockCount(), measuredDimensions(diagnostic));
 }
 
 function oversizedSchematicError(

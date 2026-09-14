@@ -21,6 +21,8 @@ import { describe, expect, it } from "vite-plus/test";
 import {
   decodingLimits,
   diagnosticLimits,
+  maximumNbtCollectionItems,
+  maximumNbtNodes,
   maximumRenderedBlocks,
   maximumSchematicVolume,
 } from "./schematic-limits";
@@ -57,5 +59,22 @@ describe("decode limits", () => {
 
   it("keeps the render budget inside the allowed volume", () => {
     expect(maximumRenderedBlocks).toBeLessThanOrEqual(maximumSchematicVolume);
+  });
+
+  /**
+   * Both NBT allowances were below what ordinary files need before this, and
+   * they are the difference between previewing a Sponge or Bedrock schematic
+   * and reporting it as unreadable. These are measured floors from real files,
+   * not round numbers: a 565 KB Sponge schematic declaring a 256³ region holds
+   * 1,070,312 tags and 17,093,491 collection entries.
+   */
+  it("keeps the NBT allowances above what real files measure", () => {
+    expect(maximumNbtCollectionItems).toBeGreaterThan(17_093_491);
+    expect(maximumNbtNodes).toBeGreaterThan(1_070_312);
+  });
+
+  it("leaves the NBT allowances inside the exact-integer range", () => {
+    expect(Number.isSafeInteger(maximumNbtCollectionItems)).toBe(true);
+    expect(Number.isSafeInteger(maximumNbtNodes)).toBe(true);
   });
 });
