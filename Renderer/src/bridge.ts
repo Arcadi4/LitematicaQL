@@ -41,7 +41,7 @@ declare global {
   }
 }
 
-export function decodeBase64(encoded: string): ArrayBuffer {
+export function decodeBase64(encoded: string): Uint8Array {
   const binary = atob(encoded);
   const bytes = new Uint8Array(binary.length);
 
@@ -49,19 +49,15 @@ export function decodeBase64(encoded: string): ArrayBuffer {
     bytes[index] = binary.charCodeAt(index);
   }
 
-  return bytes.buffer;
+  return bytes;
 }
 
 export function postNativeMessage(message: NativeBridgeMessage): void {
   window.webkit?.messageHandlers?.litematicaQL?.postMessage(message);
 }
 
-export function formatDimensions(
-  dimensions: Int32Array | number[] | null,
-): [number, number, number] | undefined {
-  if (!dimensions || dimensions.length < 3) {
-    return undefined;
-  }
-
-  return [dimensions[0] ?? 0, dimensions[1] ?? 0, dimensions[2] ?? 0];
+export function nativeResourcePackHandler(): NativeReplyHandler | undefined {
+  return typeof window === "undefined"
+    ? undefined
+    : window.webkit?.messageHandlers?.litematicaQLResourcePack;
 }

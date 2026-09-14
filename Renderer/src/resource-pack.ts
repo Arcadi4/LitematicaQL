@@ -17,19 +17,19 @@
 //
 // See the LICENSE file for the full license text.
 
-import { decodeBase64, type NativeReplyHandler } from "./bridge";
+import { decodeBase64, nativeResourcePackHandler, type NativeReplyHandler } from "./bridge";
 
 const resourcePackRequest = { type: "resourcePack" } as const;
 
-function nativeResourcePackHandler(): NativeReplyHandler | undefined {
-  return typeof window === "undefined"
-    ? undefined
-    : window.webkit?.messageHandlers?.litematicaQLResourcePack;
-}
-
+/**
+ * Reads the bundled Minecraft resource pack through the native bridge. The pack
+ * ships beside the renderer inside the app and extension bundles; Quick Look
+ * blocks network access and cannot `fetch` sibling files, so the bytes always
+ * arrive through this bridge.
+ */
 export async function loadBundledResourcePack(
   handler: NativeReplyHandler | undefined = nativeResourcePackHandler(),
-): Promise<Blob> {
+): Promise<Uint8Array> {
   if (!handler) {
     throw new Error("The native resource-pack bridge is unavailable.");
   }
@@ -39,21 +39,5 @@ export async function loadBundledResourcePack(
     throw new Error("The bundled block resources could not be read.");
   }
 
-  return new Blob([decodeBase64(encodedData)], { type: "application/zip" });
-}
-
-interface InMemoryResourcePackTarget {
-  buildTextureAtlas(): Promise<unknown>;
-  getAssetLoader(): {
-    loadResourcePack(pack: Blob): Promise<void>;
-  };
-}
-
-export async function loadBundledResourcePackIntoCubane(
-  cubane: InMemoryResourcePackTarget,
-  loadPack: () => Promise<Blob> = loadBundledResourcePack,
-): Promise<void> {
-  const pack = await loadPack();
-  await cubane.getAssetLoader().loadResourcePack(pack);
-  await cubane.buildTextureAtlas();
+  return decodeBase64(encodedData);
 }

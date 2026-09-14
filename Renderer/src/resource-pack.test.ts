@@ -18,19 +18,18 @@
 // See the LICENSE file for the full license text.
 
 import { describe, expect, it, vi } from "vite-plus/test";
-import { loadBundledResourcePack, loadBundledResourcePackIntoCubane } from "./resource-pack";
+import { loadBundledResourcePack } from "./resource-pack";
 
 describe("loadBundledResourcePack", () => {
-  it("turns the native base64 reply into a ZIP blob", async () => {
+  it("decodes the native base64 reply into the ZIP bytes", async () => {
     const handler = {
       postMessage: vi.fn().mockResolvedValue("UEsDBA=="),
     };
 
-    const blob = await loadBundledResourcePack(handler);
+    const pack = await loadBundledResourcePack(handler);
 
     expect(handler.postMessage).toHaveBeenCalledWith({ type: "resourcePack" });
-    expect(blob.type).toBe("application/zip");
-    expect(new Uint8Array(await blob.arrayBuffer())).toEqual(new Uint8Array([80, 75, 3, 4]));
+    expect(pack).toEqual(new Uint8Array([80, 75, 3, 4]));
   });
 
   it("fails clearly when the native bridge is unavailable", async () => {
@@ -40,30 +39,10 @@ describe("loadBundledResourcePack", () => {
   });
 
   it("rejects malformed native replies", async () => {
-    const handler = {
-      postMessage: vi.fn().mockResolvedValue(null),
-    };
+    const handler = { postMessage: vi.fn().mockResolvedValue(null) };
 
     await expect(loadBundledResourcePack(handler)).rejects.toThrow(
       "bundled block resources could not be read",
     );
-  });
-});
-
-describe("loadBundledResourcePackIntoCubane", () => {
-  it("loads the bundled ZIP directly into the in-memory asset loader", async () => {
-    const pack = new Blob([new Uint8Array([80, 75, 3, 4])], { type: "application/zip" });
-    const loadResourcePack = vi.fn().mockResolvedValue(undefined);
-    const buildTextureAtlas = vi.fn().mockResolvedValue(undefined);
-    const cubane = {
-      buildTextureAtlas,
-      getAssetLoader: () => ({ loadResourcePack }),
-    };
-
-    await loadBundledResourcePackIntoCubane(cubane, async () => pack);
-
-    expect(loadResourcePack).toHaveBeenCalledOnce();
-    expect(loadResourcePack).toHaveBeenCalledWith(pack);
-    expect(buildTextureAtlas).toHaveBeenCalledOnce();
   });
 });

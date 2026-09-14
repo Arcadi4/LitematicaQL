@@ -17,17 +17,11 @@
 //
 // See the LICENSE file for the full license text.
 
-import { SchematicRenderer, SchematicWrapper } from "schematic-renderer";
-import { decodeBase64, formatDimensions, postNativeMessage } from "./bridge";
-import { presentRendererFrame } from "./render-presentation";
-import {
-  configureQuickLookLighting,
-  quickLookPostProcessingOptions,
-  quickLookSafeMeshBuildingMode,
-  withQuickLookTimerBackedAnimationFrames,
-} from "./renderer-configuration";
-import { loadBundledResourcePackIntoCubane } from "./resource-pack";
-import { assertParsedSchematicWithinBudget, inspectCompressedLitematic } from "./schematic-budget";
+import { MeshConfig, MeshResult, ResourcePack, type Schematic } from "nucleation";
+import { decodeBase64, postNativeMessage } from "./bridge";
+import { loadBundledResourcePack } from "./resource-pack";
+import { parseSchematicWithinBudget } from "./schematic-limits";
+import { SchematicViewer } from "./viewer";
 import "./style.css";
 
 declare global {
@@ -50,79 +44,21 @@ const fileBlockEntities = requiredElement<HTMLElement>("file-block-entities");
 const controlsHint = requiredElement<HTMLElement>("controls-hint");
 const rendererInitializationTimeoutMilliseconds = 20_000;
 
-let resolveRenderer!: (renderer: SchematicRenderer) => void;
-let rejectRenderer!: (error: Error) => void;
-const rendererReady = new Promise<SchematicRenderer>((resolve, reject) => {
-  resolveRenderer = resolve;
-  rejectRenderer = reject;
-});
-void rendererReady.catch(() => undefined);
+const viewer = new SchematicViewer(canvas);
 
-let rendererInitializationSettled = false;
-const rendererInitializationTimeout = window.setTimeout(() => {
-  failRendererInitialization(
-    new Error("The schematic renderer did not initialize within 20 seconds."),
-  );
+let initializationSettled = false;
+const initializationTimeout = window.setTimeout(() => {
+  failInitialization(new Error("The schematic renderer did not initialize within 20 seconds."));
 }, rendererInitializationTimeoutMilliseconds);
 
-try {
-  new SchematicRenderer(
-    canvas,
-    {},
-    {},
-    {
-      backgroundColor: 0x0b1016,
-      cameraOptions: {
-        defaultCameraPreset: "isometric",
-        enableZoomInOnLoad: false,
-        useTightBounds: true,
-      },
-      debugOptions: {
-        showUnknownBlocks: true,
-      },
-      enableAdaptiveFPS: true,
-      enableAnimatedTextures: false,
-      enableAutoOrbit: false,
-      enableDragAndDrop: false,
-      enableGizmos: false,
-      enableInteraction: true,
-      enableProgressBar: false,
-      maxPixelRatio: 1.5,
-      meshBuildingMode: quickLookSafeMeshBuildingMode,
-      postProcessingOptions: quickLookPostProcessingOptions,
-      resourcePackOptions: {
-        showMissingPackNotice: false,
-      },
-      showAxes: false,
-      showGrid: true,
-      sidebarOptions: {
-        enabled: false,
-      },
-      singleSchematicMode: true,
-      targetFPS: 60,
-      wasmMeshBuilderOptions: {
-        enabled: true,
-        greedyMeshingEnabled: false,
-        maxWorkers: 2,
-      },
-      callbacks: {
-        onRendererInitialized: (renderer) => {
-          if (rendererInitializationSettled) {
-            renderer.dispose();
-            return;
-          }
+const resourcePackReady = initializeResourcePack();
 
-          void completeRendererInitialization(renderer);
-        },
-      },
-    },
-  );
-} catch (error) {
-  failRendererInitialization(normalizeError(error));
-}
+window.addEventListener("resize", () => {
+  viewer.resize();
+});
 
 let latestLoadRequest = 0;
-let loadQueue = Promise.resolve();
+let loadQueue: Promise<void> = Promise.resolve();
 
 window.litematicaQL = {
   loadSchematic(name: string, encodedData: string): Promise<void> {
@@ -136,92 +72,53 @@ window.litematicaQL = {
   },
 };
 
-async function renderSchematic(request: number, name: string, encodedData: string): Promise<void> {
-  if (request !== latestLoadRequest) {
-    return;
-  }
-
-  let parsedSchematic: SchematicWrapper | undefined;
-  let schematicTransferred = false;
+async function initializeResourcePack(): Promise<ResourcePack> {
   try {
-    const renderer = await rendererReady;
+    const bytes = await loadBundledResourcePack();
+    // Nucleation's declarations type byte inputs as `Array<number>` while its
+    // runtime accepts typed arrays; see `schematic-limits.ts`.
+    const pack = ResourcePack.fromBytes(bytes as unknown as number[]);
+    if (pack.blockstateCount() === 0) {
+      throw new Error("The bundled block resources contain no block states.");
+    }
+
+    if (!initializationSettled) {
+      initializationSettled = true;
+      window.clearTimeout(initializationTimeout);
+      setStatus("Ready", "Waiting for a .litematic file…");
+      postNativeMessage({ type: "ready" });
+    }
+
+    return pack;
+  } catch (error) {
+    const normalized = normalizeError(error);
+    failInitialization(normalized);
+    throw normalized;
+  }
+}
+
+async function renderSchematic(request: number, name: string, encodedData: string): Promise<void> {
+  try {
+    const pack = await resourcePackReady;
     if (request !== latestLoadRequest) {
       return;
     }
 
-    const manager = renderer.schematicManager;
-    if (!manager) {
-      throw new Error("The schematic renderer did not finish initializing.");
+    const schematic = parseSchematicWithinBudget(decodeBase64(encodedData));
+    const blockCount = schematic.blockCount();
+    const blockEntityCount = countBlockEntities(schematic);
+
+    const preview = await meshSchematic(schematic, pack, request);
+    if (!preview) {
+      return;
     }
 
-    const data = decodeBase64(encodedData);
-    inspectCompressedLitematic(new Uint8Array(data));
-    parsedSchematic = new SchematicWrapper();
-    parsedSchematic.from_litematic(new Uint8Array(data));
-    const blockCount = parsedSchematic.get_block_count();
-    const blockEntityCount = parsedSchematic.get_all_block_entities().length;
-    assertParsedSchematicWithinBudget({
-      blockCount,
-      dimensions: parsedSchematic.get_dimensions(),
-      volume: parsedSchematic.get_volume(),
-    });
+    await viewer.loadGlb(preview.glb);
     if (request !== latestLoadRequest) {
       return;
     }
 
-    const schematicToLoad = parsedSchematic;
-    if (!schematicToLoad) {
-      throw new Error("The schematic parser did not produce a schematic.");
-    }
-
-    const shouldPresent = await withQuickLookTimerBackedAnimationFrames(async () => {
-      await manager.removeAllSchematics();
-      if (request !== latestLoadRequest) {
-        return false;
-      }
-
-      await manager.loadSchematic(name, schematicToLoad, undefined, {
-        onProgress: ({ message }) => {
-          if (request === latestLoadRequest) {
-            setStatus("Building preview", message);
-          }
-        },
-      });
-      schematicTransferred = true;
-
-      if (request !== latestLoadRequest) {
-        return false;
-      }
-
-      const schematic = manager.getSchematic(name);
-      if (!schematic) {
-        throw new Error("The schematic renderer did not retain the loaded schematic.");
-      }
-
-      if (request === latestLoadRequest) {
-        setStatus("Building preview", "Preparing block geometry…");
-      }
-      await schematic.getMeshes();
-      return true;
-    });
-
-    if (!shouldPresent || request !== latestLoadRequest) {
-      return;
-    }
-
-    await renderer.cameraManager.focusOnSchematics({
-      animationDuration: 0,
-      padding: 1.18,
-      useTightBounds: true,
-    });
-
-    presentRendererFrame(renderer);
-    if (request !== latestLoadRequest) {
-      return;
-    }
-
-    const dimensions = formatDimensions(renderer.getSchematicDimensions(name));
-    showPreviewMetadata(name, dimensions, blockCount, blockEntityCount);
+    showPreviewMetadata(name, preview.dimensions, blockCount, blockEntityCount);
     postNativeMessage({ type: "loaded", detail: name });
   } catch (error) {
     const normalized = normalizeError(error);
@@ -229,56 +126,110 @@ async function renderSchematic(request: number, name: string, encodedData: strin
       showLoadError(normalized.message);
     }
     throw normalized;
-  } finally {
-    if (parsedSchematic && !schematicTransferred) {
-      parsedSchematic.free();
-    }
   }
 }
 
-async function completeRendererInitialization(renderer: SchematicRenderer): Promise<void> {
+interface MeshedPreview {
+  dimensions: [number, number, number];
+  glb: ArrayBuffer;
+}
+
+/**
+ * Thrown when Nucleation cannot build geometry for a schematic that passed the
+ * block budget.
+ *
+ * Block count is a poor predictor of mesh size: 8.4 million blocks of solid
+ * stone mesh into half a million triangles, while a 6.5 million block
+ * checkerboard exhausts the mesher. Nucleation reports that exhaustion as a
+ * WebAssembly trap rather than an error value, so the only reliable handling is
+ * to treat any meshing failure as "too detailed to preview".
+ */
+class SchematicComplexityError extends Error {
+  override name = "SchematicComplexityError";
+
+  constructor(options?: ErrorOptions) {
+    super(
+      "This schematic has too much visible surface to preview. Its block geometry exceeds what the renderer can build.",
+      options,
+    );
+  }
+}
+
+/**
+ * Meshes the schematic into GLB bytes, or `undefined` once a newer load has
+ * superseded this one. Meshing is synchronous inside Nucleation and can run for
+ * seconds on large schematics, so the status line is painted and given a turn of
+ * the event loop before the thread is blocked.
+ */
+async function meshSchematic(
+  schematic: Schematic,
+  pack: ResourcePack,
+  request: number,
+): Promise<MeshedPreview | undefined> {
+  await paintStatus("Building preview", "Preparing block geometry…");
+  if (request !== latestLoadRequest) {
+    return undefined;
+  }
+
   try {
-    await loadBundledResourcePackIntoCubane(renderer.cubane);
-    configureQuickLookLighting(renderer);
+    const mesh = MeshResult.create(schematic, pack, MeshConfig.create());
+    const bounds = mesh.bounds();
+    // Litematica regions are padded to whole chunks, so the declared region size
+    // overstates the schematic. The geometry bounds describe what is drawn, and
+    // one world unit is one block.
+    const dimensions: [number, number, number] = [
+      Math.round(bounds.maxX - bounds.minX),
+      Math.round(bounds.maxY - bounds.minY),
+      Math.round(bounds.maxZ - bounds.minZ),
+    ];
+
+    await paintStatus("Building preview", "Preparing preview…");
+    if (request !== latestLoadRequest) {
+      return undefined;
+    }
+
+    const glb = decodeBase64(mesh.glbDataB64());
+    return { dimensions, glb: glb.buffer as ArrayBuffer };
   } catch (error) {
-    renderer.dispose();
-    failRendererInitialization(normalizeError(error));
-    return;
+    throw new SchematicComplexityError({ cause: error });
   }
-
-  if (rendererInitializationSettled) {
-    renderer.dispose();
-    return;
-  }
-
-  rendererInitializationSettled = true;
-  window.clearTimeout(rendererInitializationTimeout);
-  resolveRenderer(renderer);
-  setStatus("Ready", "Waiting for a .litematic file…");
-  postNativeMessage({ type: "ready" });
 }
 
-function failRendererInitialization(error: Error): void {
-  if (rendererInitializationSettled) {
+/**
+ * Updates the status line, then waits for the compositor to present it.
+ * Deliberately a timer rather than an animation frame: Quick Look suspends
+ * animation callbacks while a preview is offscreen, which would hang this path.
+ */
+async function paintStatus(title: string, detail: string): Promise<void> {
+  setStatus(title, detail);
+  await new Promise<void>((resolve) => {
+    window.setTimeout(() => resolve(), 0);
+  });
+}
+
+function countBlockEntities(schematic: Schematic): number {
+  const blockEntities: unknown = JSON.parse(schematic.getAllBlockEntitiesJson());
+  return Array.isArray(blockEntities) ? blockEntities.length : 0;
+}
+
+function failInitialization(error: Error): void {
+  if (initializationSettled) {
     return;
   }
 
-  rendererInitializationSettled = true;
-  window.clearTimeout(rendererInitializationTimeout);
-  rejectRenderer(error);
+  initializationSettled = true;
+  window.clearTimeout(initializationTimeout);
   showFatalError(error.message);
 }
 
 function showPreviewMetadata(
   name: string,
-  dimensions: [number, number, number] | undefined,
+  dimensions: [number, number, number],
   blockCount: number,
   blockEntityCount: number,
 ): void {
   fileName.textContent = name;
-  fileDimensions.textContent = dimensions
-    ? `${dimensions[0]} × ${dimensions[1]} × ${dimensions[2]}`
-    : "Litematica schematic";
+  fileDimensions.textContent = `${dimensions[0]} × ${dimensions[1]} × ${dimensions[2]}`;
   fileBlockCount.textContent = `${blockCount.toLocaleString()} blocks`;
   fileBlockEntities.textContent = `${blockEntityCount.toLocaleString()} block entities`;
   fileInfo.hidden = false;

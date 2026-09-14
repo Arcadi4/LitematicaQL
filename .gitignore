@@ -73,7 +73,6 @@ build/
 
 # renderer
 Renderer/node_modules/
-Renderer/public/pack.zip
 Renderer/coverage/
 Resources/Renderer/index.html
 Resources/Renderer/pack.zip
