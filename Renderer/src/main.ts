@@ -20,14 +20,20 @@
 import { MeshConfig, MeshResult, ResourcePack, type Schematic } from "nucleation";
 import { decodeBase64, postNativeMessage } from "./bridge";
 import { loadBundledResourcePack } from "./resource-pack";
-import { parseSchematicWithinBudget } from "./schematic-limits";
+import {
+  decodeSchematic,
+  displayNameForFileName,
+  formatForFileName,
+  supportedFileExtensionList,
+} from "./schematic-formats";
+import { SchematicComplexityError, SchematicFormatError } from "./schematic-limits";
 import { SchematicViewer } from "./viewer";
 import "./style.css";
 
 declare global {
   interface Window {
     litematicaQL: {
-      loadSchematic(name: string, encodedData: string): Promise<void>;
+      loadSchematic(fileName: string, encodedData: string): Promise<void>;
     };
   }
 }
@@ -61,12 +67,13 @@ let latestLoadRequest = 0;
 let loadQueue: Promise<void> = Promise.resolve();
 
 window.litematicaQL = {
-  loadSchematic(name: string, encodedData: string): Promise<void> {
+  loadSchematic(fileName: string, encodedData: string): Promise<void> {
     const request = ++latestLoadRequest;
+    const displayName = displayNameForFileName(fileName);
     setStatus("Opening schematic", "Reading compressed block data…");
-    postNativeMessage({ type: "loading", detail: name });
+    postNativeMessage({ type: "loading", detail: displayName });
 
-    const load = loadQueue.then(() => renderSchematic(request, name, encodedData));
+    const load = loadQueue.then(() => renderSchematic(request, fileName, encodedData));
     loadQueue = load.catch(() => undefined);
     return load;
   },
@@ -85,7 +92,7 @@ async function initializeResourcePack(): Promise<ResourcePack> {
     if (!initializationSettled) {
       initializationSettled = true;
       window.clearTimeout(initializationTimeout);
-      setStatus("Ready", "Waiting for a .litematic file…");
+      setStatus("Ready", "Waiting for a schematic file…");
       postNativeMessage({ type: "ready" });
     }
 
@@ -97,14 +104,32 @@ async function initializeResourcePack(): Promise<ResourcePack> {
   }
 }
 
-async function renderSchematic(request: number, name: string, encodedData: string): Promise<void> {
+async function renderSchematic(
+  request: number,
+  fileName: string,
+  encodedData: string,
+): Promise<void> {
   try {
     const pack = await resourcePackReady;
     if (request !== latestLoadRequest) {
       return;
     }
 
-    const schematic = parseSchematicWithinBudget(decodeBase64(encodedData));
+    const format = formatForFileName(fileName);
+    if (!format) {
+      throw new SchematicFormatError(
+        `LitematicaQL can preview ${supportedFileExtensionList} files.`,
+      );
+    }
+
+    // Converting and decoding both block the thread for large files, so the
+    // status is on screen before either runs.
+    await paintStatus("Opening schematic", "Decoding block data…");
+    if (request !== latestLoadRequest) {
+      return;
+    }
+
+    const schematic = decodeSchematic(format, decodeBase64(encodedData));
     const blockCount = schematic.blockCount();
     const blockEntityCount = countBlockEntities(schematic);
 
@@ -118,8 +143,9 @@ async function renderSchematic(request: number, name: string, encodedData: strin
       return;
     }
 
-    showPreviewMetadata(name, preview.dimensions, blockCount, blockEntityCount);
-    postNativeMessage({ type: "loaded", detail: name });
+    const displayName = displayNameForFileName(fileName);
+    showPreviewMetadata(displayName, preview.dimensions, blockCount, blockEntityCount);
+    postNativeMessage({ type: "loaded", detail: displayName });
   } catch (error) {
     const normalized = normalizeError(error);
     if (request === latestLoadRequest) {
@@ -132,27 +158,6 @@ async function renderSchematic(request: number, name: string, encodedData: strin
 interface MeshedPreview {
   dimensions: [number, number, number];
   glb: ArrayBuffer;
-}
-
-/**
- * Thrown when Nucleation cannot build geometry for a schematic that passed the
- * block budget.
- *
- * Block count is a poor predictor of mesh size: 8.4 million blocks of solid
- * stone mesh into half a million triangles, while a 6.5 million block
- * checkerboard exhausts the mesher. Nucleation reports that exhaustion as a
- * WebAssembly trap rather than an error value, so the only reliable handling is
- * to treat any meshing failure as "too detailed to preview".
- */
-class SchematicComplexityError extends Error {
-  override name = "SchematicComplexityError";
-
-  constructor(options?: ErrorOptions) {
-    super(
-      "This schematic has too much visible surface to preview. Its block geometry exceeds what the renderer can build.",
-      options,
-    );
-  }
 }
 
 /**
@@ -191,7 +196,15 @@ async function meshSchematic(
     const glb = decodeBase64(mesh.glbDataB64());
     return { dimensions, glb: glb.buffer as ArrayBuffer };
   } catch (error) {
-    throw new SchematicComplexityError({ cause: error });
+    // Block count is a poor predictor of mesh size: 8.4 million blocks of solid
+    // stone mesh into half a million triangles, while a 6.5 million block
+    // checkerboard exhausts the mesher. Nucleation reports that exhaustion as a
+    // WebAssembly trap rather than an error value, so the only reliable handling
+    // is to treat any meshing failure as "too detailed to preview".
+    throw new SchematicComplexityError(
+      "This schematic has too much visible surface to preview. Its block geometry exceeds what the renderer can build.",
+      { cause: error },
+    );
   }
 }
 
