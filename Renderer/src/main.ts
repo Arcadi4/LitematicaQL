@@ -4,6 +4,7 @@
 
 import { MeshConfig, MeshResult, ResourcePack, type Schematic } from "nucleation";
 import { decodeBase64, postNativeMessage } from "./bridge";
+import { measuredDimensions } from "./schematic-limits";
 import { loadBundledResourcePack } from "./resource-pack";
 import {
   decodeSchematic,
@@ -50,6 +51,15 @@ window.addEventListener("resize", () => {
 
 let latestLoadRequest = 0;
 let loadQueue: Promise<void> = Promise.resolve();
+
+/**
+ * Builds beyond this many non-empty blocks mesh for a noticeable while, so
+ * their window presents immediately with a render notice instead of holding
+ * back until the first frame exists.
+ */
+const immediateRenderNoticeBlocks = 1_048_576;
+const largeRenderStatusTitle = "Building preview";
+const largeRenderStatusDetail = "This schematic is large — rendering it will take a while.";
 
 window.litematicaQL = {
   loadSchematic(fileName: string, encodedData: string): Promise<void> {
@@ -117,6 +127,30 @@ async function renderSchematic(
     const schematic = decodeSchematic(format, decodeBase64(encodedData));
     const blockCount = schematic.blockCount();
     const blockEntityCount = countBlockEntities(schematic);
+    const displayName = displayNameForFileName(fileName);
+
+    // Meshing is synchronous wasm and can hold the thread for minutes on a
+    // large build, and Quick Look presents the window only once this call
+    // resolves. Builds past the notice threshold therefore hand the window
+    // over immediately — file facts and a render notice on screen — and
+    // finish the geometry in the background.
+    if (blockCount > immediateRenderNoticeBlocks) {
+      showDeferredRenderNotice(
+        displayName,
+        measuredDimensions(schematic),
+        blockCount,
+        blockEntityCount,
+      );
+      void renderLargeSchematic(
+        request,
+        schematic,
+        pack,
+        displayName,
+        blockCount,
+        blockEntityCount,
+      );
+      return;
+    }
 
     const preview = await meshSchematic(schematic, pack, request);
     if (!preview) {
@@ -128,7 +162,6 @@ async function renderSchematic(
       return;
     }
 
-    const displayName = displayNameForFileName(fileName);
     showPreviewMetadata(displayName, preview.dimensions, blockCount, blockEntityCount);
     postNativeMessage({ type: "loaded", detail: displayName });
   } catch (error) {
@@ -146,6 +179,71 @@ interface MeshedPreview {
 }
 
 /**
+ * Finishes a large build off the critical path after the window has presented.
+ *
+ * The caller has already shown the render notice, so this reports outcome
+ * through the same panels: the mesh replaces the notice on success, and a
+ * mesher exhaustion — a WebAssembly trap, so indistinguishable from any other
+ * meshing failure — downgrades the notice to the preview-unavailable error.
+ */
+async function renderLargeSchematic(
+  request: number,
+  schematic: Schematic,
+  pack: ResourcePack,
+  displayName: string,
+  blockCount: number,
+  blockEntityCount: number,
+): Promise<void> {
+  try {
+    // Hand the compositor a turn so the render notice is on screen before the
+    // mesher blocks the thread; the notice stays up while it runs, so the
+    // mesher's own staged statuses stay silent.
+    await paintStatus(largeRenderStatusTitle, largeRenderStatusDetail);
+    const preview = await meshSchematic(schematic, pack, request, false);
+    if (!preview || request !== latestLoadRequest) {
+      return;
+    }
+
+    await viewer.loadGlb(preview.glb);
+    if (request !== latestLoadRequest) {
+      return;
+    }
+
+    showPreviewMetadata(displayName, preview.dimensions, blockCount, blockEntityCount);
+    postNativeMessage({ type: "loaded", detail: displayName });
+  } catch (error) {
+    if (request !== latestLoadRequest) {
+      return;
+    }
+    const normalized = normalizeError(error);
+    if (normalized instanceof SchematicComplexityError) {
+      showLoadError(normalized.message);
+      return;
+    }
+    showFatalError(normalized.message);
+  }
+}
+
+/**
+ * The large-build variant of the metadata panel: the file facts go up at once
+ * and the render note occupies the status line until geometry replaces it.
+ */
+function showDeferredRenderNotice(
+  name: string,
+  dimensions: [number, number, number],
+  blockCount: number,
+  blockEntityCount: number,
+): void {
+  fileName.textContent = name;
+  fileDimensions.textContent = `${dimensions[0]} × ${dimensions[1]} × ${dimensions[2]}`;
+  fileBlockCount.textContent = `${blockCount.toLocaleString()} blocks`;
+  fileBlockEntities.textContent = `${blockEntityCount.toLocaleString()} block entities`;
+  fileInfo.hidden = false;
+  controlsHint.hidden = false;
+  setStatus(largeRenderStatusTitle, largeRenderStatusDetail);
+}
+
+/**
  * Meshes the schematic into GLB bytes, or `undefined` once a newer load has
  * superseded this one. Meshing is synchronous inside Nucleation and can run for
  * seconds on large schematics, so the status line is painted and given a turn of
@@ -155,8 +253,11 @@ async function meshSchematic(
   schematic: Schematic,
   pack: ResourcePack,
   request: number,
+  announce = true,
 ): Promise<MeshedPreview | undefined> {
-  await paintStatus("Building preview", "Preparing block geometry…");
+  if (announce) {
+    await paintStatus("Building preview", "Preparing block geometry…");
+  }
   if (request !== latestLoadRequest) {
     return undefined;
   }
@@ -173,7 +274,9 @@ async function meshSchematic(
       Math.round(bounds.maxZ - bounds.minZ),
     ];
 
-    await paintStatus("Building preview", "Preparing preview…");
+    if (announce) {
+      await paintStatus("Building preview", "Preparing preview…");
+    }
     if (request !== latestLoadRequest) {
       return undefined;
     }
