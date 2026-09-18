@@ -14,9 +14,11 @@
 		30C3D1AAE7FD8EE28D936E95 /* Demos in Resources */ = {isa = PBXBuildFile; fileRef = D28BABB57DAE08167DFAF8C2 /* Demos */; };
 		56E79A79AE7C05498E4232D6 /* third-party in Resources */ = {isa = PBXBuildFile; fileRef = 2F6741452205E046F4F50561 /* third-party */; };
 		70B47465CEBA091BC564C754 /* PreviewViewController.swift in Sources */ = {isa = PBXBuildFile; fileRef = 17496F839D28E34831AB119E /* PreviewViewController.swift */; };
+		80288D53EF9101EBA4C148B4 /* NativeSchematic.swift in Sources */ = {isa = PBXBuildFile; fileRef = 1731D039E39C96CBA090B26A /* NativeSchematic.swift */; };
 		86AFB07660A66D67DEAE659E /* WebKit.framework in Frameworks */ = {isa = PBXBuildFile; fileRef = ED77B0D181D2D767E5420A81 /* WebKit.framework */; };
 		8DDB3175C751D9EF40842D1C /* SchematicWebViewController.swift in Sources */ = {isa = PBXBuildFile; fileRef = 1924DBDB3F04157805F1A0A7 /* SchematicWebViewController.swift */; };
 		90618732273EDA23FB0CAAFD /* LitematicFile.swift in Sources */ = {isa = PBXBuildFile; fileRef = B1A1925EDAA8DE5EC973D716 /* LitematicFile.swift */; };
+		CD94D49BF943C5BD005563F0 /* NativeSchematic.swift in Sources */ = {isa = PBXBuildFile; fileRef = 1731D039E39C96CBA090B26A /* NativeSchematic.swift */; };
 		D4DB61D9A64F80304E7B25BD /* LitematicaQL.icon in Resources */ = {isa = PBXBuildFile; fileRef = F74465552D8FB63AFA213C81 /* LitematicaQL.icon */; };
 		D5D90087572EE64C50B2311C /* LitematicaQLApp.swift in Sources */ = {isa = PBXBuildFile; fileRef = 47F2DA4055F7517863368E23 /* LitematicaQLApp.swift */; };
 		EBC89290D891707B8BA85B85 /* LitematicaQLPreview.appex in Embed Foundation Extensions */ = {isa = PBXBuildFile; fileRef = DA17F55FCEA9A62E5785DFBD /* LitematicaQLPreview.appex */; settings = {ATTRIBUTES = (RemoveHeadersOnCopy, ); }; };
@@ -52,6 +54,7 @@
 
 /* Begin PBXFileReference section */
 		10189E9EF5A7E6B3EDEDA12E /* Info.plist */ = {isa = PBXFileReference; lastKnownFileType = text.plist; path = Info.plist; sourceTree = "<group>"; };
+		1731D039E39C96CBA090B26A /* NativeSchematic.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = NativeSchematic.swift; sourceTree = "<group>"; };
 		17496F839D28E34831AB119E /* PreviewViewController.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = PreviewViewController.swift; sourceTree = "<group>"; };
 		1924DBDB3F04157805F1A0A7 /* SchematicWebViewController.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SchematicWebViewController.swift; sourceTree = "<group>"; };
 		2F6741452205E046F4F50561 /* third-party */ = {isa = PBXFileReference; lastKnownFileType = folder; name = "third-party"; path = "Renderer/third-party"; sourceTree = SOURCE_ROOT; };
@@ -89,6 +92,7 @@
 			isa = PBXGroup;
 			children = (
 				B1A1925EDAA8DE5EC973D716 /* LitematicFile.swift */,
+				1731D039E39C96CBA090B26A /* NativeSchematic.swift */,
 				1924DBDB3F04157805F1A0A7 /* SchematicWebViewController.swift */,
 			);
 			path = Shared;
@@ -201,6 +205,7 @@
 			isa = PBXNativeTarget;
 			buildConfigurationList = AD3862D800492BB80FC224F6 /* Build configuration list for PBXNativeTarget "LitematicaQLPreview" */;
 			buildPhases = (
+				C01DE039033F0D4FC13FF62D /* Build native bridge */,
 				3FC708885A9A432030F93CB8 /* Sources */,
 				877AF38210A434D28FC6256B /* Resources */,
 				B172F89B91AE2D8FCE8A1CB7 /* Frameworks */,
@@ -275,12 +280,37 @@
 		};
 /* End PBXResourcesBuildPhase section */
 
+/* Begin PBXShellScriptBuildPhase section */
+		C01DE039033F0D4FC13FF62D /* Build native bridge */ = {
+			isa = PBXShellScriptBuildPhase;
+			buildActionMask = 2147483647;
+			files = (
+			);
+			inputFileListPaths = (
+			);
+			inputPaths = (
+				"$(SRCROOT)/Native/Cargo.toml",
+			);
+			name = "Build native bridge";
+			outputFileListPaths = (
+			);
+			outputPaths = (
+				"$(SRCROOT)/Native/build/liblitematicaql_native_arm64.a",
+				"$(SRCROOT)/Native/build/liblitematicaql_native_x86_64.a",
+			);
+			runOnlyForDeploymentPostprocessing = 0;
+			shellPath = /bin/sh;
+			shellScript = "\"$SRCROOT/Native/build.sh\"";
+		};
+/* End PBXShellScriptBuildPhase section */
+
 /* Begin PBXSourcesBuildPhase section */
 		3FC708885A9A432030F93CB8 /* Sources */ = {
 			isa = PBXSourcesBuildPhase;
 			buildActionMask = 2147483647;
 			files = (
 				90618732273EDA23FB0CAAFD /* LitematicFile.swift in Sources */,
+				CD94D49BF943C5BD005563F0 /* NativeSchematic.swift in Sources */,
 				70B47465CEBA091BC564C754 /* PreviewViewController.swift in Sources */,
 				FE305FF6BBDCD4E388B35F45 /* SchematicWebViewController.swift in Sources */,
 			);
@@ -294,6 +324,7 @@
 				14DEA5793F46839DF279BBB6 /* LitematicFile.swift in Sources */,
 				D5D90087572EE64C50B2311C /* LitematicaQLApp.swift in Sources */,
 				148CF4887D755F0579EAF8F8 /* LitematicaType.swift in Sources */,
+				80288D53EF9101EBA4C148B4 /* NativeSchematic.swift in Sources */,
 				28AECF0A29A72768BD93CD6F /* SchematicWebView.swift in Sources */,
 				8DDB3175C751D9EF40842D1C /* SchematicWebViewController.swift in Sources */,
 			);
@@ -322,10 +353,13 @@
 					"@executable_path/../Frameworks",
 					"@executable_path/../../../../Frameworks",
 				);
+				LIBRARY_SEARCH_PATHS = "$(SRCROOT)/Native/build";
+				OTHER_LDFLAGS = "-llitematicaql_native_$(CURRENT_ARCH)";
 				PRODUCT_BUNDLE_IDENTIFIER = moe.arcadia.LitematicaQL.PreviewExtension;
 				PRODUCT_NAME = LitematicaQLPreview;
 				SDKROOT = macosx;
 				SKIP_INSTALL = YES;
+				SWIFT_INCLUDE_PATHS = "$(SRCROOT)/Native/include";
 			};
 			name = Release;
 		};
@@ -340,9 +374,12 @@
 					"$(inherited)",
 					"@executable_path/../Frameworks",
 				);
+				LIBRARY_SEARCH_PATHS = "$(SRCROOT)/Native/build";
+				OTHER_LDFLAGS = "-llitematicaql_native_$(CURRENT_ARCH)";
 				PRODUCT_BUNDLE_IDENTIFIER = moe.arcadia.LitematicaQL;
 				PRODUCT_NAME = LitematicaQL;
 				SDKROOT = macosx;
+				SWIFT_INCLUDE_PATHS = "$(SRCROOT)/Native/include";
 			};
 			name = Debug;
 		};
@@ -357,9 +394,12 @@
 					"$(inherited)",
 					"@executable_path/../Frameworks",
 				);
+				LIBRARY_SEARCH_PATHS = "$(SRCROOT)/Native/build";
+				OTHER_LDFLAGS = "-llitematicaql_native_$(CURRENT_ARCH)";
 				PRODUCT_BUNDLE_IDENTIFIER = moe.arcadia.LitematicaQL;
 				PRODUCT_NAME = LitematicaQL;
 				SDKROOT = macosx;
+				SWIFT_INCLUDE_PATHS = "$(SRCROOT)/Native/include";
 			};
 			name = Release;
 		};
@@ -403,6 +443,7 @@
 				ENABLE_HARDENED_RUNTIME = YES;
 				ENABLE_STRICT_OBJC_MSGSEND = YES;
 				ENABLE_TESTABILITY = YES;
+				ENABLE_USER_SCRIPT_SANDBOXING = NO;
 				GCC_C_LANGUAGE_STANDARD = gnu11;
 				GCC_DYNAMIC_NO_PIC = NO;
 				GCC_NO_COMMON_BLOCKS = YES;
@@ -471,6 +512,7 @@
 				ENABLE_HARDENED_RUNTIME = YES;
 				ENABLE_NS_ASSERTIONS = NO;
 				ENABLE_STRICT_OBJC_MSGSEND = YES;
+				ENABLE_USER_SCRIPT_SANDBOXING = NO;
 				GCC_C_LANGUAGE_STANDARD = gnu11;
 				GCC_NO_COMMON_BLOCKS = YES;
 				GCC_WARN_64_TO_32_BIT_CONVERSION = YES;
@@ -504,10 +546,13 @@
 					"@executable_path/../Frameworks",
 					"@executable_path/../../../../Frameworks",
 				);
+				LIBRARY_SEARCH_PATHS = "$(SRCROOT)/Native/build";
+				OTHER_LDFLAGS = "-llitematicaql_native_$(CURRENT_ARCH)";
 				PRODUCT_BUNDLE_IDENTIFIER = moe.arcadia.LitematicaQL.PreviewExtension;
 				PRODUCT_NAME = LitematicaQLPreview;
 				SDKROOT = macosx;
 				SKIP_INSTALL = YES;
+				SWIFT_INCLUDE_PATHS = "$(SRCROOT)/Native/include";
 			};
 			name = Debug;
 		};

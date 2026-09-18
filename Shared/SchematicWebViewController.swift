@@ -15,8 +15,8 @@ final class SchematicWebViewController: NSViewController {
     }
 
     private static let messageHandlerName = "litematicaQL"
-    private static let resourcePackHandlerName = "litematicaQLResourcePack"
     private static let contentRuleIdentifier = "moe.arcadia.LitematicaQL.offline"
+    private static let glbURL = URL(string: "lql-glb://preview/mesh.glb")
     private static let logger = Logger(
         subsystem: "moe.arcadia.LitematicaQL",
         category: "Renderer"
@@ -29,12 +29,23 @@ final class SchematicWebViewController: NSViewController {
         ]
         """#
 
+    // Builds past this many non-empty blocks mesh for a noticeable while, so
+    // their window presents immediately with a render notice instead of
+    // holding back until the first frame exists.
+    private static let immediateRenderNoticeBlocks = 1_048_576
+
     private var pageState: PageState = .loading
     private var bootstrapTimeoutTask: Task<Void, Never>?
     private var configurationTask: Task<Void, Never>?
     private var readyWaiters: [UUID: CheckedContinuation<Void, any Error>] = [:]
     private var rendererDirectory: URL?
     private var webView: WKWebView?
+
+    // Increments on every load so a superseded background mesh abandons its
+    // result instead of painting it over the newer load.
+    private var loadGeneration = 0
+
+    private let glbHandler = GLBResourceHandler()
 
     override func loadView() {
         let containerView = NSView()
@@ -60,7 +71,7 @@ final class SchematicWebViewController: NSViewController {
                 guard let self, case .loading = self.pageState else {
                     return
                 }
-                configureWebView(contentRuleList: contentRuleList)
+                self.configureWebView(contentRuleList: contentRuleList)
             } catch is CancellationError {
                 return
             } catch {
@@ -83,11 +94,9 @@ final class SchematicWebViewController: NSViewController {
             WeakScriptMessageHandler(delegate: self),
             name: Self.messageHandlerName
         )
-        configuration.userContentController.addScriptMessageHandler(
-            WeakReplyScriptMessageHandler(delegate: self),
-            contentWorld: .page,
-            name: Self.resourcePackHandlerName
-        )
+        // The mesh crosses to the page as raw bytes over a custom scheme,
+        // never as a base64 string.
+        configuration.setURLSchemeHandler(glbHandler, forURLScheme: "lql-glb")
         configuration.userContentController.addUserScript(
             WKUserScript(
                 source: Self.javaScriptDiagnostics,
@@ -112,42 +121,154 @@ final class SchematicWebViewController: NSViewController {
         loadRendererPage()
     }
 
+    // Presents the preview for a schematic file.
+    //
+    // Decoding and meshing run natively off the main thread. Content refusals
+    // (unreadable files, oversized builds, exhausted meshes) resolve inside
+    // the page as panels, because Quick Look discards this window entirely
+    // when the call throws. Only infrastructure failures throw.
     func preparePreview(of url: URL) async throws {
         _ = view
         try Task.checkCancellation()
 
-        let dataTask = Task.detached(priority: .userInitiated) {
+        try await waitUntilReady()
+        try Task.checkCancellation()
+
+        let data = try await Task.detached(priority: .userInitiated) {
             try LitematicFile.readValidatedData(from: url)
+        }.value
+        try Task.checkCancellation()
+
+        guard let rendererDirectory else {
+            throw PreviewInfrastructureError.missingRenderer
         }
+        let pack = try await Task.detached(priority: .userInitiated) {
+            try SchematicWebViewController.loadResourcePack(from: rendererDirectory)
+        }.value
+        try Task.checkCancellation()
 
-        do {
-            try await waitUntilReady()
-            try Task.checkCancellation()
-            let data = try await dataTask.value
-            try Task.checkCancellation()
-            let encodedData = await Task.detached(priority: .userInitiated) {
-                data.base64EncodedString()
-            }.value
-            try Task.checkCancellation()
+        loadGeneration += 1
+        let generation = loadGeneration
+        let displayName = url.lastPathComponent
+        let handler = glbHandler
 
-            guard let webView else {
-                throw PreviewInfrastructureError.missingRenderer
-            }
-
-            _ = try await webView.callAsyncJavaScript(
-                "return window.litematicaQL.loadSchematic(fileName, encodedData);",
-                arguments: [
-                    "fileName": url.lastPathComponent,
-                    "encodedData": encodedData,
-                ],
-                in: nil,
-                contentWorld: .page
+        Task.detached(priority: .userInitiated) {
+            await self.runNativeLoad(
+                data: data,
+                pack: pack,
+                displayName: displayName,
+                generation: generation,
+                handler: handler
             )
-            try Task.checkCancellation()
-        } catch {
-            dataTask.cancel()
-            throw error
         }
+    }
+
+    // Drives decode, metadata, mesh, and display for one load.
+    //
+    // The whole flow runs on one background task because the native handle
+    // must stay on the thread that opened it.
+    private nonisolated func runNativeLoad(
+        data: Data,
+        pack: Data,
+        displayName: String,
+        generation: Int,
+        handler: GLBResourceHandler
+    ) async {
+        let session = NativeSchematicSession()
+        do {
+            let facts = try session.decode(data)
+            guard await isCurrentLoad(generation) else { return }
+            await presentDecoded(
+                displayName: displayName,
+                facts: facts,
+                large: facts.blockCount > Self.immediateRenderNoticeBlocks
+            )
+
+            let mesh = try session.mesh(pack: pack)
+            handler.store(mesh.glb)
+            guard await isCurrentLoad(generation) else {
+                handler.clear()
+                return
+            }
+            await presentMesh(displayName: displayName, triangles: mesh.triangleCount)
+        } catch let refusal as NativeSchematicRefusal {
+            guard await isCurrentLoad(generation) else { return }
+            await presentRefusal(refusal.message)
+        } catch {
+            guard await isCurrentLoad(generation) else { return }
+            await presentRefusal(
+                "Something went wrong while reading this schematic."
+            )
+        }
+    }
+
+    // Whether `generation` is still the load the window should show.
+    private func isCurrentLoad(_ generation: Int) -> Bool {
+        guard loadGeneration == generation else {
+            return false
+        }
+        if case .ready = pageState {
+            return true
+        }
+        return false
+    }
+
+    private func presentDecoded(
+        displayName: String,
+        facts: NativeSchematicFacts,
+        large: Bool
+    ) async {
+        guard let webView else { return }
+        let dimensions = facts.contentDimensions
+        _ = try? await webView.callAsyncJavaScript(
+            "return window.litematicaQL.loadMeta(info);",
+            arguments: [
+                "info": [
+                    "name": displayName,
+                    "dimensions": "\(dimensions.0) × \(dimensions.1) × \(dimensions.2)",
+                    "blockCount": facts.blockCount,
+                    "blockEntityCount": facts.blockEntityCount,
+                    "large": large,
+                ]
+            ],
+            in: nil,
+            contentWorld: .page
+        )
+    }
+
+    private func presentMesh(displayName: String, triangles: Int) async {
+        guard let webView else { return }
+        _ = try? await webView.callAsyncJavaScript(
+            "return window.litematicaQL.meshReady(info);",
+            arguments: [
+                "info": [
+                    "name": displayName,
+                    "triangles": triangles,
+                    "url": Self.glbURL?.absoluteString ?? "",
+                ]
+            ],
+            in: nil,
+            contentWorld: .page
+        )
+    }
+
+    private func presentRefusal(_ message: String) async {
+        guard let webView else { return }
+        _ = try? await webView.callAsyncJavaScript(
+            "return window.litematicaQL.loadError(message);",
+            arguments: ["message": message],
+            in: nil,
+            contentWorld: .page
+        )
+    }
+
+    private nonisolated static func loadResourcePack(from directory: URL) throws -> Data {
+        let resourcePackURL = directory.appendingPathComponent("pack.zip")
+        let data = try Data(contentsOf: resourcePackURL, options: .mappedIfSafe)
+        guard data.starts(with: [0x50, 0x4B]) else {
+            throw PreviewInfrastructureError.invalidResourcePack
+        }
+        return data
     }
 
     private func loadRendererPage() {
@@ -354,32 +475,69 @@ extension SchematicWebViewController: WKScriptMessageHandler {
     }
 }
 
-extension SchematicWebViewController: WKScriptMessageHandlerWithReply {
-    func userContentController(
-        _: WKUserContentController,
-        didReceive message: WKScriptMessage
-    ) async -> (Any?, String?) {
-        guard message.name == Self.resourcePackHandlerName,
-              let payload = message.body as? [String: Any],
-              payload["type"] as? String == "resourcePack",
-              let rendererDirectory else {
-            return (nil, PreviewInfrastructureError.invalidResourcePackRequest.localizedDescription)
+// Serves the meshed GLB to the page over the `lql-glb` custom scheme.
+//
+// The mesh lands here from a background task and is read back by WebKit's
+// loader thread, so access goes through a lock; the class is its own
+// synchronization.
+final class GLBResourceHandler: NSObject, WKURLSchemeHandler, @unchecked Sendable {
+    private let lock = NSLock()
+    private var glb: Data?
+
+    // Publishes the mesh the page should fetch, replacing any stale one.
+    nonisolated func store(_ data: Data) {
+        lock.lock()
+        defer { lock.unlock() }
+        glb = data
+    }
+
+    // Drops the mesh when a superseded load must not serve stale geometry.
+    nonisolated func clear() {
+        lock.lock()
+        defer { lock.unlock() }
+        glb = nil
+    }
+
+    func webView(_: WKWebView, start task: WKURLSchemeTask) {
+        guard let url = task.request.url,
+              url.scheme == "lql-glb",
+              url.host == "preview",
+              url.path == "/mesh.glb" else {
+            task.didFailWithError(URLError(.fileDoesNotExist))
+            return
         }
 
-        let resourcePackURL = rendererDirectory.appendingPathComponent("pack.zip")
-        do {
-            let encodedData = try await Task.detached(priority: .userInitiated) {
-                let data = try Data(contentsOf: resourcePackURL, options: .mappedIfSafe)
-                guard data.starts(with: [0x50, 0x4B]) else {
-                    throw PreviewInfrastructureError.invalidResourcePack
-                }
-                return data.base64EncodedString()
-            }.value
-            return (encodedData, nil)
-        } catch {
-            Self.logger.error("Unable to bridge resource pack: \(error.localizedDescription, privacy: .public)")
-            return (nil, error.localizedDescription)
+        lock.lock()
+        let data = glb
+        lock.unlock()
+
+        guard let data else {
+            task.didFailWithError(URLError(.fileDoesNotExist))
+            return
         }
+
+        // The page origin is `file://`, so the response must opt into CORS or
+        // the fetch is refused.
+        let response = HTTPURLResponse(
+            url: url,
+            statusCode: 200,
+            httpVersion: "HTTP/1.1",
+            headerFields: [
+                "Content-Type": "model/gltf-binary",
+                "Content-Length": String(data.count),
+                "Access-Control-Allow-Origin": "*",
+                "Cache-Control": "no-store",
+            ]
+        )
+        if let response {
+            task.didReceive(response)
+        }
+        task.didReceive(data)
+        task.didFinish()
+    }
+
+    func webView(_: WKWebView, stop _: WKURLSchemeTask) {
+        // Delivery is a single synchronous burst; nothing to unwind.
     }
 }
 
@@ -398,31 +556,8 @@ private final class WeakScriptMessageHandler: NSObject, WKScriptMessageHandler {
     }
 }
 
-private final class WeakReplyScriptMessageHandler: NSObject, WKScriptMessageHandlerWithReply {
-    private weak var delegate: WKScriptMessageHandlerWithReply?
-
-    init(delegate: WKScriptMessageHandlerWithReply) {
-        self.delegate = delegate
-    }
-
-    func userContentController(
-        _ userContentController: WKUserContentController,
-        didReceive message: WKScriptMessage
-    ) async -> (Any?, String?) {
-        guard let delegate else {
-            return (nil, "The native resource-pack bridge is unavailable.")
-        }
-
-        return await delegate.userContentController(
-            userContentController,
-            didReceive: message
-        )
-    }
-}
-
 private enum PreviewInfrastructureError: LocalizedError {
     case invalidResourcePack
-    case invalidResourcePackRequest
     case javaScript(String)
     case missingRenderer
     case offlineRulesUnavailable
@@ -433,8 +568,6 @@ private enum PreviewInfrastructureError: LocalizedError {
         switch self {
         case .invalidResourcePack:
             return "The bundled block resources are invalid. Rebuild the renderer assets and the app."
-        case .invalidResourcePackRequest:
-            return "The renderer made an invalid resource-pack request."
         case let .javaScript(message):
             return "The renderer failed: \(message)"
         case .missingRenderer:

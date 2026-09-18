@@ -2,13 +2,51 @@
 // Copyright (c) 2026 4rcadia
 // SPDX-License-Identifier: MIT
 
-import { describe, expect, it } from "vite-plus/test";
-import { decodeBase64 } from "./bridge";
+import { afterEach, describe, expect, it } from "vite-plus/test";
+import { postNativeMessage, type NativeBridgeMessage } from "./bridge";
 
-describe("decodeBase64", () => {
-  it("recreates arbitrary bytes", () => {
-    const bytes = new Uint8Array([0, 31, 139, 127, 128, 255]);
+const nativeHandler = (): {
+  messages: NativeBridgeMessage[];
+  install: () => void;
+  restore: () => void;
+} => {
+  const messages: NativeBridgeMessage[] = [];
+  const host = globalThis as unknown as { webkit?: unknown };
+  const original = host.webkit;
+  return {
+    messages,
+    install: () => {
+      host.webkit = {
+        messageHandlers: {
+          litematicaQL: {
+            postMessage: (message: NativeBridgeMessage) => {
+              messages.push(message);
+            },
+          },
+        },
+      };
+    },
+    restore: () => {
+      host.webkit = original;
+    },
+  };
+};
 
-    expect(decodeBase64("AB+Lf4D/")).toEqual(bytes);
+afterEach(() => {
+  (globalThis as unknown as { webkit?: unknown }).webkit = undefined;
+});
+
+describe("postNativeMessage", () => {
+  it("routes a message to the native handler", () => {
+    const harness = nativeHandler();
+    harness.install();
+
+    postNativeMessage({ type: "loaded", detail: "Cottage.litematic" });
+
+    expect(harness.messages).toEqual([{ type: "loaded", detail: "Cottage.litematic" }]);
+  });
+
+  it("does nothing without the native bridge", () => {
+    expect(() => postNativeMessage({ type: "loading", detail: "x" })).not.toThrow();
   });
 });

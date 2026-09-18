@@ -40,7 +40,7 @@ enum LitematicFile {
     ]
     static let maximumFileSize = 1_024 * 1_024 * 1_024
 
-    /// Dotted extension list in the same wording the renderer uses.
+    // Dotted extension list shown in the unsupported-extension error.
     static let extensionList = supportedFileExtensions
         .map { ".\($0)" }
         .formatted(.list(type: .and))
@@ -49,11 +49,10 @@ enum LitematicFile {
         supportedFileExtensions.contains(url.pathExtension.lowercased())
     }
 
-    /// Reads a file that passed the extension, regular-file, and size gates.
-    ///
-    /// Content is deliberately not validated here: the renderer owns every
-    /// format decision so it can report a failure in that format's own terms,
-    /// and several supported file formats are uncompressed.
+    // Reads a file that passed the extension, regular-file, and size gates.
+    //
+    // Content is not validated here. The native bridge owns every format
+    // decision, and several supported file formats are uncompressed.
     static func readValidatedData(from url: URL) throws -> Data {
         guard supports(url) else {
             throw LitematicFileError.unsupportedExtension

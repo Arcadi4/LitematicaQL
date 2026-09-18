@@ -166,12 +166,6 @@ importers:
 
   .:
     dependencies:
-      fflate:
-        specifier: 0.8.3
-        version: 0.8.3
-      nucleation:
-        specifier: 0.10.24
-        version: 0.10.24
       three:
         specifier: 0.184.0
         version: 0.184.0
@@ -182,6 +176,12 @@ importers:
       '@types/three':
         specifier: 0.184.0
         version: 0.184.0
+      fflate:
+        specifier: 0.8.3
+        version: 0.8.3
+      nucleation:
+        specifier: 0.10.24
+        version: 0.10.24
       typescript:
         specifier: 7.0.2
         version: 7.0.2
