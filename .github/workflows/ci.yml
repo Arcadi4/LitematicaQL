@@ -42,6 +42,16 @@ jobs:
           cache: pnpm
           cache-dependency-path: Renderer/pnpm-lock.yaml
 
+      - name: Set up Rust
+        uses: dtolnay/rust-toolchain@stable
+        with:
+          targets: aarch64-apple-darwin,x86_64-apple-darwin
+
+      - name: Cache Rust build
+        uses: Swatinem/rust-cache@v2
+        with:
+          workspaces: Native
+
       - name: Install renderer dependencies
         run: pnpm --dir Renderer install --frozen-lockfile
 
@@ -53,6 +63,12 @@ jobs:
 
       - name: Run native tests
         run: swift test --parallel
+
+      - name: Test native bridge
+        run: cargo test --release --manifest-path Native/Cargo.toml
+
+      - name: Build native bridge libraries
+        run: Native/build.sh arm64 x86_64
 
       - name: Install XcodeGen
         run: brew install xcodegen
