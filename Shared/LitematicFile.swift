@@ -38,7 +38,7 @@ enum LitematicFile {
         "mcstructure",
         "nusn",
     ]
-    static let maximumFileSize = 32 * 1_024 * 1_024
+    static let maximumFileSize = 1_024 * 1_024 * 1_024
 
     /// Dotted extension list in the same wording the renderer uses.
     static let extensionList = supportedFileExtensions

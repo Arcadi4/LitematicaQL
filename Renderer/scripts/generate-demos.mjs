@@ -34,10 +34,10 @@ const deterministicGzip = { mtime: 0 };
 /** Nucleation's own decoding limits, mirroring `schematic-limits.ts`. */
 const decodeLimits = JSON.stringify({
   max_block_entities: 100_000,
-  max_decompressed_bytes: 64 * 1_024 * 1_024,
+  max_decompressed_bytes: 1_024 * 1_024 * 1_024,
   max_dimension: 4_096,
   max_entities: 100_000,
-  max_input_bytes: 64 * 1_024 * 1_024,
+  max_input_bytes: 1_024 * 1_024 * 1_024,
   max_nbt_collection_items: 33_554_432,
   max_nbt_depth: 64,
   max_nbt_nodes: 4_194_304,

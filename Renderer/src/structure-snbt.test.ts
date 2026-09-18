@@ -83,10 +83,10 @@ describe("structure NBT conversion", () => {
   });
 
   it("refuses gzip data declaring more than the preview limit", () => {
-    // Nothing but a gzip header whose trailer claims 96 MiB, which is past the
-    // 64 MiB ceiling. The declared size is checked before any inflation runs.
-    expect(() => convertStructureNbt(gzipDeclaring(96 * 1024 * 1024))).toThrow(
-      /64 MiB preview limit/u,
+    // Nothing but a gzip header whose trailer claims 2 GiB, which is past the
+    // 1 GiB ceiling. The declared size is checked before any inflation runs.
+    expect(() => convertStructureNbt(gzipDeclaring(2 * 1024 * 1024 * 1024))).toThrow(
+      /1024 MiB preview limit/u,
     );
   });
 

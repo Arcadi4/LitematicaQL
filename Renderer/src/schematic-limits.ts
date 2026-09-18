@@ -5,10 +5,10 @@
 import { Schematic } from "nucleation";
 
 /** Compressed `.litematic` bytes accepted from the native bridge. */
-export const maximumInputBytes = 64 * 1_024 * 1_024;
+export const maximumInputBytes = 1_024 * 1_024 * 1_024;
 
 /** Inflated NBT bytes Nucleation may allocate while decoding a schematic. */
-export const maximumDecompressedBytes = 64 * 1_024 * 1_024;
+export const maximumDecompressedBytes = 1_024 * 1_024 * 1_024;
 
 export const maximumRegionCount = 64;
 export const maximumAxisLength = 4_096;
