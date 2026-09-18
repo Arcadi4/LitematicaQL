@@ -1,7 +1,3 @@
-// LitematicaQL: Quick Look preview for Minecraft schematics on macOS.
-// Copyright (c) 2026 4rcadia
-// SPDX-License-Identifier: MIT
-
 import { afterEach, describe, expect, it } from "vite-plus/test";
 import { postNativeMessage, type NativeBridgeMessage } from "./bridge";
 

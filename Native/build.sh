@@ -1,7 +1,4 @@
 #!/usr/bin/env bash
-# LitematicaQL: Quick Look preview for Minecraft schematics on macOS.
-# Copyright (c) 2026 4rcadia
-# SPDX-License-Identifier: MIT
 #
 # Builds the native schematic bridge as a static library per architecture.
 # Each architecture gets its own artifact, `build/liblitematicaql_native_arm64.a`

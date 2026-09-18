@@ -1,7 +1,3 @@
-// LitematicaQL: Quick Look preview for Minecraft schematics on macOS.
-// Copyright (c) 2026 4rcadia
-// SPDX-License-Identifier: MIT
-
 export interface NativeBridgeMessage {
   type: "ready" | "loading" | "loaded" | "fatalError";
   detail?: string;

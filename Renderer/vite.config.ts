@@ -1,7 +1,3 @@
-// LitematicaQL: Quick Look preview for Minecraft schematics on macOS.
-// Copyright (c) 2026 4rcadia
-// SPDX-License-Identifier: MIT
-
 import { readFileSync } from "node:fs";
 import { createRequire } from "node:module";
 import { dirname, resolve } from "node:path";

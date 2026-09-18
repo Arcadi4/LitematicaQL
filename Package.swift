@@ -1,8 +1,4 @@
 // swift-tools-version: 6.0
-// LitematicaQL: Quick Look preview for Minecraft schematics on macOS.
-// Copyright (c) 2026 4rcadia
-// SPDX-License-Identifier: MIT
-
 import PackageDescription
 
 let package = Package(
