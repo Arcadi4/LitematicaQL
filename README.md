@@ -13,7 +13,7 @@ LitematicaQL adds a macOS Quick Look preview extension for Minecraft schematics 
 
 <div align=center>
 
-<https://github.com/user-attachments/assets/18cfaf53-2068-4995-adcd-4de2e11b8f07>
+<https://github.com/user-attachments/assets/3e70e28a-bba3-42e2-b3ca-256369c46f4c>
 
 </div>
 
@@ -90,8 +90,6 @@ xcodebuild \
   -derivedDataPath DerivedData \
   build
 ```
-
-
 
 ## Acknowledgements
 

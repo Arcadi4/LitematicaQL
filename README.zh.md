@@ -13,7 +13,7 @@ LitematicaQL 为 Minecraft 原理图与结构提供了 macOS 快速查看预览�
 
 <div align=center>
 
-<https://github.com/user-attachments/assets/18cfaf53-2068-4995-adcd-4de2e11b8f07>
+<https://github.com/user-attachments/assets/3e70e28a-bba3-42e2-b3ca-256369c46f4c>
 
 </div>
 
