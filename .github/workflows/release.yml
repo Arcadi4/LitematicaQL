@@ -13,15 +13,35 @@ concurrency:
   cancel-in-progress: false
 
 jobs:
-  release:
-    name: Build and publish macOS release
+  validate:
+    name: Validate release tag
     runs-on: xcode-27
+    steps:
+      - name: Validate release tag
+        shell: bash
+        run: |
+          set -euo pipefail
+
+          if [[ ! "$GITHUB_REF_NAME" =~ ^v[0-9]+\.[0-9]+\.[0-9]+([-.][0-9A-Za-z.-]+)?$ ]]; then
+            echo "Release tags must use semantic versioning, for example v0.1.0." >&2
+            exit 1
+          fi
+
+  build:
+    name: Build ${{ matrix.arch }}
+    needs: validate
+    runs-on: xcode-27
+    strategy:
+      fail-fast: false
+      matrix:
+        arch: [arm64, x86_64]
     env:
       APP_NAME: LitematicaQL
       CI: true
       CONFIGURATION: Release
       XCODE_PROJECT: LitematicaQL.xcodeproj
       XCODE_SCHEME: LitematicaQL
+      ARCH: ${{ matrix.arch }}
 
     steps:
       - name: Check out source
@@ -42,18 +62,16 @@ jobs:
           cache: pnpm
           cache-dependency-path: Renderer/pnpm-lock.yaml
 
-      - name: Validate release tag
-        id: release
-        shell: bash
-        run: |
-          set -euo pipefail
+      - name: Set up Rust
+        uses: dtolnay/rust-toolchain@stable
+        with:
+          targets: aarch64-apple-darwin,x86_64-apple-darwin
 
-          if [[ ! "$GITHUB_REF_NAME" =~ ^v[0-9]+\.[0-9]+\.[0-9]+([-.][0-9A-Za-z.-]+)?$ ]]; then
-            echo "Release tags must use semantic versioning, for example v0.1.0." >&2
-            exit 1
-          fi
-
-          echo "version=${GITHUB_REF_NAME#v}" >> "$GITHUB_OUTPUT"
+      - name: Cache Rust build
+        uses: Swatinem/rust-cache@v2
+        with:
+          workspaces: Native
+          key: ${{ matrix.arch }}
 
       - name: Install renderer dependencies
         run: pnpm --dir Renderer install --frozen-lockfile
@@ -67,6 +85,9 @@ jobs:
       - name: Run native tests
         run: swift test --parallel
 
+      - name: Test native bridge
+        run: cargo test --release --manifest-path Native/Cargo.toml
+
       - name: Install XcodeGen
         run: brew install xcodegen
 
@@ -75,12 +96,14 @@ jobs:
 
       - name: Build ad-hoc signed archive
         env:
-          VERSION: ${{ steps.release.outputs.version }}
+          VERSION: ${{ github.ref_name }}
+          GITHUB_RUN_NUMBER: ${{ github.run_number }}
         shell: bash
         run: |
           set -euo pipefail
 
-          archive_path="$GITHUB_WORKSPACE/build/LitematicaQL.xcarchive"
+          version="${VERSION#v}"
+          archive_path="$GITHUB_WORKSPACE/build/LitematicaQL-$ARCH.xcarchive"
 
           xcodebuild \
             -project "$XCODE_PROJECT" \
@@ -88,14 +111,14 @@ jobs:
             -configuration "$CONFIGURATION" \
             -destination "generic/platform=macOS" \
             -archivePath "$archive_path" \
-            MARKETING_VERSION="$VERSION" \
+            MARKETING_VERSION="$version" \
             CURRENT_PROJECT_VERSION="$GITHUB_RUN_NUMBER" \
             CODE_SIGN_STYLE=Manual \
             CODE_SIGN_IDENTITY=- \
             CODE_SIGNING_REQUIRED=YES \
             CODE_SIGNING_ALLOWED=YES \
             DEVELOPMENT_TEAM= \
-            ARCHS="arm64 x86_64" \
+            ARCHS="$ARCH" \
             ONLY_ACTIVE_ARCH=NO \
             archive
 
@@ -103,30 +126,65 @@ jobs:
           test -d "$app_path"
 
           actual_version=$(/usr/libexec/PlistBuddy -c "Print :CFBundleShortVersionString" "$app_path/Contents/Info.plist")
-          test "$actual_version" = "$VERSION"
+          test "$actual_version" = "$version"
 
           codesign --verify --deep --strict --verbose=2 "$app_path"
           codesign --display --verbose=4 "$app_path" 2>&1 | sed -n '1,24p'
 
           release_dir="$GITHUB_WORKSPACE/build/release"
-          zip_path="$release_dir/$APP_NAME-$VERSION.zip"
           mkdir -p "$release_dir"
+          zip_path="$release_dir/$APP_NAME-$VERSION-$ARCH.zip"
           ditto -c -k --keepParent "$app_path" "$zip_path"
           (cd "$release_dir" && shasum -a 256 "$(basename "$zip_path")" > "$(basename "$zip_path").sha256")
+
+      - name: Check linked bridge architecture
+        shell: bash
+        run: |
+          set -euo pipefail
+          version="${VERSION#v}"
+          app_path="$GITHUB_WORKSPACE/build/LitematicaQL-$ARCH.xcarchive/Products/Applications/$APP_NAME.app"
+          lipo -info "$app_path/Contents/MacOS/$APP_NAME" | grep -q "$ARCH"
+          codesign --verify --deep --strict "$app_path"
+
+      - name: Upload per-arch artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: ${{ env.APP_NAME }}-${{ github.ref_name }}-${{ matrix.arch }}
+          path: |
+            build/release/*.zip
+            build/release/*.sha256
+          if-no-files-found: error
+
+  release:
+    name: Publish GitHub release
+    needs: build
+    runs-on: xcode-27
+    env:
+      APP_NAME: LitematicaQL
+      VERSION: ${{ github.ref_name }}
+    steps:
+      - name: Download per-arch artifacts
+        uses: actions/download-artifact@v4
+        with:
+          path: build/release
+          merge-multiple: true
 
       - name: Publish GitHub release
         env:
           GH_TOKEN: ${{ github.token }}
-          VERSION: ${{ steps.release.outputs.version }}
         shell: bash
         run: |
           set -euo pipefail
 
+          ls -la build/release
+
           gh release create "$GITHUB_REF_NAME" \
-            "$GITHUB_WORKSPACE/build/release/$APP_NAME-$VERSION.zip" \
-            "$GITHUB_WORKSPACE/build/release/$APP_NAME-$VERSION.zip.sha256" \
+            "$GITHUB_WORKSPACE/build/release/$APP_NAME-$VERSION-arm64.zip" \
+            "$GITHUB_WORKSPACE/build/release/$APP_NAME-$VERSION-arm64.zip.sha256" \
+            "$GITHUB_WORKSPACE/build/release/$APP_NAME-$VERSION-x86_64.zip" \
+            "$GITHUB_WORKSPACE/build/release/$APP_NAME-$VERSION-x86_64.zip.sha256" \
             --repo "$GITHUB_REPOSITORY" \
             --verify-tag \
             --title "$APP_NAME $VERSION" \
             --generate-notes \
-            --notes $'This release contains an ad-hoc signed macOS app.\n\nBecause this build is not signed with a paid Apple Developer ID certificate or notarized, macOS may require you to approve it in System Settings > Privacy & Security after opening the app.'
+            --notes $'This release ships separate Apple silicon (arm64) and Intel (x86_64) builds; download the one matching your Mac.\n\nThe build is ad-hoc signed and not notarized, so macOS may require you to approve it in System Settings > Privacy & Security after opening the app.'
