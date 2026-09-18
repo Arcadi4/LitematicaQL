@@ -1,0 +1,41 @@
+# LitematicaQL: Quick Look preview for Minecraft schematics on macOS.
+# Copyright (c) 2026 4rcadia
+# SPDX-License-Identifier: MIT
+
+[package]
+name = "litematicaql-native"
+version = "0.1.0"
+edition = "2021"
+publish = false
+
+[lib]
+name = "litematicaql_native"
+# `rlib` lets the integration tests call the same internal functions the C ABI
+# wraps; `staticlib` is what the app and extension link.
+crate-type = ["staticlib", "rlib"]
+
+[dependencies]
+# Pinned to 0.10.14 for the same reason as schematic-diff: from 0.10.15 onward
+# the `meshing` feature does not build from crates.io (its `glb.rs` needs a
+# `gltf_build` API that only exists on a git rev, and `cargo publish` resolves
+# the version side). 0.10.14 is the last release where the feature compiles.
+nucleation = { version = "=0.10.14", default-features = false, features = [
+  "meshing",
+] }
+# Taken directly, as in schematic-diff, so Nucleation's dual version+git
+# requirement on the mesher resolves to a single copy.
+schematic-mesher = "0.2.0"
+# Binary vanilla `.nbt` structure reading, the same version Nucleation itself
+# uses so it stays a single copy in the tree.
+quartz_nbt = { version = "0.2.9", features = ["preserve_order"] }
+flate2 = { version = "1", default-features = false, features = ["zlib-rs"] }
+# The `.snbt` brace block-state normalization is a textual rewrite; the pattern
+# mirrors the renderer's own `normalizeStructureSnbt`.
+regex = "1"
+
+[dev-dependencies]
+# The routing probe parses the SNBT fixture directly.
+quartz_nbt = { version = "0.2.9", features = ["preserve_order"] }
+nucleation = { version = "=0.10.14", default-features = false, features = [
+  "meshing",
+] }

@@ -1,0 +1,4 @@
+module LitematicaQLNative {
+    header "LitematicaQLNative.h"
+    export *
+}
