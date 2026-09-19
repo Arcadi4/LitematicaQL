@@ -9,7 +9,7 @@
   <!-- README-I18N:END -->
 </div>
 
-LitematicaQL 为 Minecraft 原理图与结构提供了 macOS 快速查看预览扩展，支持 `.litematic`、`.schem`、`.schematic`、`.nbt`、`.snbt`、`.mcstructure` 与 `.nusn` 格式。
+LitematicaQL 为 Minecraft 原理图与结构提供了 macOS 快速查看预览扩展，支持 `.litematic`、`.schem`、`.schematic`、`.nbt`、`.snbt`、`.mcstructure`、`.nusn` 与 `.mca` 格式。
 
 <div align=center>
 
@@ -48,6 +48,7 @@ brew install --cask arcadi4/tap/litematicaql
 | `.snbt` | 结构 SNBT，花括号或方括号方块状态 |
 | `.mcstructure` | 基岩版结构 |
 | `.nusn` | Nucleation 快照 |
+| `.mca` | Minecraft Anvil 世界存档（每个文件 4 区块） |
 
 ## 开发
 

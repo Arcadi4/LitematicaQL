@@ -9,7 +9,7 @@
   <!-- README-I18N:END -->
 </div>
 
-LitematicaQL adds a macOS Quick Look preview extension for Minecraft schematics and structures. It previews `.litematic`, `.schem`, `.schematic`, `.nbt`, `.snbt`, `.mcstructure`, and `.nusn`.
+LitematicaQL adds a macOS Quick Look preview extension for Minecraft schematics and structures. It previews `.litematic`, `.schem`, `.schematic`, `.nbt`, `.snbt`, `.mcstructure`, `.nusn`, and `.mca`.
 
 <div align=center>
 
@@ -48,6 +48,7 @@ This app requires macOS 13 Ventura or later.
 | `.snbt` | Structure SNBT, brace or bracket block states |
 | `.mcstructure` | Bedrock structure |
 | `.nusn` | Nucleation snapshot |
+| `.mca` | Minecraft Anvil world saves (4 chunks per file) |
 
 ## Development
 

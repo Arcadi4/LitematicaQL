@@ -36,3 +36,4 @@ assert what it decodes to rather than any upstream content.
 - `Sponge.schem` is a gzipped Sponge schematic v2 with the same seven-cell shape and palette. The bundled `Archway.schem` demo is v3, so both supported Sponge versions stay exercised.
 - `Bedrock.mcstructure` is an uncompressed Bedrock structure. It is produced by Nucleation's own writer rather than by hand, because its `block_indices` layers are `TAG_List` of `TAG_Int` and a hand-built `TAG_Int_Array` layer is skipped silently. It decodes to seven `minecraft:stone` blocks.
 - `Snapshot.nusn` is Nucleation's snapshot of that same seven-block source.
+- `Region.mca` is an Anvil region file containing four chunks in a 2×2 cluster. It exercises single-region MCA parsing, 4-chunk window selection, and coordinate normalization.
