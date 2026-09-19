@@ -31,6 +31,7 @@
 				<string>moe.arcadia.litematic</string>
 				<string>moe.arcadia.minecraft-schematic</string>
 				<string>moe.arcadia.minecraft-structure</string>
+				<string>moe.arcadia.minecraft-region</string>
 			</array>
 			<key>QLSupportsSearchableItems</key>
 			<false/>

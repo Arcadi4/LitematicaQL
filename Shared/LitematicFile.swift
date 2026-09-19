@@ -33,6 +33,7 @@ enum LitematicFile {
         "snbt",
         "mcstructure",
         "nusn",
+        "mca",
     ]
     static let maximumFileSize = 1_024 * 1_024 * 1_024
 

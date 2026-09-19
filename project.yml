@@ -69,6 +69,11 @@ targets:
             LSHandlerRank: Alternate
             LSItemContentTypes:
               - moe.arcadia.minecraft-structure
+          - CFBundleTypeName: Minecraft Anvil Region
+            CFBundleTypeRole: Viewer
+            LSHandlerRank: Alternate
+            LSItemContentTypes:
+              - moe.arcadia.minecraft-region
         LSApplicationCategoryType: public.app-category.utilities
         LSSupportsOpeningDocumentsInPlace: true
         NSHumanReadableCopyright: Copyright © 2026 4rcadia
@@ -102,6 +107,14 @@ targets:
                 - snbt
                 - mcstructure
                 - nusn
+          - UTTypeIdentifier: moe.arcadia.minecraft-region
+            UTTypeDescription: Minecraft Anvil Region
+            UTTypeConformsTo:
+              - public.data
+              - public.content
+            UTTypeTagSpecification:
+              public.filename-extension:
+                - mca
     entitlements:
       path: App/LitematicaQL.entitlements
       properties:
@@ -144,6 +157,7 @@ targets:
               - moe.arcadia.litematic
               - moe.arcadia.minecraft-schematic
               - moe.arcadia.minecraft-structure
+              - moe.arcadia.minecraft-region
             QLSupportsSearchableItems: false
           NSExtensionPointIdentifier: com.apple.quicklook.preview
           NSExtensionPrincipalClass: $(PRODUCT_MODULE_NAME).PreviewViewController

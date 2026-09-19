@@ -44,6 +44,18 @@
 				<string>moe.arcadia.minecraft-structure</string>
 			</array>
 		</dict>
+		<dict>
+			<key>CFBundleTypeName</key>
+			<string>Minecraft Anvil Region</string>
+			<key>CFBundleTypeRole</key>
+			<string>Viewer</string>
+			<key>LSHandlerRank</key>
+			<string>Alternate</string>
+			<key>LSItemContentTypes</key>
+			<array>
+				<string>moe.arcadia.minecraft-region</string>
+			</array>
+		</dict>
 	</array>
 	<key>CFBundleExecutable</key>
 	<string>$(EXECUTABLE_NAME)</string>
@@ -124,6 +136,24 @@
 					<string>snbt</string>
 					<string>mcstructure</string>
 					<string>nusn</string>
+				</array>
+			</dict>
+		</dict>
+		<dict>
+			<key>UTTypeConformsTo</key>
+			<array>
+				<string>public.data</string>
+				<string>public.content</string>
+			</array>
+			<key>UTTypeDescription</key>
+			<string>Minecraft Anvil Region</string>
+			<key>UTTypeIdentifier</key>
+			<string>moe.arcadia.minecraft-region</string>
+			<key>UTTypeTagSpecification</key>
+			<dict>
+				<key>public.filename-extension</key>
+				<array>
+					<string>mca</string>
 				</array>
 			</dict>
 		</dict>
