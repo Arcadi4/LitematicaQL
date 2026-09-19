@@ -27,7 +27,7 @@ const outputDirectory = join(import.meta.dirname, "..", "..", "Fixtures", "Demos
  */
 const deterministicGzip = { mtime: 0 };
 
-/** Nucleation's own decoding limits, mirroring `schematic-limits.ts`. */
+/** Nucleation's own decoding limits. */
 const decodeLimits = JSON.stringify({
   max_block_entities: 100_000,
   max_decompressed_bytes: 1_024 * 1_024 * 1_024,
@@ -47,14 +47,23 @@ const decodeLimits = JSON.stringify({
 // Model
 // ---------------------------------------------------------------------------
 
+/** A voxel position. */
+type Position = readonly [number, number, number];
+
+/** Splits an `"x,y,z"` key back into coordinates; keys only come from `Model.set`. */
+function keyToPosition(key: string): Position {
+  const [x, y, z] = key.split(",");
+  return [Number(x), Number(y), Number(z)];
+}
+
 /**
  * A sparse voxel model keyed by position, holding the block state string a
  * player would write. Coordinates are absolute within the model's own box.
  */
 class Model {
-  blocks = new Map();
+  blocks = new Map<string, string>();
 
-  set(x, y, z, state) {
+  set(x: number, y: number, z: number, state: string): this {
     if (!Number.isInteger(x) || !Number.isInteger(y) || !Number.isInteger(z)) {
       throw new Error(`Block position must be integral: ${x}, ${y}, ${z}`);
     }
@@ -63,26 +72,26 @@ class Model {
   }
 
   /** Skips a cell so a later pass can leave a hole, e.g. for a doorway. */
-  clear(x, y, z) {
+  clear(x: number, y: number, z: number): this {
     this.blocks.delete(`${x},${y},${z}`);
     return this;
   }
 
-  has(x, y, z) {
+  has(x: number, y: number, z: number): boolean {
     return this.blocks.has(`${x},${y},${z}`);
   }
 
   /** Lets callers walk a model's placed blocks uniformly, whatever built it. */
-  *[Symbol.iterator]() {
+  *[Symbol.iterator](): Generator<[string, string]> {
     yield* this.blocks;
   }
 
-  keys() {
+  keys(): IterableIterator<string> {
     return this.blocks.keys();
   }
 
   /** Fills an inclusive box, in the order the caller expects overwrites to win. */
-  box([x0, y0, z0], [x1, y1, z1], state) {
+  box([x0, y0, z0]: Position, [x1, y1, z1]: Position, state: string): this {
     for (let x = x0; x <= x1; x += 1) {
       for (let y = y0; y <= y1; y += 1) {
         for (let z = z0; z <= z1; z += 1) {
@@ -94,7 +103,7 @@ class Model {
   }
 
   /** Fills a box's shell, leaving its interior alone. */
-  shell([x0, y0, z0], [x1, y1, z1], state) {
+  shell([x0, y0, z0]: Position, [x1, y1, z1]: Position, state: string): this {
     for (let x = x0; x <= x1; x += 1) {
       for (let y = y0; y <= y1; y += 1) {
         for (let z = z0; z <= z1; z += 1) {
@@ -109,7 +118,7 @@ class Model {
   }
 
   /** A hollow square tube: four walls, no floor or ceiling. */
-  walls([x0, y0, z0], [x1, y1, z1], state) {
+  walls([x0, y0, z0]: Position, [x1, y1, z1]: Position, state: string): this {
     for (let x = x0; x <= x1; x += 1) {
       for (let y = y0; y <= y1; y += 1) {
         for (let z = z0; z <= z1; z += 1) {
@@ -130,7 +139,12 @@ class Model {
    * `courses` caps how tall the roof gets. Without it the roof rises until the
    * slopes meet, which over a wide building buries the walls entirely.
    */
-  gable([x0, y0, z0], [x1, z1], state, { ridgeAxis = "x", courses = Infinity } = {}) {
+  gable(
+    [x0, y0, z0]: Position,
+    [x1, z1]: readonly [number, number],
+    state: string,
+    { ridgeAxis = "x", courses = Infinity }: { ridgeAxis?: "x" | "y"; courses?: number } = {},
+  ): this {
     let low = ridgeAxis === "x" ? z0 : x0;
     let high = ridgeAxis === "x" ? z1 : x1;
     let level = 0;
@@ -157,7 +171,15 @@ class Model {
   }
 
   /** A regular octagon, the closest a voxel cylinder gets to round. */
-  cylinder(cx, cz, radius, y0, y1, state, wallOnly = false) {
+  cylinder(
+    cx: number,
+    cz: number,
+    radius: number,
+    y0: number,
+    y1: number,
+    state: string,
+    wallOnly = false,
+  ): this {
     for (let x = cx - radius; x <= cx + radius; x += 1) {
       for (let z = cz - radius; z <= cz + radius; z += 1) {
         const dx = x - cx;
@@ -178,7 +200,7 @@ class Model {
   }
 
   /** A hollow ball of leaves, thinned at the poles so canopies do not look cubic. */
-  canopy(cx, cy, cz, radius, state) {
+  canopy(cx: number, cy: number, cz: number, radius: number, state: string): this {
     for (let x = cx - radius; x <= cx + radius; x += 1) {
       for (let y = cy - radius; y <= cy + radius; y += 1) {
         for (let z = cz - radius; z <= cz + radius; z += 1) {
@@ -197,7 +219,12 @@ class Model {
   }
 
   /** A stepped pyramid whose base is a full square and whose top is `1 × 1`. */
-  pyramid([x0, z0], [x1, z1], y0, state) {
+  pyramid(
+    [x0, z0]: readonly [number, number],
+    [x1, z1]: readonly [number, number],
+    y0: number,
+    state: string,
+  ): this {
     let lowX = x0;
     let lowZ = z0;
     let highX = x1;
@@ -214,12 +241,12 @@ class Model {
     return this;
   }
 
-  get size() {
-    const xs = [];
-    const ys = [];
-    const zs = [];
+  get size(): { x: number; y: number; z: number } {
+    const xs: number[] = [];
+    const ys: number[] = [];
+    const zs: number[] = [];
     for (const key of this.blocks.keys()) {
-      const [x, y, z] = key.split(",").map(Number);
+      const [x, y, z] = keyToPosition(key);
       xs.push(x);
       ys.push(y);
       zs.push(z);
@@ -256,7 +283,7 @@ const fence = "minecraft:oak_fence";
 const sprucFence = "minecraft:spruce_fence";
 
 /** A timber cottage: stone footing, plank walls, glazed windows, gable roof. */
-function cottage() {
+function cottage(): Model {
   const model = new Model();
   // 13 × 9 footprint. The depth matters: a 1:1 gable closes in
   // ceil((depth + 2) / 2) courses, so 9 deep closes in 6 and the roof reaches a
@@ -272,7 +299,7 @@ function cottage() {
     [12, 0],
     [0, 8],
     [12, 8],
-  ]) {
+  ] as const) {
     model.box([x, 1, z], [x, 4, z], "minecraft:spruce_log[axis=y]");
   }
 
@@ -311,7 +338,7 @@ function cottage() {
  * A stone gateway: two piers carrying a corbelled arch, wide enough that the
  * opening stays the subject of the model. A narrow opening reads as a wall.
  */
-function archway() {
+function archway(): Model {
   const model = new Model();
   const deck = 15;
 
@@ -354,7 +381,7 @@ function archway() {
 }
 
 /** A broad oak with a layered canopy and a flowering floor. */
-function bloom() {
+function bloom(): Model {
   const model = new Model();
   model.box([0, 0, 0], [10, 0, 10], grass);
   for (let x = 0; x <= 10; x += 1) {
@@ -372,7 +399,7 @@ function bloom() {
     [6, 5],
     [5, 4],
     [5, 6],
-  ]) {
+  ] as const) {
     model.set(x, 1, z, "minecraft:oak_log[axis=y]");
   }
 
@@ -390,7 +417,7 @@ function bloom() {
     [8, 8, "minecraft:dandelion"],
     [3, 6, "minecraft:azure_bluet"],
     [7, 4, "minecraft:cornflower"],
-  ]) {
+  ] as const) {
     model.set(x, 1, z, state);
   }
 
@@ -398,7 +425,7 @@ function bloom() {
 }
 
 /** A plank bridge on stone piers, with a fenced walkway. */
-function bridge() {
+function bridge(): Model {
   const model = new Model();
   model.box([0, 0, 0], [16, 0, 8], "minecraft:water[level=0]");
 
@@ -434,7 +461,7 @@ function bridge() {
     [15, 2],
     [1, 6],
     [15, 6],
-  ]) {
+  ] as const) {
     model.set(x, 5, z, "minecraft:oak_fence");
     model.set(x, 6, z, lantern);
   }
@@ -446,7 +473,7 @@ function bridge() {
 }
 
 /** A stepped sandstone pyramid crowned with a beacon. */
-function pyramid() {
+function pyramid(): Model {
   const model = new Model();
   model.box([0, 0, 0], [14, 0, 14], smoothSandstone);
   model.pyramid([0, 0], [14, 14], 0, sandstone);
@@ -472,7 +499,7 @@ function pyramid() {
 }
 
 /** A walled garden with a pond, hedges, and lantern-lit path. */
-function garden() {
+function garden(): Model {
   const model = new Model();
   model.box([0, 0, 0], [12, 0, 12], grass);
 
@@ -484,13 +511,13 @@ function garden() {
     [7, 4],
     [5, 7],
     [2, 7],
-  ]) {
+  ] as const) {
     model.set(x, 0, z, "minecraft:sand");
   }
   for (const [x, z] of [
     [3, 3],
     [5, 5],
-  ]) {
+  ] as const) {
     model.set(x, 0, z, "minecraft:clay");
     model.set(x, 1, z, "minecraft:lily_pad");
   }
@@ -512,7 +539,7 @@ function garden() {
     [10, 2, "minecraft:poppy"],
     [11, 4, "minecraft:dandelion"],
     [10, 6, "minecraft:allium"],
-  ]) {
+  ] as const) {
     model.set(x, 1, z, state);
   }
 
@@ -523,7 +550,7 @@ function garden() {
   for (const [x, z] of [
     [8, 3],
     [8, 10],
-  ]) {
+  ] as const) {
     model.set(x, 1, z, "minecraft:oak_fence");
     model.set(x, 2, z, "minecraft:oak_fence");
     model.set(x, 3, z, lantern);
@@ -537,40 +564,59 @@ function garden() {
 // ---------------------------------------------------------------------------
 
 /** Builds a Nucleation schematic, which is what most of the writers consume. */
-function toNucleation(model, { name, author, description }) {
+function toNucleation(
+  model: Model,
+  { name, author, description }: { name: string; author: string; description: string },
+): Schematic {
   const schematic = Schematic.create(name);
   schematic.setAuthor(author);
   schematic.setDescription(description);
 
   for (const [key, state] of model.blocks) {
-    const [x, y, z] = key.split(",").map(Number);
+    const [x, y, z] = keyToPosition(key);
     schematic.setBlockFromString(x, y, z, state);
   }
 
   return schematic;
 }
 
+/** One written NBT tag. The variants mirror the format's own tag numbering. */
+type NbtTag =
+  | { kind: "byte"; value: number }
+  | { kind: "short"; value: number }
+  | { kind: "int"; value: number }
+  | { kind: "long"; value: bigint }
+  | { kind: "float"; value: number }
+  | { kind: "double"; value: number }
+  | { kind: "byteArray"; value: number[] }
+  | { kind: "intArray"; value: number[] }
+  | { kind: "longArray"; value: bigint[] }
+  | { kind: "string"; value: string }
+  | { kind: "list"; elementId: number; value: NbtTag[] }
+  | { kind: "compound"; value: [string, NbtTag][] };
+
 /**
  * A big-endian NBT writer. Java edition NBT is network byte order, and the tag
- * numbering below is the one the reader in `src/nbt.ts` is checked against.
+ * ids below are the format's own numbering (4 is Long, 7 is ByteArray, 11 is
+ * IntArray, 12 is LongArray — not payload-width order).
  */
 class NbtWriter {
-  #chunks = [];
+  #chunks: Uint8Array[] = [];
   #scratch = new ArrayBuffer(8);
 
-  #number(write, width) {
+  #number(write: (view: DataView) => void, width: number): void {
     const view = new DataView(this.#scratch);
     write(view);
     this.#chunks.push(new Uint8Array(this.#scratch.slice(0, width)));
   }
 
-  string(value) {
+  string(value: string): void {
     const bytes = new TextEncoder().encode(value);
     this.#number((view) => view.setUint16(0, bytes.length), 2);
     this.#chunks.push(bytes);
   }
 
-  #payload(tag) {
+  #payload(tag: NbtTag): void {
     switch (tag.kind) {
       case "byte":
         return this.#number((view) => view.setInt8(0, tag.value), 1);
@@ -605,9 +651,9 @@ class NbtWriter {
         }
         return;
       }
-      default: {
+      case "compound": {
         for (const [key, value] of tag.value) {
-          this.#chunks.push(new Uint8Array([tagIdOf(value)]));
+          this.#chunks.push(new Uint8Array([tagIds[value.kind]]));
           this.string(key);
           this.#payload(value);
         }
@@ -617,7 +663,7 @@ class NbtWriter {
     }
   }
 
-  finish(root) {
+  finish(root: NbtTag): Uint8Array {
     this.#chunks.push(new Uint8Array([10, 0, 0]));
     this.#payload(root);
     const length = this.#chunks.reduce((total, chunk) => total + chunk.length, 0);
@@ -632,7 +678,7 @@ class NbtWriter {
   }
 }
 
-const tagIds = {
+const tagIds: Record<NbtTag["kind"], number> = {
   byte: 1,
   short: 2,
   int: 3,
@@ -647,17 +693,13 @@ const tagIds = {
   longArray: 12,
 };
 
-function tagIdOf(tag) {
-  return tagIds[tag.kind];
-}
-
-const int = (value) => ({ kind: "int", value });
-const short = (value) => ({ kind: "short", value });
-const string = (value) => ({ kind: "string", value });
-const compound = (entries) => ({ kind: "compound", value: entries });
+const int = (value: number): NbtTag => ({ kind: "int", value });
+const short = (value: number): NbtTag => ({ kind: "short", value });
+const string = (value: string): NbtTag => ({ kind: "string", value });
+const compound = (entries: [string, NbtTag][]): NbtTag => ({ kind: "compound", value: entries });
 /** List element ids are written explicitly so an empty list still knows its type. */
-const compoundList = (values) => ({ kind: "list", elementId: 10, value: values });
-const intList = (values) => ({
+const compoundList = (values: NbtTag[]): NbtTag => ({ kind: "list", elementId: 10, value: values });
+const intList = (values: readonly number[]): NbtTag => ({
   kind: "list",
   elementId: 3,
   value: values.map((value) => int(value)),
@@ -667,21 +709,21 @@ const intList = (values) => ({
  * Encodes a Java structure `.nbt`: a palette of block-state compounds, a flat
  * list of placed blocks, and the enclosing size, everything gzipped.
  */
-function encodeStructure(model) {
-  const palette = [];
-  const indices = new Map();
-  const blocks = [];
+function encodeStructure(model: Model): Uint8Array {
+  const palette: string[] = [];
+  const indices = new Map<string, number>();
+  const blocks: NbtTag[] = [];
 
   for (const [key, state] of [...model.blocks].sort(byPosition)) {
     if (!indices.has(state)) {
       indices.set(state, palette.length);
       palette.push(state);
     }
-    const [x, y, z] = key.split(",").map(Number);
+    const [x, y, z] = keyToPosition(key);
     blocks.push(
       compound([
         ["pos", intList([x, y, z])],
-        ["state", int(indices.get(state))],
+        ["state", int(indices.get(state)!)],
       ]),
     );
   }
@@ -702,7 +744,7 @@ function encodeStructure(model) {
 }
 
 /** Splits `minecraft:oak_log[axis=y]` into a structure palette compound. */
-function structurePaletteEntry(state) {
+function structurePaletteEntry(state: string): NbtTag {
   const bracket = state.indexOf("[");
   if (bracket < 0) {
     return compound([["Name", string(state)]]);
@@ -710,8 +752,8 @@ function structurePaletteEntry(state) {
 
   const name = state.slice(0, bracket);
   const body = state.slice(bracket + 1, -1);
-  const properties = body.split(",").map((pair) => {
-    const [key, value] = pair.split("=");
+  const properties = body.split(",").map((pair): [string, NbtTag] => {
+    const [key, value] = pair.split("=") as [string, string];
     return [key, string(value)];
   });
 
@@ -727,8 +769,8 @@ function structurePaletteEntry(state) {
  * pads every region out to its full bounding box. Only placed blocks are
  * listed here, which is what a person writing this format by hand produces.
  */
-function encodeStructureSnbt(model) {
-  const palette = new Map();
+function encodeStructureSnbt(model: Model): Uint8Array {
+  const palette = new Map<string, number>();
   for (const [, state] of model.blocks) {
     if (!palette.has(state)) {
       palette.set(state, palette.size);
@@ -738,7 +780,7 @@ function encodeStructureSnbt(model) {
   const body = [...model.blocks]
     .sort(byPosition)
     .map(([key, state]) => {
-      const [x, y, z] = key.split(",").map(Number);
+      const [x, y, z] = keyToPosition(key);
       return `{pos:[${x},${y},${z}],state:"${state}"}`;
     })
     .join(",");
@@ -750,9 +792,9 @@ function encodeStructureSnbt(model) {
   );
 }
 
-function byPosition([left], [right]) {
-  const a = left.split(",").map(Number);
-  const b = right.split(",").map(Number);
+function byPosition([left]: [string, string], [right]: [string, string]): number {
+  const a = keyToPosition(left);
+  const b = keyToPosition(right);
   return a[1] - b[1] || a[2] - b[2] || a[0] - b[0];
 }
 
@@ -770,7 +812,7 @@ function byPosition([left], [right]) {
  * ignores the suffix it is given, so id 5 decodes to the non-existent block
  * `minecraft:oak` rather than `minecraft:oak_planks`.
  */
-const legacyBlocks = {
+const legacyBlocks: Record<string, [number, number]> = {
   "minecraft:cobblestone": [4, 0],
   "minecraft:glass": [20, 0],
   "minecraft:stone_bricks": [98, 0],
@@ -788,11 +830,11 @@ const legacyBlocks = {
  * modern palettes, so sharing one model would force every other format down to
  * this vocabulary too.
  */
-function legacyTower() {
+function legacyTower(): Model {
   const model = new Model();
   const centre = 4;
 
-  const inOctagon = (x, z, radius) => {
+  const inOctagon = (x: number, z: number, radius: number): boolean => {
     const dx = x - centre;
     const dz = z - centre;
     return dx * dx + dz * dz <= radius * radius + radius;
@@ -832,7 +874,7 @@ function legacyTower() {
     [centre + 4, centre],
     [centre, centre - 4],
     [centre, centre + 4],
-  ]) {
+  ] as const) {
     model.set(x, 1, z, "minecraft:bricks");
     model.set(x, 2, z, "minecraft:bricks");
   }
@@ -862,12 +904,12 @@ function legacyTower() {
   return model;
 }
 
-function encodeClassic(model) {
+function encodeClassic(model: Model): Uint8Array {
   let width = 0;
   let height = 0;
   let length = 0;
   for (const key of model.keys()) {
-    const [x, y, z] = key.split(",").map(Number);
+    const [x, y, z] = keyToPosition(key);
     width = Math.max(width, x + 1);
     height = Math.max(height, y + 1);
     length = Math.max(length, z + 1);
@@ -881,7 +923,7 @@ function encodeClassic(model) {
     if (legacy === undefined) {
       throw new Error(`The MCEdit file format cannot express ${name}`);
     }
-    const [x, y, z] = key.split(",").map(Number);
+    const [x, y, z] = keyToPosition(key);
     const [id, meta] = legacy;
     const index = y * length * width + z * width + x;
     blocks[index] = id;
@@ -905,7 +947,7 @@ function encodeClassic(model) {
 }
 
 /** NBT stores byte arrays as signed values. */
-function toSignedByte(value) {
+function toSignedByte(value: number): number {
   return value > 127 ? value - 256 : value;
 }
 
@@ -918,84 +960,83 @@ const common = {
   description: "Bundled demo built by the LitematicaQL renderer's generator.",
 };
 
-const demos = [
+interface Demo {
+  file: string;
+  /** Which of the seven supported formats this demo is written in. */
+  format: "litematic" | "sponge" | "classic" | "structure" | "snbt" | "bedrock" | "snapshot";
+  model: Model;
+  encode: (model: Model) => Uint8Array;
+}
+
+const demos: Demo[] = [
   {
     file: "Cottage.litematic",
     format: "litematic",
     model: cottage(),
-    encode: (model) => ({
-      litematic: toNucleation(model, { ...common, name: "Cottage" }).toLitematicB64(),
-    }),
-    bytes: (values) => Buffer.from(values.litematic, "base64"),
+    encode: (model) =>
+      Buffer.from(toNucleation(model, { ...common, name: "Cottage" }).toLitematicB64(), "base64"),
   },
   {
     file: "Archway.schem",
     format: "sponge",
     model: archway(),
-    encode: (model) => ({
-      // Sponge v3 is what WorldEdit writes today; the v2 reader is covered by
-      // the format fixtures instead.
-      schem: toNucleation(model, { ...common, name: "Archway" }).saveAsB64("schematic", "v3", ""),
-    }),
-    bytes: (values) => Buffer.from(values.schem, "base64"),
+    // Sponge v3 is what WorldEdit writes today; the v2 reader is covered by
+    // the format fixtures instead.
+    encode: (model) =>
+      Buffer.from(
+        toNucleation(model, { ...common, name: "Archway" }).saveAsB64("schematic", "v3", ""),
+        "base64",
+      ),
   },
   {
     file: "Watchtower.schematic",
     format: "classic",
     model: legacyTower(),
-    encode: (model) => ({ schematic: encodeClassic(model) }),
-    bytes: (values) => values.schematic,
+    encode: encodeClassic,
   },
   {
     file: "Bloom.nbt",
     format: "structure",
     model: bloom(),
-    encode: (model) => ({ nbt: encodeStructure(model) }),
-    bytes: (values) => values.nbt,
+    encode: encodeStructure,
   },
   {
     file: "Bridge.snbt",
     format: "snbt",
     model: bridge(),
-    encode: (model) => ({ snbt: encodeStructureSnbt(model) }),
-    bytes: (values) => values.snbt,
+    encode: encodeStructureSnbt,
   },
   {
     file: "Pyramid.mcstructure",
     format: "bedrock",
     model: pyramid(),
-    encode: (model) => ({
-      mcstructure: toNucleation(model, { ...common, name: "Pyramid" }).toMcstructureB64(),
-    }),
-    bytes: (values) => Buffer.from(values.mcstructure, "base64"),
+    encode: (model) =>
+      Buffer.from(toNucleation(model, { ...common, name: "Pyramid" }).toMcstructureB64(), "base64"),
   },
   {
     file: "Garden.nusn",
     format: "snapshot",
     model: garden(),
-    encode: (model) => ({
-      nusn: toNucleation(model, { ...common, name: "Garden" }).toSnapshotB64(),
-    }),
-    bytes: (values) => Buffer.from(values.nusn, "base64"),
+    encode: (model) =>
+      Buffer.from(toNucleation(model, { ...common, name: "Garden" }).toSnapshotB64(), "base64"),
   },
 ];
 
 /**
  * Reads a structure `.nbt` back into positions and block states.
  *
- * This exists because Nucleation has no importer for the binary structure
- * file format — the renderer converts it to SNBT before handing it over, which
- * `src/schematic-formats.ts` does. Verifying that conversion is the renderer
- * test suite's job; this reader checks the encoder on the other side, so a
- * malformed tag or a mis-sized palette fails the build here.
+ * Nucleation has no importer for the binary structure file format, so nothing
+ * else can read this file back. This minimal reader exists to verify the
+ * encoder on the writing side, so a malformed tag or a mis-sized palette
+ * fails the build here.
  */
-function readStructureNbt(compressed) {
+function readStructureNbt(compressed: Uint8Array): Map<string, string> {
   const bytes = gunzipSync(compressed);
   let offset = 0;
   const view = new DataView(bytes.buffer, bytes.byteOffset, bytes.byteLength);
   const decoder = new TextDecoder();
 
-  const take = (count) => {
+  const take = (count: number): number => {
     if (offset + count > view.byteLength) {
       throw new Error("Truncated structure NBT");
     }
@@ -1003,12 +1044,12 @@ function readStructureNbt(compressed) {
     offset += count;
     return start;
   };
-  const name = () => {
+  const name = (): string => {
     const length = view.getUint16(take(2));
     return decoder.decode(new Uint8Array(view.buffer, view.byteOffset + take(length), length));
   };
 
-  const payload = (tag) => {
+  const payload = (tag: number): NbtValue => {
     switch (tag) {
       case 1:
         return view.getInt8(take(1));
@@ -1034,7 +1075,7 @@ function readStructureNbt(compressed) {
         return Array.from({ length: count }, () => payload(elementTag));
       }
       case 10: {
-        const entries = new Map();
+        const entries: ParsedCompound = new Map();
         for (;;) {
           const childTag = view.getUint8(take(1));
           if (childTag === 0) {
@@ -1059,36 +1100,50 @@ function readStructureNbt(compressed) {
     throw new Error("Structure NBT root is not a compound");
   }
   name();
-  const root = payload(10);
+  const root = payload(10) as ParsedCompound;
 
   // A parsed list holds bare payloads, so palette entries arrive as maps
   // rather than the {tag, value} envelopes a compound's children carry.
-  const palette = root.get("palette").value.map((entry) => {
-    const blockName = entry.get("Name").value;
+  const palette = (root.get("palette")!.value as ParsedCompound[]).map((entry) => {
+    const blockName = entry.get("Name")!.value as string;
     const properties = entry.get("Properties");
     if (properties === undefined) {
       return blockName;
     }
 
-    const pairs = [...properties.value].map(([key, value]) => `${key}=${value.value}`);
+    const pairs = [...(properties.value as ParsedCompound)].map(
+      ([key, value]) => `${key}=${value.value as string}`,
+    );
     return `${blockName}[${pairs.sort().join(",")}]`;
   });
 
-  const blocks = new Map();
-  for (const entry of root.get("blocks").value) {
-    const [x, y, z] = entry.get("pos").value;
-    const state = palette[entry.get("state").value];
+  const blocks = new Map<string, string>();
+  for (const entry of root.get("blocks")!.value as ParsedCompound[]) {
+    const [x, y, z] = entry.get("pos")!.value as [number, number, number];
+    const state = palette[entry.get("state")!.value as number]!;
     blocks.set(`${x},${y},${z}`, state);
   }
 
   return blocks;
 }
 
+/** One parsed NBT tag: a numeric id plus whatever payload that id implies. */
+interface ParsedTag {
+  tag: number;
+  value: NbtValue;
+}
+
+/** A parsed compound's children, keyed by name. */
+type ParsedCompound = Map<string, ParsedTag>;
+
+/** Everything the minimal reader can produce; lists hold bare payloads. */
+type NbtValue = number | bigint | string | Int8Array | NbtValue[] | ParsedCompound;
+
 mkdirSync(outputDirectory, { recursive: true });
 
 let mismatches = 0;
 for (const demo of demos) {
-  const written = new Uint8Array(demo.bytes(demo.encode(demo.model)));
+  const written = demo.encode(demo.model);
   const size = demo.model.size;
   writeFileSync(join(outputDirectory, demo.file), written);
   console.log(`${demo.file}: ${written.length} bytes, ${size.x}×${size.y}×${size.z}`);
@@ -1112,10 +1167,18 @@ if (mismatches > 0) {
 console.log(`\nWrote and verified ${demos.length} demos in ${outputDirectory}`);
 
 /** Reads a file back and maps each position to its block state string. */
-function decodeBlocks(bytes) {
-  const schematic = Schematic.fromDataBounded(bytes, decodeLimits);
-  const decoded = new Map();
-  for (const block of JSON.parse(schematic.getNonAirBlocksJson())) {
+function decodeBlocks(bytes: Uint8Array): Map<string, string> {
+  // Nucleation's declarations type byte inputs as `Array<number>` even though
+  // the runtime accepts typed arrays; casting avoids copying the buffer.
+  const schematic = Schematic.fromDataBounded(bytes as unknown as Array<number>, decodeLimits);
+  const decoded = new Map<string, string>();
+  for (const block of JSON.parse(schematic.getNonAirBlocksJson()) as Array<{
+    x: number;
+    y: number;
+    z: number;
+    name: string;
+    properties: [string, string][];
+  }>) {
     // `properties` arrives as [key, value] pairs, which are rewritten into the
     // same `key=value` form the models are written in.
     const properties = block.properties
@@ -1132,15 +1195,15 @@ function decodeBlocks(bytes) {
 }
 
 /** Splits `minecraft:oak_log[axis=y]` into its name and its `key=value` pairs. */
-function parseState(state) {
+function parseState(state: string): { name: string; properties: Map<string, string> } {
   const bracket = state.indexOf("[");
   if (bracket < 0) {
     return { name: state, properties: new Map() };
   }
 
-  const properties = new Map();
+  const properties = new Map<string, string>();
   for (const pair of state.slice(bracket + 1, -1).split(",")) {
-    const [key, value] = pair.split("=");
+    const [key, value] = pair.split("=") as [string, string];
     properties.set(key, value);
   }
 
@@ -1156,7 +1219,7 @@ function parseState(state) {
  * the check is that the authored name and every authored property came back,
  * not that the decoded string is character-identical.
  */
-function compare(decoded, authored) {
+function compare(decoded: string | undefined, authored: string): string | undefined {
   if (decoded === undefined) {
     return `is missing (expected ${authored})`;
   }

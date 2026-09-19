@@ -6,9 +6,9 @@
   "scripts": {
     "dev": "vp dev",
     "test": "vp test run",
-    "demos": "node scripts/generate-demos.mjs",
-    "build": "vp build && node scripts/verify-build.mjs",
-    "check": "vp check && vp test run && vp build && node scripts/verify-build.mjs"
+    "demos": "tsx scripts/generate-demos.ts",
+    "build": "vp build && tsx scripts/verify-build.ts",
+    "check": "vp check && vp test run && vp build && tsx scripts/verify-build.ts"
   },
   "dependencies": {
     "three": "0.186.0"
@@ -18,6 +18,7 @@
     "@types/three": "0.186.0",
     "fflate": "0.8.3",
     "nucleation": "0.10.24",
+    "tsx": "4.23.13",
     "typescript": "7.0.2",
     "vite-plugin-singlefile": "2.3.3",
     "vite-plus": "0.3.2"

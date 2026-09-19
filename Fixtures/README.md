@@ -2,7 +2,7 @@
 
 `Demos/` holds the seven schematics the app bundles and shows on its welcome
 screen. Every one is authored block by block in
-`Renderer/scripts/generate-demos.mjs` — they contain no third-party builds, no
+`Renderer/scripts/generate-demos.ts` — they contain no third-party builds, no
 scans of anyone else's world, and no attribution requirement beyond this
 project's own license. Regenerate them with:
 

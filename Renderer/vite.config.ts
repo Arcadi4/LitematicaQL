@@ -15,7 +15,7 @@ const nucleationConfigModuleId = "\0litematicaql-nucleation-config";
  * scheme. Nucleation's generated loader instantiates whatever module the
  * `diplomat.config.mjs` module exports as `wasm_path`, so replace that module
  * with a data URL holding the whole binary. This keeps `index.html`
- * self-contained, which `verify-build.mjs` enforces.
+ * self-contained, which `verify-build.ts` enforces.
  */
 function inlineNucleationWasm() {
   const encodedWasm = readFileSync(resolve(nucleationDirectory, "nucleation.wasm")).toString(

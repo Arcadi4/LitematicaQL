@@ -5,7 +5,7 @@ const rendererDirectory = join(import.meta.dirname, "..");
 const outputDirectory = join(rendererDirectory, "..", "Resources", "Renderer");
 const html = await readFile(join(outputDirectory, "index.html"), "utf8");
 
-const externalAssetPatterns = [
+const externalAssetPatterns: RegExp[] = [
   /<script\b[^>]*\bsrc=/iu,
   /<link\b[^>]*\brel=["'](?:modulepreload|stylesheet)["']/iu,
 ];
