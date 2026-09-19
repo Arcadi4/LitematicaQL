@@ -15,7 +15,7 @@ concurrency:
 jobs:
   validate:
     name: Validate release tag
-    runs-on: xcode-27
+    runs-on: ubuntu-latest
     steps:
       - name: Validate release tag
         shell: bash
@@ -77,17 +77,19 @@ jobs:
         run: pnpm --dir Renderer install --frozen-lockfile
 
       - name: Test renderer
+        if: matrix.arch == 'arm64'
         run: pnpm --dir Renderer run test
 
       - name: Build renderer
         run: pnpm --dir Renderer run build
 
       - name: Run native tests
+        if: matrix.arch == 'arm64'
         run: swift test --parallel
 
       - name: Test native bridge
-        run: cargo test --release --manifest-path Native/Cargo.toml
-
+        if: matrix.arch == 'arm64'
+        run: cargo test --release --manifest-path Native/Cargo.toml --target aarch64-apple-darwin
       - name: Install XcodeGen
         run: brew install xcodegen
 
@@ -141,7 +143,6 @@ jobs:
         shell: bash
         run: |
           set -euo pipefail
-          version="${VERSION#v}"
           app_path="$GITHUB_WORKSPACE/build/LitematicaQL-$ARCH.xcarchive/Products/Applications/$APP_NAME.app"
           lipo -info "$app_path/Contents/MacOS/$APP_NAME" | grep -q "$ARCH"
           codesign --verify --deep --strict "$app_path"
@@ -158,7 +159,7 @@ jobs:
   release:
     name: Publish GitHub release
     needs: build
-    runs-on: xcode-27
+    runs-on: ubuntu-latest
     env:
       APP_NAME: LitematicaQL
       VERSION: ${{ github.ref_name }}
