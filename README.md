@@ -11,11 +11,16 @@
 
 LitematicaQL adds a macOS Quick Look preview extension for Minecraft schematics and structures. It previews `.litematic`, `.schem`, `.schematic`, `.nbt`, `.snbt`, `.mcstructure`, `.nusn`, and `.mca`.
 
-<div align=center>
-
-<https://github.com/user-attachments/assets/3e70e28a-bba3-42e2-b3ca-256369c46f4c>
-
-</div>
+<table>
+<tr>
+<th>Previewing Schematics</th>
+<th>Previewing World Saves</th>
+</tr>
+<tr>
+<td>https://github.com/user-attachments/assets/3e70e28a-bba3-42e2-b3ca-256369c46f4c</td>
+<td>https://github.com/user-attachments/assets/d8b034f7-44b6-4940-8fc5-be5c5af25cb4</td>
+</tr>
+</table>
 
 ## Install
 

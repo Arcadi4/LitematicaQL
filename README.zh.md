@@ -11,11 +11,16 @@
 
 LitematicaQL 为 Minecraft 原理图与结构提供了 macOS 快速查看预览扩展，支持 `.litematic`、`.schem`、`.schematic`、`.nbt`、`.snbt`、`.mcstructure`、`.nusn` 与 `.mca` 格式。
 
-<div align=center>
-
-<https://github.com/user-attachments/assets/3e70e28a-bba3-42e2-b3ca-256369c46f4c>
-
-</div>
+<table>
+<tr>
+<th>预览投影</th>
+<th>预览世界存档</th>
+</tr>
+<tr>
+<td>https://github.com/user-attachments/assets/3e70e28a-bba3-42e2-b3ca-256369c46f4c</td>
+<td>https://github.com/user-attachments/assets/d8b034f7-44b6-4940-8fc5-be5c5af25cb4</td>
+</tr>
+</table>
 
 ## 安装
 
