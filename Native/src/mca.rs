@@ -8,8 +8,11 @@
 // into a single previewable schematic.
 
 use std::collections::HashSet;
-use std::io::Cursor;
+use std::io::{Cursor, Write};
 
+use flate2::write::ZlibEncoder;
+use flate2::Compression;
+use lz4_flex::block;
 use nucleation::block_position::BlockPosition;
 use nucleation::formats::anvil::{ChunkData, RegionReader};
 use nucleation::{Region, UniversalSchematic};
@@ -71,8 +74,214 @@ fn is_air(name: &str) -> bool {
     )
 }
 
+// Vanilla writes region chunks with `region-file-compression=lz4` (since
+// 24w04a) as lz4-java block streams, and Nucleation's region reader refuses
+// that compression byte. Decoding them here means one new dependency and no
+// duplicated chunk NBT parsing: the region is rebuilt byte-for-byte with the
+// LZ4 records re-emitted as zlib before the reader ever sees it.
+
+/// Compression byte for `region-file-compression=lz4` regions (since 24w04a).
+const COMPRESSION_LZ4: u8 = 4;
+
+/// A populated location-table entry whose record header lies within `data`.
+struct LocatedChunk {
+    index: usize,
+    /// Byte offset of the record: a 4-byte big-endian length, then the
+    /// compression byte, then `length - 1` payload bytes.
+    byte_offset: usize,
+    /// The declared record length, compression byte included.
+    record_len: usize,
+    /// The record's compression byte.
+    compression: u8,
+}
+
+/// Scans the location table for populated entries with a readable record
+/// header. Entries that point past the end of the file are skipped; chunks
+/// lost that way surface later as skipped-chunk warnings.
+fn located_chunks(data: &[u8]) -> Vec<LocatedChunk> {
+    const SECTOR_BYTES: usize = 4096;
+
+    let mut located = Vec::new();
+    for index in 0..1024 {
+        let entry = index * 4;
+        let sector_offset = ((data[entry] as usize) << 16)
+            | ((data[entry + 1] as usize) << 8)
+            | data[entry + 2] as usize;
+        let sector_count = data[entry + 3] as usize;
+        if sector_offset < 2 || sector_count == 0 {
+            continue;
+        }
+        let Some(byte_offset) = sector_offset.checked_mul(SECTOR_BYTES) else {
+            continue;
+        };
+        if byte_offset + 5 > data.len() {
+            continue;
+        }
+        let record_len = u32::from_be_bytes([
+            data[byte_offset],
+            data[byte_offset + 1],
+            data[byte_offset + 2],
+            data[byte_offset + 3],
+        ]) as usize;
+        located.push(LocatedChunk {
+            index,
+            byte_offset,
+            record_len,
+            compression: data[byte_offset + 4],
+        });
+    }
+    located
+}
+
+/// Decompresses the lz4-java block stream vanilla writes for LZ4 regions
+/// (`LZ4BlockInputStream`).
+///
+/// The stream is a sequence of blocks, each a 21-byte header — the magic
+/// `LZ4Block`, a token whose high nibble is the method (0x10 stored raw,
+/// 0x20 LZ4), little-endian compressed and original lengths, and an XXHash32
+/// checksum of the original bytes — followed by the compressed data. The
+/// writer terminates with a zero-length raw block; a truncated stream is an
+/// error. The checksum is not verified because decoding does not depend on
+/// it, and block sizes are capped at lz4-java's own maximum so a corrupt
+/// header cannot demand an absurd allocation.
+fn lz4_java_block_stream_decompress(data: &[u8]) -> Result<Vec<u8>, String> {
+    const MAGIC: &[u8; 8] = b"LZ4Block";
+    const HEADER_LEN: usize = 21;
+    const METHOD_RAW: u8 = 0x10;
+    const METHOD_LZ4: u8 = 0x20;
+    // lz4-java refuses block sizes past `1 << (10 + 15)`; mirror the cap so
+    // corrupt headers cannot resize the output into the gigabytes.
+    const MAX_BLOCK_BYTES: usize = 1 << 25;
+
+    let mut out = Vec::new();
+    let mut pos = 0;
+    while pos < data.len() {
+        let header = data
+            .get(pos..pos + HEADER_LEN)
+            .ok_or("truncated LZ4 block header")?;
+        if &header[..8] != MAGIC {
+            return Err("this is not an LZ4 block stream".to_string());
+        }
+        let method = header[8] & 0xf0;
+        let compressed_len = u32::from_le_bytes(header[9..13].try_into().unwrap()) as usize;
+        let original_len = u32::from_le_bytes(header[13..17].try_into().unwrap()) as usize;
+        let payload = data
+            .get(pos + HEADER_LEN..pos + HEADER_LEN + compressed_len)
+            .ok_or("truncated LZ4 block payload")?;
+
+        if original_len == 0 {
+            break;
+        }
+        if original_len > MAX_BLOCK_BYTES {
+            return Err("LZ4 block exceeds lz4-java's maximum block size".to_string());
+        }
+        match method {
+            METHOD_RAW => {
+                if payload.len() != original_len {
+                    return Err("stored LZ4 block length mismatch".to_string());
+                }
+                out.extend_from_slice(payload);
+            }
+            METHOD_LZ4 => {
+                let start = out.len();
+                out.resize(start + original_len, 0);
+                block::decompress_into(payload, &mut out[start..])
+                    .map_err(|error| format!("LZ4 block failed to decompress: {error}"))?;
+            }
+            other => return Err(format!("unknown LZ4 block method 0x{other:02x}")),
+        }
+        pos += HEADER_LEN + compressed_len;
+    }
+    Ok(out)
+}
+
+/// Rebuilds a region so every LZ4 chunk record arrives as zlib.
+///
+/// Records with compression types 1-3 are copied verbatim, type-4 records are
+/// decompressed from the lz4-java block stream and re-emitted as zlib, and
+/// anything else — unreadable records, unknown compression bytes, results
+/// that no longer fit the 255-sector cap — is dropped from the table.
+/// `load_mca_preview` reports dropped chunks as skipped. `None` means no
+/// populated record used LZ4 and the caller should decode the original bytes.
+fn transcode_lz4_chunks(data: &[u8]) -> Option<Vec<u8>> {
+    const SECTOR_BYTES: usize = 4096;
+    // The location entry stores the sector count in one byte.
+    const MAX_RECORD_BYTES: usize = 255 * SECTOR_BYTES - 4;
+
+    let located = located_chunks(data);
+    if !located
+        .iter()
+        .any(|chunk| chunk.compression == COMPRESSION_LZ4)
+    {
+        return None;
+    }
+
+    // Two header sectors, then each surviving chunk at a fresh sector-aligned
+    // offset with zeroed timestamps: a spec-shaped file any region reader
+    // could open.
+    let mut out = vec![0u8; 2 * SECTOR_BYTES];
+    let mut next_sector: u32 = 2;
+
+    for chunk in located {
+        let record: Vec<u8> = match chunk.compression {
+            1..=3 => {
+                let end = chunk.byte_offset + 4 + chunk.record_len;
+                if end > data.len() || 4 + chunk.record_len > MAX_RECORD_BYTES {
+                    continue;
+                }
+                data[chunk.byte_offset..end].to_vec()
+            }
+            COMPRESSION_LZ4 => {
+                if chunk.record_len < 2 {
+                    continue;
+                }
+                let payload_end = chunk.byte_offset + 4 + chunk.record_len;
+                if payload_end > data.len() {
+                    continue;
+                }
+                let payload = &data[chunk.byte_offset + 5..payload_end];
+                let Ok(decompressed) = lz4_java_block_stream_decompress(payload) else {
+                    continue;
+                };
+                let mut encoder = ZlibEncoder::new(Vec::new(), Compression::fast());
+                if encoder.write_all(&decompressed).is_err() {
+                    continue;
+                }
+                let Ok(compressed) = encoder.finish() else {
+                    continue;
+                };
+                if 5 + compressed.len() > MAX_RECORD_BYTES {
+                    continue;
+                }
+                let mut record = Vec::with_capacity(5 + compressed.len());
+                record.extend_from_slice(&(compressed.len() as u32 + 1).to_be_bytes());
+                record.push(2);
+                record.extend_from_slice(&compressed);
+                record
+            }
+            _ => continue,
+        };
+
+        let sector_count = (record.len() as u32).div_ceil(SECTOR_BYTES as u32);
+        let entry = chunk.index * 4;
+        out[entry..entry + 3].copy_from_slice(&next_sector.to_be_bytes()[1..4]);
+        out[entry + 3] = sector_count as u8;
+        let start = out.len();
+        out.extend_from_slice(&record);
+        out.resize(start + sector_count as usize * SECTOR_BYTES, 0);
+        next_sector += sector_count;
+    }
+
+    Some(out)
+}
+
 pub(super) fn load_mca_preview(bytes: &[u8]) -> Result<UniversalSchematic, DecodeFailure> {
-    let mut reader = RegionReader::new_auto(Cursor::new(bytes)).map_err(|error| {
+    // Regions written with `region-file-compression=lz4` carry chunk records
+    // Nucleation cannot decompress; rebuild those records as zlib first.
+    let transcoded = transcode_lz4_chunks(bytes);
+    let region_bytes: &[u8] = transcoded.as_deref().unwrap_or(bytes);
+
+    let mut reader = RegionReader::new_auto(Cursor::new(region_bytes)).map_err(|error| {
         DecodeFailure::Format(format!("This file is not a readable MCA region: {error}"))
     })?;
 

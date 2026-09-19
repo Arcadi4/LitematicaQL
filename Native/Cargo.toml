@@ -33,6 +33,11 @@ schematic-mesher = "0.2.0"
 # uses so it stays a single copy in the tree.
 quartz_nbt = { version = "0.2.9", features = ["preserve_order"] }
 flate2 = { version = "1", default-features = false, features = ["zlib-rs"] }
+# LZ4 block compression for Anvil regions written with
+# `region-file-compression=lz4`. Vanilla frames those chunks in the lz4-java
+# block-stream spelling, which this crate re-implements over lz4_flex's raw
+# block codec; its `frame` module speaks a different container and is unused.
+lz4_flex = { version = "0.11", default-features = false, features = ["std"] }
 # The `.snbt` brace block-state normalization is a textual rewrite; the pattern
 # mirrors the renderer's own `normalizeStructureSnbt`.
 regex = "1"
