@@ -4,15 +4,27 @@ updates:
     directory: "/"
     schedule:
       interval: "weekly"
+    groups:
+      actions:
+        patterns:
+          - "*"
 
   - package-ecosystem: "npm"
     directory: "/Renderer"
     schedule:
       interval: "weekly"
+    groups:
+      npm:
+        patterns:
+          - "*"
 
   - package-ecosystem: "cargo"
     directory: "/Native"
     schedule:
       interval: "weekly"
+    groups:
+      cargo:
+        patterns:
+          - "*"
     ignore:
       - dependency-name: "nucleation"
