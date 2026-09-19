@@ -231,7 +231,14 @@ pub fn mesh(
             error => MeshFailure::Mesh(error.to_string()),
         })?;
 
-    if output.is_empty() {
+    let greedy_triangles: usize = output
+        .greedy_materials
+        .iter()
+        .map(|gm| gm.opaque.triangle_count() + gm.transparent.triangle_count())
+        .sum();
+    let total_triangles = output.total_triangles() + greedy_triangles;
+
+    if total_triangles == 0 {
         return Err(MeshFailure::NoBlocks);
     }
 
@@ -240,7 +247,7 @@ pub fn mesh(
         .map_err(|error| MeshFailure::Mesh(error.to_string()))?;
 
     let info = NQLMeshInfo {
-        triangle_count: output.total_triangles() as i64,
+        triangle_count: total_triangles as i64,
     };
     Ok((glb, info))
 }
