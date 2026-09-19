@@ -11,16 +11,16 @@
     "check": "vp check && vp test run && vp build && node scripts/verify-build.mjs"
   },
   "dependencies": {
-    "three": "0.184.0"
+    "three": "0.186.0"
   },
   "devDependencies": {
-    "@types/node": "24.13.0",
-    "@types/three": "0.184.0",
+    "@types/node": "26.6.1",
+    "@types/three": "0.186.0",
     "fflate": "0.8.3",
     "nucleation": "0.10.24",
     "typescript": "7.0.2",
     "vite-plugin-singlefile": "2.3.3",
-    "vite-plus": "0.3.0"
+    "vite-plus": "0.3.2"
   },
   "packageManager": "pnpm@12.4.1"
 }
