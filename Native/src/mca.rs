@@ -140,7 +140,7 @@ pub(super) fn load_mca_preview(bytes: &[u8]) -> Result<UniversalSchematic, Decod
     let height = ((max_section_y - min_section_y + 1) as i32) * 16;
 
     let mut schematic = UniversalSchematic::new("mca".to_string());
-    let data_version = chunks.iter().map(|c| c.data_version).find(|&v| v > 0);
+    let data_version = chunks.iter().map(|c| c.data_version).max();
     schematic.metadata.name = Some("mca".to_string());
     schematic.metadata.mc_version = data_version;
     schematic.metadata.source_data_version = data_version;
