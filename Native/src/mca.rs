@@ -587,3 +587,93 @@ fn select_preview_chunks(
     selected.sort_by_key(|&(cx, cz)| (cz, cx));
     selected
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    /// Mirrors vanilla's writer: lz4-java `LZ4BlockOutputStream` framing over
+    /// LZ4 block payloads, terminated by the zero-length raw endmark.
+    fn frame_lz4_java_stream(payload: &[u8], block_size: usize, method: u8) -> Vec<u8> {
+        let mut out = Vec::new();
+        for chunk in payload.chunks(block_size.max(1)) {
+            out.extend_from_slice(b"LZ4Block");
+            let (token, data): (u8, Vec<u8>) = match method {
+                0x10 => (0x10, chunk.to_vec()),
+                _ => (0x20, block::compress(chunk)),
+            };
+            out.push(token);
+            out.extend_from_slice(&(data.len() as u32).to_le_bytes());
+            out.extend_from_slice(&(chunk.len() as u32).to_le_bytes());
+            out.extend_from_slice(&0u32.to_le_bytes());
+            out.extend_from_slice(&data);
+        }
+        out.extend_from_slice(b"LZ4Block");
+        out.extend_from_slice(&[0x10, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0]);
+        out
+    }
+
+    /// Deterministic xorshift bytes: incompressible enough to exercise the
+    /// real LZ4 codec across many blocks.
+    fn pseudo_random(len: usize) -> Vec<u8> {
+        let mut state = 0x2545_f491_4f6c_dd1d_u64;
+        (0..len)
+            .map(|_| {
+                state ^= state << 13;
+                state ^= state >> 7;
+                state ^= state << 17;
+                state as u8
+            })
+            .collect()
+    }
+
+    #[test]
+    fn lz4_stream_round_trips_multi_block() {
+        let payload = pseudo_random(300_000);
+        let framed = frame_lz4_java_stream(&payload, 1 << 16, 0x20);
+        assert_eq!(
+            lz4_java_block_stream_decompress(&framed).expect("stream should decompress"),
+            payload
+        );
+    }
+
+    #[test]
+    fn lz4_stream_accepts_stored_blocks() {
+        let payload = b"stored block payloads pass through verbatim".to_vec();
+        let framed = frame_lz4_java_stream(&payload, 8, 0x10);
+        assert_eq!(
+            lz4_java_block_stream_decompress(&framed).expect("stream should decompress"),
+            payload
+        );
+    }
+
+    #[test]
+    fn lz4_stream_tolerates_missing_endmark() {
+        let payload = pseudo_random(50_000);
+        let framed = frame_lz4_java_stream(&payload, 1 << 12, 0x20);
+        let truncated_at_endmark = &framed[..framed.len() - 21];
+        assert_eq!(
+            lz4_java_block_stream_decompress(truncated_at_endmark).expect("stream should decompress"),
+            payload
+        );
+    }
+
+    #[test]
+    fn lz4_stream_rejects_bad_magic_and_truncation() {
+        assert!(lz4_java_block_stream_decompress(b"NOTBLOCK").is_err());
+        assert!(lz4_java_block_stream_decompress(b"LZ4Block\x20").is_err());
+        let payload = pseudo_random(10_000);
+        let framed = frame_lz4_java_stream(&payload, 1 << 12, 0x20);
+        let truncated_payload = &framed[..framed.len() - 100];
+        assert!(lz4_java_block_stream_decompress(truncated_payload).is_err());
+    }
+
+    #[test]
+    fn regions_without_lz4_are_not_transcoded() {
+        let region = std::fs::read(
+            std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("../Fixtures/Formats/Region.mca"),
+        )
+        .expect("read Region.mca");
+        assert!(transcode_lz4_chunks(&region).is_none());
+    }
+}

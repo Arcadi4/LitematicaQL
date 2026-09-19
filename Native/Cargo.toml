@@ -48,3 +48,7 @@ quartz_nbt = { version = "0.2.9", features = ["preserve_order"] }
 nucleation = { version = "=0.10.14", default-features = false, features = [
   "meshing",
 ] }
+# The MCA region tests rewrite fixture chunk records: zlib payloads are
+# inflated and re-framed as lz4-java streams.
+flate2 = { version = "1", default-features = false, features = ["zlib-rs"] }
+lz4_flex = { version = "0.11", default-features = false, features = ["std"] }
