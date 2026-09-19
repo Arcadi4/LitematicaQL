@@ -9,3 +9,10 @@ updates:
     directory: "/Renderer"
     schedule:
       interval: "weekly"
+
+  - package-ecosystem: "cargo"
+    directory: "/Native"
+    schedule:
+      interval: "weekly"
+    ignore:
+      - dependency-name: "nucleation"
