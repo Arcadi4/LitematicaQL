@@ -10,8 +10,16 @@ name = "litematicaql_native"
 # wraps; `staticlib` is what the app and extension link.
 crate-type = ["staticlib", "rlib"]
 
+# Fat LTO shrinks the machine code the host binaries embed; `codegen-units = 1`
+# lets cross-crate inlining pay off. `panic` must stay `unwind` because the
+# FFI refusal path is `catch_unwind`; `panic = "abort"` would turn refusals
+# into process kills.
+[profile.release]
+lto = "fat"
+codegen-units = 1
+
 [dependencies]
-# Pinned to 0.10.14 for the same reason as schematic-diff: from 0.10.15 onward
+# Pinned to 0.10.14 for the same reason as schematic-diff. From 0.10.15 onward
 # the `meshing` feature does not build from crates.io (its `glb.rs` needs a
 # `gltf_build` API that only exists on a git rev, and `cargo publish` resolves
 # the version side). 0.10.14 is the last release where the feature compiles.

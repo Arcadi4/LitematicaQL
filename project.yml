@@ -21,6 +21,14 @@ settings:
     MARKETING_VERSION: 1.0.0
     SWIFT_STRICT_CONCURRENCY: complete
     SWIFT_VERSION: 6.0
+  configs:
+    # Without deployment postprocessing the Release binaries keep their full
+    # symbol tables, about 9 MB of LINKEDIT per binary, for symbols nothing
+    # ever reads outside a debugger.
+    Release:
+      DEPLOYMENT_POSTPROCESSING: YES
+      STRIP_INSTALLED_PRODUCT: YES
+      STRIP_STYLE: all
 
 targets:
   LitematicaQL:
