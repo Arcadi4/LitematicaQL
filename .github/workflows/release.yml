@@ -71,7 +71,7 @@ jobs:
         uses: Swatinem/rust-cache@v2
         with:
           workspaces: Native
-          key: ${{ matrix.arch }}
+          shared-key: native-bridge
 
       - name: Install renderer dependencies
         run: pnpm --dir Renderer install --frozen-lockfile

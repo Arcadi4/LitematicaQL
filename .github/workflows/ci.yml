@@ -51,7 +51,7 @@ jobs:
         uses: Swatinem/rust-cache@v2
         with:
           workspaces: Native
-
+          shared-key: native-bridge
       - name: Install renderer dependencies
         run: pnpm --dir Renderer install --frozen-lockfile
 
