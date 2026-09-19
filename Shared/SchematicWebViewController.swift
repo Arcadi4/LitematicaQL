@@ -177,6 +177,7 @@ final class SchematicWebViewController: NSViewController {
             await presentDecoded(
                 displayName: displayName,
                 facts: facts,
+                warnings: facts.warnings,
                 large: facts.blockCount > Self.immediateRenderNoticeBlocks
             )
 
@@ -212,6 +213,7 @@ final class SchematicWebViewController: NSViewController {
     private func presentDecoded(
         displayName: String,
         facts: NativeSchematicFacts,
+        warnings: [String],
         large: Bool
     ) async {
         guard let webView else { return }
@@ -224,6 +226,7 @@ final class SchematicWebViewController: NSViewController {
                     "dimensions": "\(dimensions.0) × \(dimensions.1) × \(dimensions.2)",
                     "blockCount": facts.blockCount,
                     "blockEntityCount": facts.blockEntityCount,
+                    "warnings": warnings,
                     "large": large,
                 ]
             ],

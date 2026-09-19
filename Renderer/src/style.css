@@ -144,6 +144,19 @@ body {
   font-size: 10px;
 }
 
+.file-info__warnings {
+  max-width: 320px;
+  margin: 8px 0 0 !important;
+  padding-left: 14px;
+  color: rgba(255, 199, 118, 0.88);
+  font-size: 10px;
+  line-height: 1.45;
+}
+
+.file-info__warnings li + li {
+  margin-top: 2px;
+}
+
 .controls-hint {
   bottom: 18px;
   left: 50%;

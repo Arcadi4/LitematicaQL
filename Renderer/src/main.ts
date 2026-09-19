@@ -12,6 +12,8 @@ interface LoadMetaInfo {
   dimensions: string;
   blockCount: number;
   blockEntityCount: number;
+  // Reader notices about content that exists but is not shown.
+  warnings?: string[];
   large: boolean;
 }
 
@@ -40,6 +42,7 @@ const fileName = requiredElement<HTMLElement>("file-name");
 const fileDimensions = requiredElement<HTMLElement>("file-dimensions");
 const fileBlockCount = requiredElement<HTMLElement>("file-block-count");
 const fileBlockEntities = requiredElement<HTMLElement>("file-block-entities");
+const fileWarnings = requiredElement<HTMLElement>("file-warnings");
 const controlsHint = requiredElement<HTMLElement>("controls-hint");
 
 const viewer = new SchematicViewer(canvas);
@@ -57,7 +60,13 @@ postNativeMessage({ type: "ready", detail: "" });
 window.litematicaQL = {
   // A schematic arrived. Paint the facts so the window has substance while meshing runs.
   async loadMeta(info: LoadMetaInfo): Promise<void> {
-    showPreviewMetadata(info.name, info.dimensions, info.blockCount, info.blockEntityCount);
+    showPreviewMetadata(
+      info.name,
+      info.dimensions,
+      info.blockCount,
+      info.blockEntityCount,
+      info.warnings ?? [],
+    );
     setStatus(
       largeRenderStatusTitle,
       info.large ? largeRenderStatusDetail : "Preparing block geometry…",
@@ -89,6 +98,7 @@ function showPreviewMetadata(
   dimensions: string,
   blockCount: number,
   blockEntityCount: number,
+  warnings: string[],
 ): void {
   fileName.textContent = name;
   fileDimensions.textContent = dimensions;
@@ -96,6 +106,17 @@ function showPreviewMetadata(
   fileBlockEntities.textContent = `${blockEntityCount.toLocaleString()} block entities`;
   fileInfo.hidden = false;
   controlsHint.hidden = false;
+
+  // Reader notices stay visible after the mesh lands: they describe content
+  // the preview will never show, not progress.
+  fileWarnings.replaceChildren(
+    ...warnings.map((warning) => {
+      const item = document.createElement("li");
+      item.textContent = warning;
+      return item;
+    }),
+  );
+  fileWarnings.hidden = warnings.length === 0;
 }
 
 function showLoadError(message: string): void {

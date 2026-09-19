@@ -14,6 +14,9 @@ struct NativeSchematicFacts: Sendable {
     // Dimensions of the region the blocks actually occupy. Region padding is
     // a whole-chunk affair, so the declared size overstates what is drawn.
     let contentDimensions: (Int, Int, Int)
+    // Reader notices about content that exists but is not shown, for example
+    // chunks skipped as unreadable or stored in external `.mcc` files.
+    let warnings: [String]
 }
 
 // Facts about a finished mesh.
@@ -75,8 +78,37 @@ final class NativeSchematicSession {
                 Int(info.content_x),
                 Int(info.content_y),
                 Int(info.content_z)
-            )
+            ),
+            warnings: readWarnings()
         )
+    }
+
+    // Reads the decode notices the library attached to the current handle.
+    // The handle is always live here — decode just opened it — so a failed
+    // read simply means no notices.
+    func readWarnings() -> [String] {
+        guard let handle else {
+            return []
+        }
+
+        var buffer: UnsafeMutablePointer<UInt8>?
+        var length = 0
+        guard nql_schematic_warnings(handle, &buffer, &length) == NQL_OK else {
+            return []
+        }
+        defer {
+            if let buffer {
+                nql_buffer_free(buffer, length)
+            }
+        }
+        guard length > 0, let buffer else {
+            return []
+        }
+        let text = String(
+            decoding: UnsafeBufferPointer(start: buffer, count: length),
+            as: UTF8.self
+        )
+        return text.split(separator: "\n", omittingEmptySubsequences: true).map(String.init)
     }
 
     // Meshes the decoded schematic against the bundled resource pack.
