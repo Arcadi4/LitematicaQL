@@ -41,6 +41,7 @@ typedef struct {
 NQLStatus nql_schematic_open(const uint8_t *data, size_t len, NQLSchematic **out, NQLError *err);
 void nql_schematic_free(NQLSchematic *schematic);
 NQLStatus nql_schematic_info(const NQLSchematic *schematic, NQLSchematicInfo *out);
+NQLStatus nql_schematic_warnings(const NQLSchematic *schematic, uint8_t **out, size_t *out_len);
 NQLStatus nql_schematic_mesh(const NQLSchematic *schematic, const uint8_t *pack_data,
                              size_t pack_len, uint8_t **glb_out, size_t *glb_len,
                              NQLMeshInfo *info_out, NQLError *err);

@@ -10,8 +10,10 @@
 // Policy lives on the Swift side; this crate only enforces decode limits and
 // the mesh block budget.
 
+use std::collections::HashMap;
 use std::panic::{catch_unwind, AssertUnwindSafe};
 use std::slice;
+use std::sync::{LazyLock, Mutex};
 
 use nucleation::formats::limits::DecodeLimits;
 use nucleation::formats::manager::get_manager;
@@ -58,6 +60,14 @@ pub mod status {
 
 // A decoded schematic. Opaque to the host; free with `nql_schematic_free`.
 pub type NQLSchematic = UniversalSchematic;
+
+// Decode notices per live handle, keyed by the handle's address and removed
+// exactly once in `nql_schematic_free`. UniversalSchematic has no field to
+// carry host-facing text, so the store stays outside the type; the pointer
+// keying is safe because a freed address is always unmapped from the store
+// before it can be handed out again.
+static DECODE_WARNINGS: LazyLock<Mutex<HashMap<usize, Vec<String>>>> =
+    LazyLock::new(|| Mutex::new(HashMap::new()));
 
 // Build facts reported right after a successful decode.
 #[repr(C)]
@@ -158,30 +168,39 @@ pub enum DecodeFailure {
 }
 
 // Decode schematic `bytes`, refusing anything outside the preview budget.
+pub fn decode(bytes: &[u8]) -> Result<NQLSchematic, DecodeFailure> {
+    decode_with_warnings(bytes).map(|(schematic, _)| schematic)
+}
+
+// Decode like `decode`, and also return the reader's human-readable notices
+// about content that exists but is not shown: chunks skipped as unreadable or
+// stored in external `.mcc` files. The C ABI reports these through
+// `nql_schematic_warnings`.
 //
 // Nucleation reports every rejection as the same opaque parse error, so a
 // second decode with the diagnostic allowances decides whether the input was
 // oversized or unreadable and the refusal says which.
-pub fn decode(bytes: &[u8]) -> Result<NQLSchematic, DecodeFailure> {
+pub fn decode_with_warnings(bytes: &[u8]) -> Result<(NQLSchematic, Vec<String>), DecodeFailure> {
     let manager = get_manager();
     let guard = manager
         .lock()
         .map_err(|_| DecodeFailure::Format("the format registry is unavailable".to_string()))?;
 
     if let Ok((_, schematic)) = guard.read_bounded_with_format(bytes, &preview_limits()) {
-        return Ok(schematic);
+        return Ok((schematic, Vec::new()));
     }
 
     // A readable document that only trips on Nucleation's brace block-state
     // spelling gets one normalized retry.
     if let Some(normalized) = normalize_structure_snbt(bytes) {
-        if let Ok((_, schematic)) = guard.read_bounded_with_format(&normalized, &preview_limits()) {
-            return Ok(schematic);
+        if let Ok((_, schematic)) = guard.read_bounded_with_format(&normalized, &preview_limits())
+        {
+            return Ok((schematic, Vec::new()));
         }
     }
 
     if structure_nbt::is_binary_structure(bytes) {
-        return structure_nbt::load_structure_nbt(bytes);
+        return structure_nbt::load_structure_nbt(bytes).map(|schematic| (schematic, Vec::new()));
     }
 
     if mca::is_mca(bytes) {
@@ -314,9 +333,15 @@ pub unsafe extern "C" fn nql_schematic_open(
     }
 
     let bytes = slice::from_raw_parts(data, len);
-    match catch_unwind(AssertUnwindSafe(|| decode(bytes))) {
-        Ok(Ok(schematic)) => {
-            *out = Box::into_raw(Box::new(schematic));
+    match catch_unwind(AssertUnwindSafe(|| decode_with_warnings(bytes))) {
+        Ok(Ok((schematic, warnings))) => {
+            let handle = Box::into_raw(Box::new(schematic));
+            if !warnings.is_empty() {
+                if let Ok(mut store) = DECODE_WARNINGS.lock() {
+                    store.insert(handle as usize, warnings);
+                }
+            }
+            *out = handle;
             status::OK
         }
         Ok(Err(DecodeFailure::Format(message))) => fail(err_out, status::ERR_FORMAT, &message),
@@ -336,8 +361,40 @@ pub unsafe extern "C" fn nql_schematic_open(
 #[no_mangle]
 pub unsafe extern "C" fn nql_schematic_free(schematic: *mut NQLSchematic) {
     if !schematic.is_null() {
+        if let Ok(mut store) = DECODE_WARNINGS.lock() {
+            store.remove(&(schematic as usize));
+        }
         drop(Box::from_raw(schematic));
     }
+}
+
+// Report the decode notices attached to a schematic, joined with newlines.
+//
+// The buffer is empty when the decode produced no notices. The host frees it
+// with `nql_buffer_free`.
+//
+// # Safety
+// `schematic` must be a live handle; `out` and `out_len` must be writable.
+#[no_mangle]
+pub unsafe extern "C" fn nql_schematic_warnings(
+    schematic: *const NQLSchematic,
+    out: *mut *mut u8,
+    out_len: *mut usize,
+) -> i32 {
+    if schematic.is_null() || out.is_null() || out_len.is_null() {
+        return status::ERR_NULL;
+    }
+
+    let text = DECODE_WARNINGS
+        .lock()
+        .ok()
+        .and_then(|store| store.get(&(schematic as usize)).cloned())
+        .unwrap_or_default()
+        .join("\n");
+    let (buffer, len) = export_bytes(text.into_bytes());
+    *out = buffer;
+    *out_len = len;
+    status::OK
 }
 
 // Report build facts about a decoded schematic.

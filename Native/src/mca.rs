@@ -275,12 +275,50 @@ fn transcode_lz4_chunks(data: &[u8]) -> Option<Vec<u8>> {
     Some(out)
 }
 
-pub(super) fn load_mca_preview(bytes: &[u8]) -> Result<UniversalSchematic, DecodeFailure> {
+/// The compression byte recorded for one location-table index, when its
+/// record header is readable.
+fn chunk_record_compression(data: &[u8], index: usize) -> Option<u8> {
+    const SECTOR_BYTES: usize = 4096;
+
+    let entry = data.get(index * 4..index * 4 + 4)?;
+    let sector_offset = ((entry[0] as usize) << 16)
+        | ((entry[1] as usize) << 8)
+        | entry[2] as usize;
+    if sector_offset < 2 {
+        return None;
+    }
+    let byte_offset = sector_offset.checked_mul(SECTOR_BYTES)?;
+    data.get(byte_offset + 4).copied()
+}
+
+/// Why a selected chunk produced no data. Distinguishes the spec's external
+/// `.mcc` spelling (length 1, compression value +128) from other empty
+/// records so the preview can say which chunks live outside the file.
+fn missing_chunk_notice(bytes: &[u8], region: (i32, i32), cx: i32, cz: i32) -> String {
+    let local_x = cx - region.0 * 32;
+    let local_z = cz - region.1 * 32;
+    let external = (0..32).contains(&local_x)
+        && (0..32).contains(&local_z)
+        && chunk_record_compression(bytes, (local_z * 32 + local_x) as usize)
+            .is_some_and(|compression| compression >= 128);
+    if external {
+        format!("Chunk ({cx}, {cz}) is stored in the external c.{cx}.{cz}.mcc file and is not shown.")
+    } else {
+        format!("Chunk ({cx}, {cz}) has an empty record and is not shown.")
+    }
+}
+
+pub(super) fn load_mca_preview(
+    bytes: &[u8],
+) -> Result<(UniversalSchematic, Vec<String>), DecodeFailure> {
     // Regions written with `region-file-compression=lz4` carry chunk records
-    // Nucleation cannot decompress; rebuild those records as zlib first.
+    // Nucleation cannot decompress; rebuild those records as zlib first. The
+    // original bytes stay authoritative for header questions such as whether
+    // a chunk is stored externally.
     let transcoded = transcode_lz4_chunks(bytes);
     let region_bytes: &[u8] = transcoded.as_deref().unwrap_or(bytes);
 
+    let mut warnings = Vec::new();
     let mut reader = RegionReader::new_auto(Cursor::new(region_bytes)).map_err(|error| {
         DecodeFailure::Format(format!("This file is not a readable MCA region: {error}"))
     })?;
@@ -299,19 +337,21 @@ pub(super) fn load_mca_preview(bytes: &[u8]) -> Result<UniversalSchematic, Decod
     for (cx, cz) in selected_coords {
         match reader.read_chunk(cx, cz) {
             Ok(Some(chunk)) => chunks.push(chunk),
-            Ok(None) => {}
-            Err(error) => {
-                return Err(DecodeFailure::Format(format!(
-                    "Failed to read chunk ({cx}, {cz}) from MCA: {error}"
-                )));
-            }
+            Ok(None) => warnings.push(missing_chunk_notice(bytes, (region_x, region_z), cx, cz)),
+            Err(error) => warnings.push(format!(
+                "Chunk ({cx}, {cz}) could not be read and is not shown ({}).",
+                error.to_string().replace('\n', " ")
+            )),
         }
     }
 
     if chunks.is_empty() {
-        return Err(DecodeFailure::Format(
-            "Failed to decode any populated chunks from this MCA file.".to_string(),
-        ));
+        let mut message = "Failed to decode any populated chunks from this MCA file.".to_string();
+        if !warnings.is_empty() {
+            message.push(' ');
+            message.push_str(&warnings.join(" "));
+        }
+        return Err(DecodeFailure::Format(message));
     }
 
     // Determine region bounds directly from chunk and non-air section coordinates in O(1).
@@ -440,7 +480,7 @@ pub(super) fn load_mca_preview(bytes: &[u8]) -> Result<UniversalSchematic, Decod
         ));
     }
 
-    Ok(schematic)
+    Ok((schematic, warnings))
 }
 
 /// Select up to 4 chunks from the populated chunk positions.
