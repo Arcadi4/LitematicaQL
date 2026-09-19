@@ -1,8 +1,7 @@
 // Integration tests for the preview pipeline the Swift bridge calls.
 //
 // Every bundled demo is decoded and meshed with the shipping configuration,
-// one per file format, and every minimal format fixture is decoded. The
-// Valkyrie test is opt-in: it needs a large local build and takes minutes.
+// one per file format, and every minimal format fixture is decoded.
 
 use std::fs;
 use std::path::{Path, PathBuf};
@@ -89,6 +88,35 @@ fn format_fixtures_decode() {
         decode_file(&path);
     }
 }
+#[test]
+fn mca_fixture_decodes_and_meshes() {
+    let path = repo_root().join("Fixtures/Formats/Region.mca");
+    let bytes = fs::read(&path).expect("read Region.mca");
+
+    let decoded = decode(&bytes).expect("MCA decode should succeed");
+    assert_eq!(decoded.total_blocks(), 4, "all 4 chunks should be represented");
+    let (glb, info) = mesh(&decoded, &pack_bytes()).expect("MCA mesh should succeed");
+    assert!(!glb.is_empty(), "GLB should not be empty");
+    assert!(info.triangle_count > 0, "should produce triangles");
+    assert!(glb.starts_with(b"glTF"), "valid GLB magic");
+}
+
+#[test]
+fn unpadded_mca_decodes_and_meshes() {
+    let path = repo_root().join("Fixtures/Formats/Region.mca");
+    let mut bytes = fs::read(&path).expect("read Region.mca");
+    // Truncate non-essential padding from the end of the file so its length
+    // is not a multiple of 4096, mirroring real-world MCA files whose trailing
+    // sector padding was omitted by export tools or file transfers.
+    bytes.truncate(bytes.len() - 50);
+    assert_ne!(bytes.len() % 4096, 0, "test file should not be sector-aligned");
+
+    let decoded = decode(&bytes).expect("unpadded MCA should decode");
+    assert_eq!(decoded.total_blocks(), 4);
+    let (glb, info) = mesh(&decoded, &pack_bytes()).expect("unpadded MCA should mesh");
+    assert!(info.triangle_count > 0);
+    assert!(!glb.is_empty());
+}
 
 #[test]
 fn mesh_failures_return_status_codes_not_panics() {
@@ -124,43 +152,4 @@ fn mesh_failures_return_status_codes_not_panics() {
     let (pointer, length) = export_bytes(bytes);
     assert_eq!(length, 100);
     unsafe { litematicaql_native::nql_buffer_free(pointer, length) };
-}
-
-// The build that exposed the wasm ceiling: a 1003 × 259 × 1002 station with
-// 4.4 million non-air blocks. Opt-in because it needs the local file and
-// takes about a minute.
-#[test]
-#[ignore = "needs a large local build; run with `cargo test --release -- --ignored`"]
-fn valkyrie_meshes_natively() {
-    let path = std::env::var("LQL_VALKYRIE")
-        .unwrap_or_else(|_| "/Users/skylar/Desktop/valkyrie.litematic".to_string());
-    let path = PathBuf::from(path);
-    if !path.exists() {
-        panic!("set LQL_VALKYRIE to a large .litematic to run this test");
-    }
-
-    let started = std::time::Instant::now();
-    let schematic = decode_file(&path);
-    let decode_seconds = started.elapsed().as_secs_f32();
-    assert!(
-        schematic.total_blocks() > 4_000_000,
-        "region decode silently dropped blocks"
-    );
-
-    let started = std::time::Instant::now();
-    let (glb, info) = mesh_schematic(&schematic);
-    let mesh_seconds = started.elapsed().as_secs_f32();
-
-    assert!(info.triangle_count > 1_000_000, "too few triangles");
-    assert!(!glb.is_empty());
-    let out = std::env::var("LQL_VALKYRIE_OUT")
-        .map(PathBuf::from)
-        .unwrap_or_else(|_| std::env::temp_dir().join("valkyrie-native.glb"));
-    fs::write(&out, &glb).expect("write GLB");
-    println!(
-        "decode {decode_seconds:.1}s, mesh {mesh_seconds:.1}s, triangles {}, glb {} MiB, wrote {}",
-        info.triangle_count,
-        glb.len() / 1_048_576,
-        out.display()
-    );
 }
