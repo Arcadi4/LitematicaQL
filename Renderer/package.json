@@ -19,7 +19,6 @@
     "fflate": "0.8.3",
     "nucleation": "0.10.24",
     "tsx": "4.23.13",
-    "typescript": "7.0.2",
     "vite-plugin-singlefile": "2.3.3",
     "vite-plus": "0.3.2"
   },
