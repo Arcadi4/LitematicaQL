@@ -19,6 +19,7 @@ use nucleation::meshing::{MeshConfig, MeshError, ResourcePackSource};
 use nucleation::UniversalSchematic;
 use regex::Regex;
 
+mod mca;
 mod structure_nbt;
 
 // Compressed schematic bytes accepted from the native bridge.
@@ -183,6 +184,10 @@ pub fn decode(bytes: &[u8]) -> Result<NQLSchematic, DecodeFailure> {
         return structure_nbt::load_structure_nbt(bytes);
     }
 
+    if mca::is_mca(bytes) {
+        return mca::load_mca_preview(bytes);
+    }
+
     match guard.read_bounded_with_format(bytes, &diagnostic_limits()) {
         Ok((_, diagnostic)) => Err(DecodeFailure::Limit(oversized_message(&diagnostic))),
         Err(_) => Err(DecodeFailure::Format(format!(
@@ -191,6 +196,7 @@ pub fn decode(bytes: &[u8]) -> Result<NQLSchematic, DecodeFailure> {
         ))),
     }
 }
+
 
 fn oversized_message(schematic: &NQLSchematic) -> String {
     let block_count = i64::from(schematic.total_blocks());
