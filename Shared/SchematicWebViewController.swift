@@ -38,6 +38,27 @@ final class SchematicWebViewController: NSViewController {
 
     // Identifies the active load so superseded background meshes cannot publish stale geometry.
     private var loadGeneration = 0
+    /// Retained so App teardown and Quick Look cancellation can interrupt native meshing.
+    private var nativeLoad: Task<Void, Never>?
+    private var nativeSession: NativeSchematicSession?
+
+    deinit {
+        let task = nativeLoad
+        let session = nativeSession
+        Task { @MainActor in
+            task?.cancel()
+            session?.cancel()
+        }
+    }
+
+    func cancelNativeLoad() {
+        loadGeneration += 1
+        nativeLoad?.cancel()
+        nativeSession?.cancel()
+        nativeLoad = nil
+        nativeSession = nil
+        glbHandler.clear()
+    }
 
     private let glbHandler = GLBResourceHandler()
 
@@ -133,7 +154,8 @@ final class SchematicWebViewController: NSViewController {
             throw PreviewInfrastructureError.missingRenderer
         }
         let pack = try await Task.detached(priority: .userInitiated) {
-            try SchematicWebViewController.loadResourcePack(from: rendererDirectory)
+            let data = try SchematicWebViewController.loadResourcePack(from: rendererDirectory)
+            return try NativeResourcePack(data)
         }.value
         try Task.checkCancellation()
 
@@ -141,26 +163,34 @@ final class SchematicWebViewController: NSViewController {
         let generation = loadGeneration
         let displayName = url.lastPathComponent
         let handler = glbHandler
-
-        Task.detached(priority: .userInitiated) {
-            await self.runNativeLoad(
-                data: data,
-                pack: pack,
-                displayName: displayName,
-                generation: generation,
-                handler: handler
-            )
+        let session = NativeSchematicSession()
+        nativeLoad?.cancel()
+        nativeSession?.cancel()
+        nativeSession = session
+        nativeLoad = Task.detached(priority: .userInitiated) { [weak self] in
+            await withTaskCancellationHandler {
+                await self?.runNativeLoad(
+                    session: session,
+                    data: data,
+                    pack: pack,
+                    displayName: displayName,
+                    generation: generation,
+                    handler: handler
+                )
+            } onCancel: {
+                session.cancel()
+            }
         }
     }
 
     private nonisolated func runNativeLoad(
+        session: NativeSchematicSession,
         data: Data,
-        pack: Data,
+        pack: NativeResourcePack,
         displayName: String,
         generation: Int,
         handler: GLBResourceHandler
     ) async {
-        let session = NativeSchematicSession()
         do {
             let facts = try session.decode(data)
             guard await isCurrentLoad(generation) else { return }
@@ -172,20 +202,17 @@ final class SchematicWebViewController: NSViewController {
             )
 
             let mesh = try session.mesh(pack: pack)
+            guard await isCurrentLoad(generation) else { return }
             handler.store(mesh.glb)
-            guard await isCurrentLoad(generation) else {
-                handler.clear()
-                return
-            }
             await presentMesh(displayName: displayName, triangles: mesh.triangleCount)
+        } catch is NativeSchematicCancelled {
+            return
         } catch let refusal as NativeSchematicRefusal {
             guard await isCurrentLoad(generation) else { return }
             await presentRefusal(refusal.message)
         } catch {
             guard await isCurrentLoad(generation) else { return }
-            await presentRefusal(
-                "Something went wrong while reading this schematic."
-            )
+            await presentRefusal("Something went wrong while reading this schematic.")
         }
     }
 

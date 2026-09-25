@@ -5,6 +5,7 @@ import Quartz
 final class PreviewViewController: NSViewController, QLPreviewingController {
     private let rendererController = SchematicWebViewController()
 
+
     override func loadView() {
         view = NSView()
         view.wantsLayer = true

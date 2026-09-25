@@ -24,10 +24,11 @@ struct SchematicWebView: NSViewControllerRepresentable {
     }
 
     static func dismantleNSViewController(
-        _: SchematicWebViewController,
+        _ controller: SchematicWebViewController,
         coordinator: Coordinator
     ) {
         coordinator.task?.cancel()
+        controller.cancelNativeLoad()
     }
 
     @MainActor
