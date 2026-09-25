@@ -19,7 +19,7 @@ updates:
           - "*"
 
   - package-ecosystem: "cargo"
-    directory: "/Native"
+    directory: "/Core"
     schedule:
       interval: "weekly"
     groups:

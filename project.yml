@@ -128,9 +128,9 @@ targets:
         INFOPLIST_FILE: App/Info.plist
         PRODUCT_BUNDLE_IDENTIFIER: moe.arcadia.LitematicaQL
         PRODUCT_NAME: LitematicaQL
-        LIBRARY_SEARCH_PATHS: "$(SRCROOT)/Native/build"
+        LIBRARY_SEARCH_PATHS: "$(SRCROOT)/Core/build"
         OTHER_LDFLAGS: '-llitematicaql_native_$(CURRENT_ARCH)'
-        SWIFT_INCLUDE_PATHS: "$(SRCROOT)/Native/include"
+        SWIFT_INCLUDE_PATHS: "$(SRCROOT)/Core/include"
     dependencies:
       - target: LitematicaQLPreview
         embed: true
@@ -175,19 +175,19 @@ targets:
         PRODUCT_BUNDLE_IDENTIFIER: moe.arcadia.LitematicaQL.PreviewExtension
         PRODUCT_NAME: LitematicaQLPreview
         SKIP_INSTALL: YES
-        LIBRARY_SEARCH_PATHS: "$(SRCROOT)/Native/build"
+        LIBRARY_SEARCH_PATHS: "$(SRCROOT)/Core/build"
         OTHER_LDFLAGS: '-llitematicaql_native_$(CURRENT_ARCH)'
-        SWIFT_INCLUDE_PATHS: "$(SRCROOT)/Native/include"
+        SWIFT_INCLUDE_PATHS: "$(SRCROOT)/Core/include"
     preBuildScripts:
       - name: Build native bridge
-        script: '"$SRCROOT/Native/build.sh"'
+        script: '"$SRCROOT/Core/build.sh"'
         inputDirectories:
-          - "$(SRCROOT)/Native/src"
+          - "$(SRCROOT)/Core/src"
         inputFiles:
-          - "$(SRCROOT)/Native/Cargo.toml"
+          - "$(SRCROOT)/Core/Cargo.toml"
         outputFiles:
-          - "$(SRCROOT)/Native/build/liblitematicaql_native_arm64.a"
-          - "$(SRCROOT)/Native/build/liblitematicaql_native_x86_64.a"
+          - "$(SRCROOT)/Core/build/liblitematicaql_native_arm64.a"
+          - "$(SRCROOT)/Core/build/liblitematicaql_native_x86_64.a"
     dependencies:
       - sdk: Quartz.framework
       - sdk: WebKit.framework

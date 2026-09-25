@@ -50,7 +50,7 @@ jobs:
       - name: Cache Rust build
         uses: Swatinem/rust-cache@v2
         with:
-          workspaces: Native
+          workspaces: Core
           shared-key: native-bridge
       - name: Install renderer dependencies
         run: pnpm --dir Renderer install --frozen-lockfile
@@ -65,10 +65,10 @@ jobs:
         run: swift test --parallel
 
       - name: Test native bridge
-        run: cargo test --release --manifest-path Native/Cargo.toml
+        run: cargo test --release --manifest-path Core/Cargo.toml
 
       - name: Build native bridge libraries
-        run: Native/build.sh arm64 x86_64
+        run: Core/build.sh arm64 x86_64
 
       - name: Install XcodeGen
         run: brew install xcodegen

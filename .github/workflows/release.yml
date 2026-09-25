@@ -70,7 +70,7 @@ jobs:
       - name: Cache Rust build
         uses: Swatinem/rust-cache@v2
         with:
-          workspaces: Native
+          workspaces: Core
           shared-key: native-bridge
 
       - name: Install renderer dependencies
@@ -89,7 +89,7 @@ jobs:
 
       - name: Test native bridge
         if: matrix.arch == 'arm64'
-        run: cargo test --release --manifest-path Native/Cargo.toml --target aarch64-apple-darwin
+        run: cargo test --release --manifest-path Core/Cargo.toml --target aarch64-apple-darwin
       - name: Install XcodeGen
         run: brew install xcodegen
 

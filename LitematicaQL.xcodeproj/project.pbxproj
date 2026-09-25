@@ -289,18 +289,18 @@
 			inputFileListPaths = (
 			);
 			inputPaths = (
-				"$(SRCROOT)/Native/Cargo.toml",
+				"$(SRCROOT)/Core/Cargo.toml",
 			);
 			name = "Build native bridge";
 			outputFileListPaths = (
 			);
 			outputPaths = (
-				"$(SRCROOT)/Native/build/liblitematicaql_native_arm64.a",
-				"$(SRCROOT)/Native/build/liblitematicaql_native_x86_64.a",
+				"$(SRCROOT)/Core/build/liblitematicaql_native_arm64.a",
+				"$(SRCROOT)/Core/build/liblitematicaql_native_x86_64.a",
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 			shellPath = /bin/sh;
-			shellScript = "\"$SRCROOT/Native/build.sh\"";
+			shellScript = "\"$SRCROOT/Core/build.sh\"";
 		};
 /* End PBXShellScriptBuildPhase section */
 
@@ -353,13 +353,13 @@
 					"@executable_path/../Frameworks",
 					"@executable_path/../../../../Frameworks",
 				);
-				LIBRARY_SEARCH_PATHS = "$(SRCROOT)/Native/build";
+				LIBRARY_SEARCH_PATHS = "$(SRCROOT)/Core/build";
 				OTHER_LDFLAGS = "-llitematicaql_native_$(CURRENT_ARCH)";
 				PRODUCT_BUNDLE_IDENTIFIER = moe.arcadia.LitematicaQL.PreviewExtension;
 				PRODUCT_NAME = LitematicaQLPreview;
 				SDKROOT = macosx;
 				SKIP_INSTALL = YES;
-				SWIFT_INCLUDE_PATHS = "$(SRCROOT)/Native/include";
+				SWIFT_INCLUDE_PATHS = "$(SRCROOT)/Core/include";
 			};
 			name = Release;
 		};
@@ -374,12 +374,12 @@
 					"$(inherited)",
 					"@executable_path/../Frameworks",
 				);
-				LIBRARY_SEARCH_PATHS = "$(SRCROOT)/Native/build";
+				LIBRARY_SEARCH_PATHS = "$(SRCROOT)/Core/build";
 				OTHER_LDFLAGS = "-llitematicaql_native_$(CURRENT_ARCH)";
 				PRODUCT_BUNDLE_IDENTIFIER = moe.arcadia.LitematicaQL;
 				PRODUCT_NAME = LitematicaQL;
 				SDKROOT = macosx;
-				SWIFT_INCLUDE_PATHS = "$(SRCROOT)/Native/include";
+				SWIFT_INCLUDE_PATHS = "$(SRCROOT)/Core/include";
 			};
 			name = Debug;
 		};
@@ -394,12 +394,12 @@
 					"$(inherited)",
 					"@executable_path/../Frameworks",
 				);
-				LIBRARY_SEARCH_PATHS = "$(SRCROOT)/Native/build";
+				LIBRARY_SEARCH_PATHS = "$(SRCROOT)/Core/build";
 				OTHER_LDFLAGS = "-llitematicaql_native_$(CURRENT_ARCH)";
 				PRODUCT_BUNDLE_IDENTIFIER = moe.arcadia.LitematicaQL;
 				PRODUCT_NAME = LitematicaQL;
 				SDKROOT = macosx;
-				SWIFT_INCLUDE_PATHS = "$(SRCROOT)/Native/include";
+				SWIFT_INCLUDE_PATHS = "$(SRCROOT)/Core/include";
 			};
 			name = Release;
 		};
@@ -549,13 +549,13 @@
 					"@executable_path/../Frameworks",
 					"@executable_path/../../../../Frameworks",
 				);
-				LIBRARY_SEARCH_PATHS = "$(SRCROOT)/Native/build";
+				LIBRARY_SEARCH_PATHS = "$(SRCROOT)/Core/build";
 				OTHER_LDFLAGS = "-llitematicaql_native_$(CURRENT_ARCH)";
 				PRODUCT_BUNDLE_IDENTIFIER = moe.arcadia.LitematicaQL.PreviewExtension;
 				PRODUCT_NAME = LitematicaQLPreview;
 				SDKROOT = macosx;
 				SKIP_INSTALL = YES;
-				SWIFT_INCLUDE_PATHS = "$(SRCROOT)/Native/include";
+				SWIFT_INCLUDE_PATHS = "$(SRCROOT)/Core/include";
 			};
 			name = Debug;
 		};
