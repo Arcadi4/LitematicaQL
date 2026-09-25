@@ -18,7 +18,7 @@ settings:
     DEVELOPMENT_TEAM: ""
     ENABLE_HARDENED_RUNTIME: YES
     ENABLE_USER_SCRIPT_SANDBOXING: NO
-    MARKETING_VERSION: 1.2.1
+    MARKETING_VERSION: 1.2.2
     SWIFT_STRICT_CONCURRENCY: complete
     SWIFT_VERSION: 6.0
   configs:
@@ -129,7 +129,7 @@ targets:
         PRODUCT_BUNDLE_IDENTIFIER: moe.arcadia.LitematicaQL
         PRODUCT_NAME: LitematicaQL
         LIBRARY_SEARCH_PATHS: "$(SRCROOT)/Core/build"
-        OTHER_LDFLAGS: '-llitematicaql_native_$(CURRENT_ARCH)'
+        OTHER_LDFLAGS: "-llitematicaql_native_$(CURRENT_ARCH)"
         SWIFT_INCLUDE_PATHS: "$(SRCROOT)/Core/include"
     dependencies:
       - target: LitematicaQLPreview
@@ -176,7 +176,7 @@ targets:
         PRODUCT_NAME: LitematicaQLPreview
         SKIP_INSTALL: YES
         LIBRARY_SEARCH_PATHS: "$(SRCROOT)/Core/build"
-        OTHER_LDFLAGS: '-llitematicaql_native_$(CURRENT_ARCH)'
+        OTHER_LDFLAGS: "-llitematicaql_native_$(CURRENT_ARCH)"
         SWIFT_INCLUDE_PATHS: "$(SRCROOT)/Core/include"
     preBuildScripts:
       - name: Build native bridge
