@@ -189,3 +189,25 @@ jobs:
             --title "$APP_NAME $VERSION" \
             --generate-notes \
             --notes $'This release ships separate Apple silicon (arm64) and Intel (x86_64) builds; download the one matching your Mac.\n\nThe build is ad-hoc signed and not notarized, so macOS may require you to approve it in System Settings > Privacy & Security after opening the app.'
+
+  update-homebrew-tap:
+    name: Update Homebrew tap
+    needs: release
+    runs-on: ubuntu-latest
+    steps:
+      - name: Trigger arcadi4/homebrew-tap cask update
+        env:
+          GH_TOKEN: ${{ secrets.HOMEBREW_TAP_TOKEN }}
+          TAG: ${{ github.ref_name }}
+        shell: bash
+        run: |
+          set -euo pipefail
+
+          if [ -z "$GH_TOKEN" ]; then
+            echo "HOMEBREW_TAP_TOKEN secret is not set; skipping tap update."
+            exit 0
+          fi
+
+          gh workflow run update-litematicaql-cask.yml \
+            --repo arcadi4/homebrew-tap \
+            --field version="${TAG#v}"
