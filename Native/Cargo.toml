@@ -34,6 +34,7 @@ flate2 = { version = "1", default-features = false, features = ["zlib-rs"] }
 # `frame` format. `mca` implements the small framing layer over the block codec.
 lz4_flex = { version = "0.14", default-features = false, features = ["std"] }
 regex = "1"
+rustc-hash = "2"
 
 [dev-dependencies]
 quartz_nbt = { version = "0.2.9", features = ["preserve_order"] }
