@@ -36,7 +36,9 @@ const MAX_NBT_NODES: usize = 4_194_304;
 const MAX_MESH_BLOCKS: i64 = 33_554_432;
 const CHUNK_SIZE: i32 = 64;
 const MAX_WORKERS: usize = 8;
-const DEFAULT_WORKERS: usize = 2;
+// Two workers leave the available CPU budget unused on large previews. Four
+// keeps the bounded output window while allowing chunk meshing to scale.
+const DEFAULT_WORKERS: usize = 4;
 
 // Status codes shared with the Swift bridge through the C header.
 pub mod status {
@@ -116,9 +118,15 @@ fn mesh_config() -> MeshConfig {
         .with_atlas_max_size(2_048)
 }
 
-fn worker_count() -> usize {
+fn decode_worker_count() -> usize {
+    std::thread::available_parallelism().map_or(2, |count| {
+        count.get().min(2).max(1)
+    })
+}
+
+fn mesh_worker_count() -> usize {
     std::thread::available_parallelism().map_or(DEFAULT_WORKERS, |count| {
-        count.get().min(MAX_WORKERS).min(DEFAULT_WORKERS).max(1)
+        count.get().min(MAX_WORKERS).max(1)
     })
 }
 
@@ -174,7 +182,7 @@ pub fn decode_with_warnings(bytes: &[u8]) -> Result<NQLSchematic, DecodeFailure>
         bytes,
         &preview_limits(),
         Some(CHUNK_SIZE),
-        Some(worker_count() as u8),
+        Some(decode_worker_count() as u8),
         true,
         &|| Ok(()),
     ) {
@@ -297,7 +305,7 @@ pub fn mesh(
     let mut aggregate: Option<MeshOutput> = None;
     chunks
         .consume(
-            worker_count(),
+            mesh_worker_count(),
             |output| {
                 current()?;
                 append_mesh(&mut aggregate, output);
