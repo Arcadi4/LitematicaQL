@@ -21,11 +21,9 @@ const backgroundColor = 0x0b1016;
 const gridMajorColor = 0x2a3440;
 const gridMinorColor = 0x1a2229;
 
-/** Isometric elevation `atan(1 / sqrt(2))`, the classic 2:1 voxel view. */
-const isometricElevation = Math.atan(1 / Math.SQRT2);
+const voxelIsometricElevation = Math.atan(1 / Math.SQRT2);
 
-/** Keep the model inset from the panel edges so it reads as a preview. */
-const framingPadding = 1.18;
+const previewFramePadding = 1.18;
 
 const fieldOfViewDegrees = 28;
 const maximumPixelRatio = 1.5;
@@ -33,11 +31,11 @@ const gridExtentMultiplier = 1.15;
 const minimumGridExtent = 16;
 const worldUp = new Vector3(0, 1, 0);
 
-/** Unit vector from the origin toward the isometric camera. */
-const isometricDirection = new Vector3(
-  Math.cos(isometricElevation) * Math.sin(Math.PI / 4),
-  Math.sin(isometricElevation),
-  Math.cos(isometricElevation) * Math.cos(Math.PI / 4),
+/** Unit vector from the origin toward the initial isometric camera. */
+const isometricCameraDirection = new Vector3(
+  Math.cos(voxelIsometricElevation) * Math.sin(Math.PI / 4),
+  Math.sin(voxelIsometricElevation),
+  Math.cos(voxelIsometricElevation) * Math.cos(Math.PI / 4),
 ).normalize();
 
 /**
@@ -49,7 +47,7 @@ const isometricDirection = new Vector3(
 function fittingDistance(box: Box3, aspect: number, padding: number): number {
   const tanVertical = Math.tan((fieldOfViewDegrees * Math.PI) / 360) / padding;
   const tanHorizontal = tanVertical * aspect;
-  const forward = isometricDirection.clone().negate();
+  const forward = isometricCameraDirection.clone().negate();
   const right = new Vector3().crossVectors(forward, worldUp).normalize();
   const up = new Vector3().crossVectors(right, forward).normalize();
   const centre = box.getCenter(new Vector3());
@@ -57,7 +55,6 @@ function fittingDistance(box: Box3, aspect: number, padding: number): number {
   let distance = 0;
   for (const corner of boxCorners(box)) {
     const offset = corner.sub(centre);
-    // Depth grows with distance; the corner must sit inside both half-angles.
     const depth = offset.dot(forward);
     distance = Math.max(
       distance,
@@ -83,13 +80,8 @@ function boxCorners(box: Box3): Vector3[] {
 }
 
 /**
- * The interactive preview surface: one WebGL context, an orbit camera framed on
- * the loaded geometry, and a single grid sized to the model.
- *
- * Frames are drawn on demand instead of from an animation loop. Quick Look
- * suspends animation callbacks while a preview is offscreen, so anything
- * scheduled on `requestAnimationFrame` would stall; every path that changes the
- * image calls {@link SchematicViewer.render} directly.
+ * Quick Look suspends `requestAnimationFrame` callbacks while a preview is
+ * offscreen, so each path that changes the image calls {@link render} directly.
  */
 export class SchematicViewer {
   private readonly camera: PerspectiveCamera;
@@ -100,7 +92,6 @@ export class SchematicViewer {
   private readonly loader = new GLTFLoader();
   private content: Object3D | undefined;
   private grid: GridHelper | undefined;
-  /** Model bounds after re-centring, kept so a resize can refit the camera. */
   private framedBounds: Box3 | undefined;
   private fittedDistance = 0;
 
@@ -127,7 +118,6 @@ export class SchematicViewer {
     this.resize();
   }
 
-  /** Replaces the displayed schematic with parsed GLB data and frames it. */
   async loadGlb(glb: ArrayBuffer): Promise<void> {
     const root = (await this.loader.parseAsync(glb, "")).scene;
     this.releaseContent();
@@ -175,25 +165,22 @@ export class SchematicViewer {
 
     const bounds = new Box3().setFromObject(this.content);
     const offset = bounds.getCenter(new Vector3()).negate();
-    const distance = fittingDistance(bounds, this.camera.aspect, framingPadding);
+    const distance = fittingDistance(bounds, this.camera.aspect, previewFramePadding);
     if (!Number.isFinite(distance) || distance <= 0) {
       throw new Error("The rendered schematic has no visible extent.");
     }
 
-    // Re-centre on the origin so the camera, the orbit target, and the grid all
-    // share one frame of reference.
+    // Camera, orbit target, and grid share the origin-centered model frame.
     this.content.position.add(offset);
     bounds.translate(offset);
     this.framedBounds = bounds;
     this.fittedDistance = distance;
     this.rebuildGrid(bounds);
 
-    this.camera.position.copy(isometricDirection).multiplyScalar(distance);
+    this.camera.position.copy(isometricCameraDirection).multiplyScalar(distance);
     this.applyClipPlanes(distance);
     this.camera.updateProjectionMatrix();
 
-    // Bounding the orbit distance keeps the model inside the clip planes and
-    // stops a runaway scroll from shrinking it to a speck.
     this.controls.minDistance = distance * 0.05;
     this.controls.maxDistance = distance * 8;
     this.controls.target.set(0, 0, 0);
@@ -211,7 +198,7 @@ export class SchematicViewer {
       return;
     }
 
-    const fitted = fittingDistance(this.framedBounds, this.camera.aspect, framingPadding);
+    const fitted = fittingDistance(this.framedBounds, this.camera.aspect, previewFramePadding);
     if (!Number.isFinite(fitted) || fitted <= 0) {
       return;
     }
@@ -222,7 +209,7 @@ export class SchematicViewer {
 
     const direction = this.camera.position.clone().sub(this.controls.target);
     if (direction.lengthSq() === 0) {
-      direction.copy(isometricDirection);
+      direction.copy(isometricCameraDirection);
     }
     direction.normalize();
 
@@ -243,9 +230,8 @@ export class SchematicViewer {
   }
 
   /**
-   * Rebuilds the floor grid to span the schematic. Nucleation emits geometry
-   * where one unit is one block and the model is re-centred on the origin, so
-   * the grid only has to cover the model's horizontal footprint.
+   * Nucleation models use one world unit per block. The centered model's
+   * horizontal footprint therefore determines the grid extent.
    */
   private rebuildGrid(bounds: Box3): void {
     this.releaseGrid();

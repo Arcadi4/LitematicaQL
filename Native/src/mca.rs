@@ -1,11 +1,9 @@
-// Minecraft Anvil `.mca` region decoding.
+// Preview decoding for Minecraft Anvil `.mca` region files.
 //
-// An MCA region file stores up to 1024 chunks in a 32x32 grid. A full region
-// can easily span 100+ million blocks, which is far beyond the preview limit.
-// This loader scans the region location table, selects a cohesive 4-chunk
-// parcel (preferring a 2x2 chunk window centered near the populated chunks),
-// reads only those chunks via `RegionReader`, and normalizes their coordinates
-// into a single previewable schematic.
+// A region can span far beyond preview limits, so this loader reads at most a
+// cohesive four-chunk parcel, preferring a populated 2x2 window near the
+// populated-chunk centroid, then normalizes chunk coordinates into one
+// schematic.
 
 use std::collections::HashSet;
 use std::io::{Cursor, Write};
@@ -74,24 +72,15 @@ fn is_air(name: &str) -> bool {
     )
 }
 
-// Vanilla writes region chunks with `region-file-compression=lz4` (since
-// 24w04a) as lz4-java block streams, and Nucleation's region reader refuses
-// that compression byte. Decoding them here means one new dependency and no
-// duplicated chunk NBT parsing: the region is rebuilt byte-for-byte with the
-// LZ4 records re-emitted as zlib before the reader ever sees it.
 
 /// Compression byte for `region-file-compression=lz4` regions (since 24w04a).
 const COMPRESSION_LZ4: u8 = 4;
 
-/// A populated location-table entry whose record header lies within `data`.
+/// A populated location-table entry whose record header is readable.
 struct LocatedChunk {
     index: usize,
-    /// Byte offset of the record: a 4-byte big-endian length, then the
-    /// compression byte, then `length - 1` payload bytes.
     byte_offset: usize,
-    /// The declared record length, compression byte included.
     record_len: usize,
-    /// The record's compression byte.
     compression: u8,
 }
 
@@ -133,24 +122,18 @@ fn located_chunks(data: &[u8]) -> Vec<LocatedChunk> {
     located
 }
 
-/// Decompresses the lz4-java block stream vanilla writes for LZ4 regions
-/// (`LZ4BlockInputStream`).
+/// Decode vanilla's lz4-java `LZ4BlockInputStream` framing.
 ///
-/// The stream is a sequence of blocks, each a 21-byte header — the magic
-/// `LZ4Block`, a token whose high nibble is the method (0x10 stored raw,
-/// 0x20 LZ4), little-endian compressed and original lengths, and an XXHash32
-/// checksum of the original bytes — followed by the compressed data. The
-/// writer terminates with a zero-length raw block; a truncated stream is an
-/// error. The checksum is not verified because decoding does not depend on
-/// it, and block sizes are capped at lz4-java's own maximum so a corrupt
-/// header cannot demand an absurd allocation.
+/// Each 21-byte header contains the `LZ4Block` magic, a method token, little-
+/// endian compressed and uncompressed lengths, and an XXHash32 checksum. A
+/// zero-length block ends the stream. The checksum is not required for
+/// decoding. `MAX_BLOCK_BYTES` mirrors lz4-java's ceiling so corrupt headers
+/// cannot force an oversized allocation for a single block.
 fn lz4_java_block_stream_decompress(data: &[u8]) -> Result<Vec<u8>, String> {
     const MAGIC: &[u8; 8] = b"LZ4Block";
     const HEADER_LEN: usize = 21;
     const METHOD_RAW: u8 = 0x10;
     const METHOD_LZ4: u8 = 0x20;
-    // lz4-java refuses block sizes past `1 << (10 + 15)`; mirror the cap so
-    // corrupt headers cannot resize the output into the gigabytes.
     const MAX_BLOCK_BYTES: usize = 1 << 25;
 
     let mut out = Vec::new();
@@ -195,17 +178,15 @@ fn lz4_java_block_stream_decompress(data: &[u8]) -> Result<Vec<u8>, String> {
     Ok(out)
 }
 
-/// Rebuilds a region so every LZ4 chunk record arrives as zlib.
+/// Rebuild a region with every LZ4 chunk record re-emitted as zlib.
 ///
-/// Records with compression types 1-3 are copied verbatim, type-4 records are
-/// decompressed from the lz4-java block stream and re-emitted as zlib, and
-/// anything else — unreadable records, unknown compression bytes, results
-/// that no longer fit the 255-sector cap — is dropped from the table.
-/// `load_mca_preview` reports dropped chunks as skipped. `None` means no
-/// populated record used LZ4 and the caller should decode the original bytes.
+/// Compression types 1-3 are copied verbatim. Records that cannot be read or
+/// re-emitted within the 255-sector limit are omitted from the table and later
+/// surface as skipped-chunk warnings. `None` means no populated record used
+/// LZ4, so the caller should decode `data` directly.
 fn transcode_lz4_chunks(data: &[u8]) -> Option<Vec<u8>> {
     const SECTOR_BYTES: usize = 4096;
-    // The location entry stores the sector count in one byte.
+    // The location table's one-byte sector count caps records below 255 sectors.
     const MAX_RECORD_BYTES: usize = 255 * SECTOR_BYTES - 4;
 
     let located = located_chunks(data);
@@ -216,9 +197,6 @@ fn transcode_lz4_chunks(data: &[u8]) -> Option<Vec<u8>> {
         return None;
     }
 
-    // Two header sectors, then each surviving chunk at a fresh sector-aligned
-    // offset with zeroed timestamps: a spec-shaped file any region reader
-    // could open.
     let mut out = vec![0u8; 2 * SECTOR_BYTES];
     let mut next_sector: u32 = 2;
 
@@ -275,8 +253,6 @@ fn transcode_lz4_chunks(data: &[u8]) -> Option<Vec<u8>> {
     Some(out)
 }
 
-/// The compression byte recorded for one location-table index, when its
-/// record header is readable.
 fn chunk_record_compression(data: &[u8], index: usize) -> Option<u8> {
     const SECTOR_BYTES: usize = 4096;
 
@@ -311,10 +287,6 @@ fn missing_chunk_notice(bytes: &[u8], region: (i32, i32), cx: i32, cz: i32) -> S
 pub(super) fn load_mca_preview(
     bytes: &[u8],
 ) -> Result<(UniversalSchematic, Vec<String>), DecodeFailure> {
-    // Regions written with `region-file-compression=lz4` carry chunk records
-    // Nucleation cannot decompress; rebuild those records as zlib first. The
-    // original bytes stay authoritative for header questions such as whether
-    // a chunk is stored externally.
     let transcoded = transcode_lz4_chunks(bytes);
     let region_bytes: &[u8] = transcoded.as_deref().unwrap_or(bytes);
 
@@ -354,7 +326,6 @@ pub(super) fn load_mca_preview(
         return Err(DecodeFailure::Format(message));
     }
 
-    // Determine region bounds directly from chunk and non-air section coordinates in O(1).
     let min_chunk_x = chunks.iter().map(|c| c.x).min().unwrap();
     let max_chunk_x = chunks.iter().map(|c| c.x).max().unwrap();
     let min_chunk_z = chunks.iter().map(|c| c.z).min().unwrap();
@@ -401,7 +372,6 @@ pub(super) fn load_mca_preview(
     )
     .map_err(|error| DecodeFailure::Format(error.to_string()))?;
 
-    // Populate the region with blocks in a single pass.
     for chunk in &chunks {
         let chunk_base_x = (chunk.x - min_chunk_x) * 16;
         let chunk_base_z = (chunk.z - min_chunk_z) * 16;
@@ -483,12 +453,9 @@ pub(super) fn load_mca_preview(
     Ok((schematic, warnings))
 }
 
-/// Select up to 4 chunks from the populated chunk positions.
-///
-/// Prefers a 2x2 chunk window with the highest number of populated chunks,
-/// breaking ties towards the centroid of all populated chunks. If the best
-/// 2x2 window contains fewer than 4 chunks, remaining slots are filled from
-/// the nearest populated chunks.
+/// Select at most four populated chunks, preferring a 2x2 window with the most
+/// entries. Ties favor the window nearest the populated-chunk centroid; if the
+/// best window is incomplete, nearest remaining chunks fill the vacancies.
 fn select_preview_chunks(
     populated: &[(i32, i32)],
     region_x: i32,
@@ -592,8 +559,7 @@ fn select_preview_chunks(
 mod tests {
     use super::*;
 
-    /// Mirrors vanilla's writer: lz4-java `LZ4BlockOutputStream` framing over
-    /// LZ4 block payloads, terminated by the zero-length raw endmark.
+    /// Independent vanilla-compatible framing for exercising the decoder.
     fn frame_lz4_java_stream(payload: &[u8], block_size: usize, method: u8) -> Vec<u8> {
         let mut out = Vec::new();
         for chunk in payload.chunks(block_size.max(1)) {
@@ -613,8 +579,8 @@ mod tests {
         out
     }
 
-    /// Deterministic xorshift bytes: incompressible enough to exercise the
-    /// real LZ4 codec across many blocks.
+    /// Deterministic incompressible data exercises real LZ4 encoding across
+    /// multiple blocks.
     fn pseudo_random(len: usize) -> Vec<u8> {
         let mut state = 0x2545_f491_4f6c_dd1d_u64;
         (0..len)

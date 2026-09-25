@@ -2,9 +2,8 @@ import { postNativeMessage } from "./bridge";
 import { SchematicViewer } from "./viewer";
 import "./style.css";
 
-// Decoding and meshing live in the native app. Swift runs Nucleation directly
-// and hands the page facts plus a GLB to display. The renderer owns
-// presentation, camera, and the refusal panels.
+// Native decoding and meshing supply metadata and a GLB; this module owns
+// presentation, camera state, and failure panels.
 
 interface LoadMetaInfo {
   name: string;
@@ -58,7 +57,6 @@ setStatus("Ready", "Waiting for a schematic file…");
 postNativeMessage({ type: "ready", detail: "" });
 
 window.litematicaQL = {
-  // A schematic arrived. Paint the facts so the window has substance while meshing runs.
   async loadMeta(info: LoadMetaInfo): Promise<void> {
     showPreviewMetadata(
       info.name,
@@ -73,7 +71,6 @@ window.litematicaQL = {
     );
   },
 
-  // Mesh ready. Fetch over the custom scheme and swap the status line for geometry.
   async meshReady(info: MeshReadyInfo): Promise<void> {
     if (!info.url) {
       throw new Error("The preview did not provide a mesh location.");
@@ -87,7 +84,7 @@ window.litematicaQL = {
     postNativeMessage({ type: "loaded", detail: info.name });
   },
 
-  // A native refusal. The panel resolves in page because Quick Look discards rejected previews.
+  // Quick Look discards rejected previews, so the page must render native errors.
   async loadError(message: string): Promise<void> {
     showLoadError(message);
   },
@@ -107,8 +104,6 @@ function showPreviewMetadata(
   fileInfo.hidden = false;
   controlsHint.hidden = false;
 
-  // Reader notices stay visible after the mesh lands: they describe content
-  // the preview will never show, not progress.
   fileWarnings.replaceChildren(
     ...warnings.map((warning) => {
       const item = document.createElement("li");

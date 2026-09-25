@@ -24,9 +24,8 @@ struct LitematicFileTests {
         #expect(data == Data([0x1f, 0x8b]))
     }
 
-    // Several supported formats are uncompressed and every format decision
-    // belongs behind the bridge, so the gate must accept bytes it cannot
-    // interpret.
+    // Extension and size checks are the only validation here; the bridge owns
+    // format interpretation, so otherwise valid bytes must remain untouched.
     @Test("Accepts arbitrary content")
     func acceptsArbitraryContent() throws {
         let url = try temporaryFile(named: "schematic.nbt", bytes: [0x0a, 0x00, 0xff, 0x00])

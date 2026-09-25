@@ -6,49 +6,39 @@ publish = false
 
 [lib]
 name = "litematicaql_native"
-# `rlib` lets the integration tests call the same internal functions the C ABI
-# wraps; `staticlib` is what the app and extension link.
+# `staticlib` serves the app and extension; `rlib` exposes the same internals to
+# integration tests.
 crate-type = ["staticlib", "rlib"]
 
-# Fat LTO shrinks the machine code the host binaries embed; `codegen-units = 1`
-# lets cross-crate inlining pay off. `panic` must stay `unwind` because the
-# FFI refusal path is `catch_unwind`; `panic = "abort"` would turn refusals
-# into process kills.
+# The release profile keeps unwinding because the fallible C entry points use
+# `catch_unwind`; aborting would let panics terminate the host process.
+# Fat LTO and one codegen unit reduce the machine code embedded by each host.
 [profile.release]
 lto = "fat"
 codegen-units = 1
 
 [dependencies]
-# Pinned to 0.10.14 for the same reason as schematic-diff. From 0.10.15 onward
-# the `meshing` feature does not build from crates.io (its `glb.rs` needs a
-# `gltf_build` API that only exists on a git rev, and `cargo publish` resolves
-# the version side). 0.10.14 is the last release where the feature compiles.
+# 0.10.15 and later publish `meshing` with a crates.io `gltf_build` version that
+# lacks the git-only API its `glb.rs` calls. This pin keeps the feature buildable.
 nucleation = { version = "=0.10.14", default-features = false, features = [
   "meshing",
 ] }
-# Taken directly, as in schematic-diff, so Nucleation's dual version+git
-# requirement on the mesher resolves to a single copy.
+# A direct crates.io dependency lets Nucleation's version-or-git mesher
+# requirement resolve to one copy.
 schematic-mesher = "0.2.0"
-# Binary vanilla `.nbt` structure reading, the same version Nucleation itself
-# uses so it stays a single copy in the tree.
+# Match Nucleation's quartz_nbt version so the binary structure reader shares
+# one NBT representation.
 quartz_nbt = { version = "0.2.9", features = ["preserve_order"] }
 flate2 = { version = "1", default-features = false, features = ["zlib-rs"] }
-# LZ4 block compression for Anvil regions written with
-# `region-file-compression=lz4`. Vanilla frames those chunks in the lz4-java
-# block-stream spelling, which this crate re-implements over lz4_flex's raw
-# block codec; its `frame` module speaks a different container and is unused.
+# Vanilla LZ4 regions use the lz4-java block-stream container, not lz4_flex's
+# `frame` format. `mca` implements the small framing layer over the block codec.
 lz4_flex = { version = "0.11", default-features = false, features = ["std"] }
-# The `.snbt` brace block-state normalization is a textual rewrite; the pattern
-# mirrors the renderer's own `normalizeStructureSnbt`.
 regex = "1"
 
 [dev-dependencies]
-# The routing probe parses the SNBT fixture directly.
 quartz_nbt = { version = "0.2.9", features = ["preserve_order"] }
 nucleation = { version = "=0.10.14", default-features = false, features = [
   "meshing",
 ] }
-# The MCA region tests rewrite fixture chunk records: zlib payloads are
-# inflated and re-framed as lz4-java streams.
 flate2 = { version = "1", default-features = false, features = ["zlib-rs"] }
 lz4_flex = { version = "0.11", default-features = false, features = ["std"] }

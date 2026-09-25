@@ -3,8 +3,7 @@ import { viteSingleFile } from "vite-plugin-singlefile";
 
 export default defineConfig({
   plugins: [viteSingleFile()],
-  // `vendor/pack.zip` is the tracked Minecraft resource pack. Serving it as the
-  // public directory copies it beside the bundle without a staging step.
+  // Serving the tracked resource pack copies it beside the bundle without staging.
   publicDir: "vendor",
   build: {
     emptyOutDir: true,

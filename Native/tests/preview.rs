@@ -1,7 +1,3 @@
-// Integration tests for the preview pipeline the Swift bridge calls.
-//
-// Every bundled demo is decoded and meshed with the shipping configuration,
-// one per file format, and every minimal format fixture is decoded.
 
 use std::fs;
 use std::path::{Path, PathBuf};
@@ -63,8 +59,6 @@ fn demos_decode_and_mesh_with_the_shipping_configuration() {
             "{} produced no triangles",
             path.display()
         );
-        // The GLB must carry a proper header with the magic, a version of 2,
-        // and a total length that matches the allocation.
         assert!(
             glb.starts_with(b"glTF"),
             "{}: bad GLB magic",
@@ -105,9 +99,8 @@ fn mca_fixture_decodes_and_meshes() {
 fn unpadded_mca_decodes_and_meshes() {
     let path = repo_root().join("Fixtures/Formats/Region.mca");
     let mut bytes = fs::read(&path).expect("read Region.mca");
-    // Truncate non-essential padding from the end of the file so its length
-    // is not a multiple of 4096, mirroring real-world MCA files whose trailing
-    // sector padding was omitted by export tools or file transfers.
+    // Real MCA files can omit trailing sector padding, so exercise a region
+    // whose length is not 4096-byte aligned.
     bytes.truncate(bytes.len() - 50);
     assert_ne!(bytes.len() % 4096, 0, "test file should not be sector-aligned");
 
@@ -118,9 +111,7 @@ fn unpadded_mca_decodes_and_meshes() {
     assert!(!glb.is_empty());
 }
 
-// ─── MCA regions ────────────────────────────────────────────────────────────
 
-/// (location-table slot, record byte offset) for every populated entry.
 fn populated_entries(region: &[u8]) -> Vec<(usize, usize)> {
     (0..1024)
         .map(|i| {
@@ -144,11 +135,9 @@ fn zlib_inflate(data: &[u8]) -> Vec<u8> {
     out
 }
 
-/// Frames `payload` the way vanilla's lz4-java `LZ4BlockOutputStream` does:
-/// per-block `LZ4Block` magic, method token, little-endian compressed and
-/// original lengths, a checksum the reader skips, then the data; finally the
-/// zero-length raw endmark. Written independently of the decoder under test
-/// so the framing is checked against the spec, not against itself.
+/// Independently implement vanilla's lz4-java `LZ4BlockOutputStream` framing
+/// so this fixture checks the decoder against the wire format rather than a
+/// shared helper.
 fn lz4_java_frame(payload: &[u8]) -> Vec<u8> {
     const BLOCK_BYTES: usize = 1 << 16;
 
@@ -167,10 +156,8 @@ fn lz4_java_frame(payload: &[u8]) -> Vec<u8> {
     out
 }
 
-/// Rebuilds a region where the records of `lz4_slots` are LZ4-framed copies
-/// of the fixture payloads and the rest stay zlib. The layout mirrors the
-/// fixture's own: two header sectors, then each record at a fresh
-/// sector-aligned offset.
+/// Build a spec-shaped region with LZ4 records at `lz4_slots` and zlib records
+/// elsewhere, starting after the two header sectors.
 fn region_with_lz4_chunks(lz4_slots: &[usize]) -> Vec<u8> {
     let fixture = fs::read(repo_root().join("Fixtures/Formats/Region.mca"))
         .expect("read Region.mca");
@@ -237,8 +224,8 @@ fn fully_lz4_region_decodes() {
 fn external_chunk_reports_notice() {
     let mut region = fs::read(repo_root().join("Fixtures/Formats/Region.mca"))
         .expect("read Region.mca");
-    // The spec's oversized-chunk spelling: length 1, compression value +128;
-    // the payload lives in a c.x.z.mcc sibling the preview cannot reach.
+    // External chunks use length 1 and a compression byte offset by 128; their
+    // payload lives in an unreachable `.mcc` sibling.
     let (_, byte_offset) = populated_entries(&region)[0];
     region[byte_offset..byte_offset + 4].copy_from_slice(&1u32.to_be_bytes());
     region[byte_offset + 4] = 2 + 128;
@@ -254,8 +241,7 @@ fn external_chunk_reports_notice() {
 fn corrupt_chunk_reports_notice() {
     let mut region = fs::read(repo_root().join("Fixtures/Formats/Region.mca"))
         .expect("read Region.mca");
-    // Point one populated entry past the end of the file: the chunk is in the
-    // table but its record is unreadable.
+    // Keep the table entry populated but point its record beyond the file.
     let (slot, _) = populated_entries(&region)[0];
     let entry = slot * 4;
     region[entry] = 0xff;
@@ -318,27 +304,21 @@ fn mesh_failures_return_status_codes_not_panics() {
             .expect("litematic demo"),
     );
 
-    // A garbage pack must fail cleanly. The ABI reports a status and message
-    // instead of unwinding across the boundary.
     let failure = mesh(&schematic, b"not a zip");
     match failure {
         Err(litematicaql_native::MeshFailure::Pack(_)) => {}
         other => panic!("expected a pack failure, got {other:?}"),
     }
 
-    // An empty schematic cannot mesh. Nucleation refuses it outright.
     let empty = UniversalSchematic::new("empty".to_string());
     assert!(matches!(
         mesh(&empty, &pack_bytes()),
         Err(litematicaql_native::MeshFailure::NoBlocks)
     ));
 
-    // The status module values must stay aligned with the C header.
     assert_eq!(status::OK, 0);
     assert_eq!(status::ERR_INTERNAL, 7);
 
-    // The export helper keeps capacity equal to length so the host can free
-    // with just a pointer and a length.
     let bytes = vec![7_u8; 100];
     let (pointer, length) = export_bytes(bytes);
     assert_eq!(length, 100);

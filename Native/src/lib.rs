@@ -1,14 +1,9 @@
-// Schematic decoding and meshing over a small C ABI.
+// Native schematic decoding and meshing for Swift hosts.
 //
-// The Quick Look extension and the app call these entry points instead of the
-// WebAssembly bridge. The native heap has no wasm memory ceiling, so builds
-// like a 4.4-million-block station mesh here where the wasm mesher aborts.
-// Nucleation panics must never cross the FFI boundary, so every entry point
-// runs inside `catch_unwind` and reports failures as status codes plus a
-// UTF-8 message the host frees with `nql_buffer_free`.
-//
-// Policy lives on the Swift side; this crate only enforces decode limits and
-// the mesh block budget.
+// The native heap avoids wasm's memory ceiling for large preview meshes. The
+// decoding and meshing entry points catch panics and return status codes;
+// callers free every returned buffer with `nql_buffer_free`. Swift owns UI
+// policy, while this crate enforces decode and mesh budgets.
 
 use std::collections::HashMap;
 use std::panic::{catch_unwind, AssertUnwindSafe};
@@ -24,12 +19,9 @@ use regex::Regex;
 mod mca;
 mod structure_nbt;
 
-// Compressed schematic bytes accepted from the native bridge.
 const MAX_INPUT_BYTES: usize = 1_024 * 1_024 * 1_024;
-// Inflated NBT bytes Nucleation may allocate while decoding.
 const MAX_DECOMPRESSED_BYTES: usize = 1_024 * 1_024 * 1_024;
 const MAX_AXIS_LENGTH: usize = 4_096;
-// Cells Nucleation may decode per schematic; mirrors the renderer budget.
 const MAX_VOLUME: usize = 536_870_912;
 const MAX_REGIONS: usize = 64;
 const MAX_PALETTE_ENTRIES: usize = 4_096;
@@ -37,13 +29,13 @@ const MAX_ENTITIES: usize = 100_000;
 const MAX_BLOCK_ENTITIES: usize = 100_000;
 const MAX_NBT_DEPTH: usize = 64;
 const MAX_NBT_STRING_BYTES: usize = 1_000_000;
-// A Sponge `BlockData` array declares one VarInt per padded cell, so the
-// collection allowance is the volume widened by a VarInt's width.
+// Sponge `BlockData` uses one padded cell per VarInt; the parser's collection
+// allowance must cover both the volume and its per-cell encoding overhead.
 const MAX_NBT_COLLECTION_ITEMS: usize = MAX_VOLUME * 2;
 const MAX_NBT_NODES: usize = 4_194_304;
 
-// Blocks the preview is willing to mesh: a usefulness bound, not a memory
-// one. Past this many blocks the GLB is too large for any preview to show.
+// This is a usefulness bound, not an allocation bound: larger GLBs exceed what
+// the preview can display.
 const MAX_MESH_BLOCKS: i64 = 33_554_432;
 
 // Status codes shared with the Swift bridge through the C header.
@@ -61,28 +53,22 @@ pub mod status {
 // A decoded schematic. Opaque to the host; free with `nql_schematic_free`.
 pub type NQLSchematic = UniversalSchematic;
 
-// Decode notices per live handle, keyed by the handle's address and removed
-// exactly once in `nql_schematic_free`. UniversalSchematic has no field to
-// carry host-facing text, so the store stays outside the type; the pointer
-// keying is safe because a freed address is always unmapped from the store
-// before it can be handed out again.
+// `UniversalSchematic` cannot carry host-facing notices, so they remain keyed
+// by live handle. Freeing a handle removes its entry before allocator reuse can
+// produce the same address.
 static DECODE_WARNINGS: LazyLock<Mutex<HashMap<usize, Vec<String>>>> =
     LazyLock::new(|| Mutex::new(HashMap::new()));
 
-// Build facts reported right after a successful decode.
 #[repr(C)]
 pub struct NQLSchematicInfo {
     pub block_count: i64,
     pub block_entity_count: i64,
-    // Dimensions of the region the blocks actually occupy. Region padding is
-    // a whole-chunk affair, so the declared size overstates what is drawn
-    // and nothing user-facing reports it.
+    // Tight content bounds, not the chunk-aligned schematic dimensions.
     pub content_x: i32,
     pub content_y: i32,
     pub content_z: i32,
 }
 
-// Facts about a finished mesh.
 #[repr(C)]
 #[derive(Debug)]
 pub struct NQLMeshInfo {
@@ -96,7 +82,6 @@ pub struct NQLError {
     pub message_len: usize,
 }
 
-// Decode limits bounding what a preview accepts.
 pub fn preview_limits() -> DecodeLimits {
     DecodeLimits {
         max_input_bytes: MAX_INPUT_BYTES,
@@ -114,9 +99,9 @@ pub fn preview_limits() -> DecodeLimits {
     }
 }
 
-// Widened allowances for a diagnostic second decode: Nucleation reports
-// oversized and unreadable inputs as the same parse error, and this is the
-// only way to tell them apart. The input cap stays at the preview value.
+// Nucleation maps malformed and oversized inputs to the same parse error. A
+// second decode with wider structural limits distinguishes them without
+// raising the compressed-input cap.
 fn diagnostic_limits() -> DecodeLimits {
     DecodeLimits {
         max_dimension: 65_536,
@@ -126,8 +111,8 @@ fn diagnostic_limits() -> DecodeLimits {
     }
 }
 
-// The mesher configuration the preview ships with: greedy merging for the
-// triangle count, a 2048 atlas because the preview cannot resolve more.
+// Greedy merging controls the triangle count; 2048 is the largest atlas the
+// preview can resolve.
 fn mesh_config() -> MeshConfig {
     MeshConfig::new()
         .with_greedy_meshing(true)
@@ -135,11 +120,9 @@ fn mesh_config() -> MeshConfig {
         .with_atlas_max_size(2_048)
 }
 
-// Rewrites the brace block-state spelling some structure SNBT uses (for
-// example `state: "minecraft:oak_log{axis=y}"`) into the bracket form
-// Nucleation's reader accepts, for one retry after a failed import.
-// Restricted to `state` values so nothing else in the document is touched.
-// `None` skips the retry.
+// Convert brace-style `state` values such as `axis=y` in
+// `minecraft:oak_log{axis=y}` to the bracket syntax Nucleation accepts. Only
+// `state` values are rewritten, and `None` skips the one normalization retry.
 fn normalize_structure_snbt(bytes: &[u8]) -> Option<Vec<u8>> {
     static BRACE_STATE: std::sync::LazyLock<Regex> = std::sync::LazyLock::new(|| {
         Regex::new(
@@ -172,14 +155,12 @@ pub fn decode(bytes: &[u8]) -> Result<NQLSchematic, DecodeFailure> {
     decode_with_warnings(bytes).map(|(schematic, _)| schematic)
 }
 
-// Decode like `decode`, and also return the reader's human-readable notices
-// about content that exists but is not shown: chunks skipped as unreadable or
-// stored in external `.mcc` files. The C ABI reports these through
+// Decode under the preview budget and return notices for omitted unreadable or
+// externally stored chunks. The C ABI exposes these through
 // `nql_schematic_warnings`.
 //
-// Nucleation reports every rejection as the same opaque parse error, so a
-// second decode with the diagnostic allowances decides whether the input was
-// oversized or unreadable and the refusal says which.
+// A second decode with wider structural limits distinguishes Nucleation's
+// ambiguous parse error for malformed input from a limit rejection.
 pub fn decode_with_warnings(bytes: &[u8]) -> Result<(NQLSchematic, Vec<String>), DecodeFailure> {
     let manager = get_manager();
     let guard = manager
@@ -190,8 +171,6 @@ pub fn decode_with_warnings(bytes: &[u8]) -> Result<(NQLSchematic, Vec<String>),
         return Ok((schematic, Vec::new()));
     }
 
-    // A readable document that only trips on Nucleation's brace block-state
-    // spelling gets one normalized retry.
     if let Some(normalized) = normalize_structure_snbt(bytes) {
         if let Ok((_, schematic)) = guard.read_bounded_with_format(&normalized, &preview_limits())
         {
@@ -238,7 +217,6 @@ pub enum MeshFailure {
     Mesh(String),
 }
 
-// Mesh the schematic into GLB bytes with the shipping configuration.
 pub fn mesh(
     schematic: &NQLSchematic,
     pack_bytes: &[u8],
@@ -250,8 +228,8 @@ pub fn mesh(
         .to_mesh(&pack, &mesh_config())
         .map_err(|error| match error {
             MeshError::ResourcePack(error) => MeshFailure::Pack(error),
-            // Nucleation reports an empty build as this string, not as a typed
-            // variant, so the refusal has to match on the message.
+            // Nucleation reports an empty build as text rather than a typed
+            // error, so preserve that distinction with a guarded match.
             MeshError::Meshing(message) if message.contains("No blocks") => MeshFailure::NoBlocks,
             error => MeshFailure::Mesh(error.to_string()),
         })?;
@@ -277,10 +255,8 @@ pub fn mesh(
     Ok((glb, info))
 }
 
-// Move `bytes` onto the heap for the host and hand back its location.
-//
-// `shrink_to_fit` plus `into_boxed_slice` guarantees capacity equals length,
-// which is what `nql_buffer_free` reconstructs the allocation from.
+// Transfer an owning byte buffer to the host. The boxed slice's capacity equals
+// its length, allowing `nql_buffer_free` to reconstruct the allocation.
 pub fn export_bytes(bytes: Vec<u8>) -> (*mut u8, usize) {
     let mut bytes = bytes;
     bytes.shrink_to_fit();
@@ -309,13 +285,13 @@ unsafe fn init_error(err_out: *mut NQLError) {
     }
 }
 
-// Decode schematic bytes into an owning handle.
-//
-// # Safety
-// `data` must point at `len` readable bytes; `out` and `err` (if non-null)
-// must be writable. On success the handle must be freed exactly once with
-// `nql_schematic_free`. On failure `err` receives a message to free with
-// `nql_buffer_free`.
+/// Decode schematic bytes into an owning handle.
+///
+/// # Safety
+/// `data` must point to `len` readable bytes, and `out` plus any non-null
+/// `err_out` must be writable. On success, free the handle exactly once with
+/// `nql_schematic_free`. On failure, free any `err_out` message with
+/// `nql_buffer_free`.
 #[no_mangle]
 pub unsafe extern "C" fn nql_schematic_open(
     data: *const u8,
@@ -354,10 +330,10 @@ pub unsafe extern "C" fn nql_schematic_open(
     }
 }
 
-// Free a handle returned by `nql_schematic_open`.
-//
-// # Safety
-// `schematic` must be null or a live handle that has not been freed already.
+/// Free a schematic handle.
+///
+/// # Safety
+/// `schematic` must be null or a live handle that has not already been freed.
 #[no_mangle]
 pub unsafe extern "C" fn nql_schematic_free(schematic: *mut NQLSchematic) {
     if !schematic.is_null() {
@@ -368,13 +344,11 @@ pub unsafe extern "C" fn nql_schematic_free(schematic: *mut NQLSchematic) {
     }
 }
 
-// Report the decode notices attached to a schematic, joined with newlines.
-//
-// The buffer is empty when the decode produced no notices. The host frees it
-// with `nql_buffer_free`.
-//
-// # Safety
-// `schematic` must be a live handle; `out` and `out_len` must be writable.
+/// Return newline-separated decode notices, or an empty allocation when the
+/// schematic has none. The host must free the buffer with `nql_buffer_free`.
+///
+/// # Safety
+/// `schematic` must be live, and `out` and `out_len` must be writable.
 #[no_mangle]
 pub unsafe extern "C" fn nql_schematic_warnings(
     schematic: *const NQLSchematic,
@@ -397,10 +371,10 @@ pub unsafe extern "C" fn nql_schematic_warnings(
     status::OK
 }
 
-// Report build facts about a decoded schematic.
-//
-// # Safety
-// `schematic` must be a live handle and `out` must be writable.
+/// Report decoded schematic statistics.
+///
+/// # Safety
+/// `schematic` must be live and `out` must be writable.
 #[no_mangle]
 pub unsafe extern "C" fn nql_schematic_info(
     schematic: *const NQLSchematic,
@@ -422,14 +396,14 @@ pub unsafe extern "C" fn nql_schematic_info(
     status::OK
 }
 
-// Mesh a decoded schematic into GLB bytes.
-//
-// The schematic handle stays valid; the pack is read from `pack_data` on
-// every call. On success `glb_out`/`glb_len` receive an allocation to free
-// with `nql_buffer_free` and `info_out` receives mesh facts.
-//
-// # Safety
-// Pointer arguments must be valid and, where marked out, writable.
+/// Mesh a schematic into an owned GLB allocation.
+///
+/// On success, free `glb_out` with `nql_buffer_free`. `info_out` and `err_out`
+/// are optional; when non-null they must be writable.
+///
+/// # Safety
+/// `schematic` must be live, and `pack_data` must point to `pack_len` readable
+/// bytes. `glb_out` and `glb_len` must be writable.
 #[no_mangle]
 pub unsafe extern "C" fn nql_schematic_mesh(
     schematic: *const NQLSchematic,
@@ -484,11 +458,11 @@ pub unsafe extern "C" fn nql_schematic_mesh(
     }
 }
 
-// Free an allocation handed out by this library.
-//
-// # Safety
-// `buffer` must be null or a live allocation from `nql_schematic_open`'s
-// error message or `nql_schematic_mesh`'s GLB output, with its exact length.
+/// Free a buffer returned by this library.
+///
+/// # Safety
+/// `buffer` must be null or a live library allocation paired with the length
+/// returned with it.
 #[no_mangle]
 pub unsafe extern "C" fn nql_buffer_free(buffer: *mut u8, len: usize) {
     if !buffer.is_null() {

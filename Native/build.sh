@@ -1,12 +1,7 @@
 #!/usr/bin/env bash
 #
-# Builds the native schematic bridge as a static library per architecture.
-# Each architecture gets its own artifact, `build/liblitematicaql_native_arm64.a`
-# and `build/liblitematicaql_native_x86_64.a`. There is deliberately no fat
-# library; the Xcode build links the one matching the current architecture.
-#
-# Usage is `build.sh [arch ...]`, defaulting to $ARCHS when set by Xcode, else
-# the host architecture.
+# Build one static library per requested architecture. Xcode supplies `$ARCHS`;
+# direct invocation defaults to the host architecture and rejects other values.
 
 set -euo pipefail
 cd "$(dirname "$0")"
@@ -19,9 +14,8 @@ else
   archs=("$(uname -m)")
 fi
 
-# A Homebrew rust on PATH ships only its host standard library, and a toolchain
-# cargo invoked directly resolves `rustc` from PATH, so pin RUSTC to the
-# toolchain that `target add` installed the cross std into.
+# Homebrew's Rust exposes only the host standard library, while cross targets
+# come from rustup. Pin `RUSTC` to the rustup toolchain that owns those targets.
 if command -v rustup >/dev/null 2>&1; then
   export RUSTC="$(rustup which rustc)"
 fi
@@ -42,7 +36,7 @@ for arch in "${archs[@]}"; do
   cargo build --release --target "$triple"
 
   mkdir -p build
-  # Same-volume move, so concurrent target builds never observe a partial copy.
+  # Publish by same-volume rename so readers never see a partial artifact.
   cp -f "target/$triple/release/liblitematicaql_native.a" "build/.tmp_$arch.a"
   mv -f "build/.tmp_$arch.a" "build/liblitematicaql_native_$arch.a"
 done

@@ -1,10 +1,8 @@
 // Vanilla Java structure `.nbt` decoding.
 //
-// Nucleation's `FormatManager` identifies six of the seven formats by
-// content; for vanilla structures it reads only the SNBT spelling, so the
-// binary container is decoded here into the same data model. Ported from
-// schematic-diff's fallback loader; the one deviation is a bounded gunzip in
-// the format sniff, where the original probes unbounded.
+// Nucleation's format manager recognizes binary structures by content but
+// parses only their SNBT spelling. This module decodes the binary container
+// into the same schematic model.
 
 use std::io::{Cursor, Read};
 
@@ -18,10 +16,9 @@ use quartz_nbt::{NbtCompound, NbtList, NbtTag};
 
 use super::{DecodeFailure, MAX_DECOMPRESSED_BYTES, MAX_VOLUME};
 
-// Whether the bytes are a binary Java structure: gzipped NBT whose root
-// carries `blocks` and `palette`. Together those two keys distinguish a
-// structure from the many other things that are NBT (level.dat, a chunk, an
-// item).
+// Return whether `bytes` contain binary structure NBT. Requiring both `blocks`
+// and `palette` distinguishes structures from other NBT roots such as levels,
+// chunks, and saved items.
 pub(super) fn is_binary_structure(bytes: &[u8]) -> bool {
     let raw = match maybe_gunzip(bytes) {
         Ok(raw) => raw,
@@ -34,7 +31,6 @@ pub(super) fn is_binary_structure(bytes: &[u8]) -> bool {
     root.contains_key("blocks") && root.contains_key("palette")
 }
 
-// Decode a binary Java structure into a schematic.
 pub(super) fn load_structure_nbt(bytes: &[u8]) -> Result<UniversalSchematic, DecodeFailure> {
     let raw = maybe_gunzip(bytes).map_err(DecodeFailure::Format)?;
     let (root, _) = quartz_nbt::io::read_nbt(&mut Cursor::new(&raw), Flavor::Uncompressed)
@@ -88,8 +84,8 @@ pub(super) fn load_structure_nbt(bytes: &[u8]) -> Result<UniversalSchematic, Dec
         let Some(position) = triple(entry, "pos") else {
             return Err(unreadable());
         };
-        // Positions are validated against `size` in shape above only; a
-        // malformed file can still point outside the grid.
+        // `Region::try_new` validates only the declared dimensions; each block
+        // position still needs an explicit bounds check.
         if position
             .iter()
             .enumerate()
@@ -136,8 +132,8 @@ pub(super) fn load_structure_nbt(bytes: &[u8]) -> Result<UniversalSchematic, Dec
             let Some(NbtTag::Compound(nbt)) = entry.inner().get("nbt") else {
                 continue;
             };
-            // Vanilla ignores entity records with no type id; so do we, and we
-            // do not let one odd record fail the whole load.
+            // Match vanilla's deliberate tolerance for entities without a type
+            // identifier; one malformed entity must not reject the structure.
             if !nbt.contains_key("id") && !nbt.contains_key("Id") {
                 continue;
             }
@@ -155,7 +151,8 @@ pub(super) fn load_structure_nbt(bytes: &[u8]) -> Result<UniversalSchematic, Dec
     Ok(schematic)
 }
 
-// Gunzip the bytes when they carry the gzip magic, otherwise pass through.
+// Return gzip-decoded bytes, or pass through non-gzip input unchanged. Reject
+// expanded structures above the shared decompression budget.
 fn maybe_gunzip(bytes: &[u8]) -> Result<Vec<u8>, String> {
     if bytes.len() < 2 || bytes[0] != 0x1f || bytes[1] != 0x8b {
         return Ok(bytes.to_vec());
@@ -173,7 +170,7 @@ fn maybe_gunzip(bytes: &[u8]) -> Result<Vec<u8>, String> {
     Ok(out)
 }
 
-// Read an `[i32; 3]` from an int array or a list of int-ish tags.
+// Accept an int array or a three-element byte, short, or int list.
 fn triple(compound: &NbtCompound, key: &str) -> Option<[i32; 3]> {
     let tag = compound.inner().get(key)?;
     let values: Vec<i32> = match tag {
@@ -198,7 +195,7 @@ fn triple(compound: &NbtCompound, key: &str) -> Option<[i32; 3]> {
     Some([*x, *y, *z])
 }
 
-// Read an `[f64; 3]` from a list of float-ish tags.
+// Accept a three-element float or double list.
 fn double_triple(compound: &NbtCompound, key: &str) -> Option<[f64; 3]> {
     let NbtTag::List(list) = compound.inner().get(key)? else {
         return None;
@@ -217,7 +214,8 @@ fn double_triple(compound: &NbtCompound, key: &str) -> Option<[f64; 3]> {
     Some([*x, *y, *z])
 }
 
-// Read the block-state palette as canonical `id[property=value,…]` strings.
+// Convert palette entries to canonical `id[property=value,…]` block-state
+// strings.
 fn read_palette(root: &NbtCompound) -> Option<Vec<String>> {
     let NbtTag::List(palette) = root.inner().get("palette")? else {
         return None;
@@ -240,8 +238,8 @@ fn read_palette(root: &NbtCompound) -> Option<Vec<String>> {
                 properties.push((key.clone(), value.clone()));
             }
         }
-        // Property order is not meaningful, and sorting it means two files
-        // that differ only in serialization order compare equal.
+        // Canonical property order keeps serialization-order differences from
+        // changing the decoded block state.
         properties.sort();
         states.push(if properties.is_empty() {
             name

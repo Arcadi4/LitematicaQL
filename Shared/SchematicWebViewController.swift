@@ -25,9 +25,8 @@ final class SchematicWebViewController: NSViewController {
         ]
         """#
 
-    // Builds past this many non-empty blocks mesh for a noticeable while, so
-    // their window presents immediately with a render notice instead of
-    // holding back until the first frame exists.
+    /// Above this occupied-block count, render metadata before meshing so Quick Look
+    /// presents promptly while a large native mesh is still running.
     private static let immediateRenderNoticeBlocks = 1_048_576
 
     private var pageState: PageState = .loading
@@ -37,8 +36,7 @@ final class SchematicWebViewController: NSViewController {
     private var rendererDirectory: URL?
     private var webView: WKWebView?
 
-    // Increments on every load so a superseded background mesh abandons its
-    // result instead of painting it over the newer load.
+    // Identifies the active load so superseded background meshes cannot publish stale geometry.
     private var loadGeneration = 0
 
     private let glbHandler = GLBResourceHandler()
@@ -90,8 +88,6 @@ final class SchematicWebViewController: NSViewController {
             WeakScriptMessageHandler(delegate: self),
             name: Self.messageHandlerName
         )
-        // The mesh crosses to the page as raw bytes over a custom scheme,
-        // never as a base64 string.
         configuration.setURLSchemeHandler(glbHandler, forURLScheme: "lql-glb")
         configuration.userContentController.addUserScript(
             WKUserScript(
@@ -117,12 +113,10 @@ final class SchematicWebViewController: NSViewController {
         loadRendererPage()
     }
 
-    // Presents the preview for a schematic file.
-    //
-    // Decoding and meshing run natively off the main thread. Content refusals
-    // (unreadable files, oversized builds, exhausted meshes) resolve inside
-    // the page as panels, because Quick Look discards this window entirely
-    // when the call throws. Only infrastructure failures throw.
+    /// Starts a preview without blocking the main actor on native decoding or meshing.
+    ///
+    /// Native content refusals are rendered in-page because Quick Look discards this
+    /// window when `preparePreview` throws. File and infrastructure failures propagate.
     func preparePreview(of url: URL) async throws {
         _ = view
         try Task.checkCancellation()
@@ -159,10 +153,6 @@ final class SchematicWebViewController: NSViewController {
         }
     }
 
-    // Drives decode, metadata, mesh, and display for one load.
-    //
-    // The whole flow runs on one background task because the native handle
-    // must stay on the thread that opened it.
     private nonisolated func runNativeLoad(
         data: Data,
         pack: Data,
@@ -199,7 +189,6 @@ final class SchematicWebViewController: NSViewController {
         }
     }
 
-    // Whether `generation` is still the load the window should show.
     private func isCurrentLoad(_ generation: Int) -> Bool {
         guard loadGeneration == generation else {
             return false
@@ -474,23 +463,20 @@ extension SchematicWebViewController: WKScriptMessageHandler {
     }
 }
 
-// Serves the meshed GLB to the page over the `lql-glb` custom scheme.
-//
-// The mesh lands here from a background task and is read back by WebKit's
-// loader thread, so access goes through a lock; the class is its own
-// synchronization.
+/// Publishes the latest GLB through the `lql-glb` custom scheme.
+///
+/// Native loading and WebKit's loader thread access the payload concurrently; the lock
+/// is the handler's sole synchronization boundary.
 final class GLBResourceHandler: NSObject, WKURLSchemeHandler, @unchecked Sendable {
     private let lock = NSLock()
     private var glb: Data?
 
-    // Publishes the mesh the page should fetch, replacing any stale one.
     nonisolated func store(_ data: Data) {
         lock.lock()
         defer { lock.unlock() }
         glb = data
     }
 
-    // Drops the mesh when a superseded load must not serve stale geometry.
     nonisolated func clear() {
         lock.lock()
         defer { lock.unlock() }
@@ -515,8 +501,7 @@ final class GLBResourceHandler: NSObject, WKURLSchemeHandler, @unchecked Sendabl
             return
         }
 
-        // The page origin is `file://`, so the response must opt into CORS or
-        // the fetch is refused.
+        // A `file://` page requires an explicit CORS grant to fetch the custom scheme.
         let response = HTTPURLResponse(
             url: url,
             statusCode: 200,
@@ -536,7 +521,6 @@ final class GLBResourceHandler: NSObject, WKURLSchemeHandler, @unchecked Sendabl
     }
 
     func webView(_: WKWebView, stop _: WKURLSchemeTask) {
-        // Delivery is a single synchronous burst; nothing to unwind.
     }
 }
 

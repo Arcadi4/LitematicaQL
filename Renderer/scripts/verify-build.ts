@@ -14,14 +14,10 @@ if (externalAssetPatterns.some((pattern) => pattern.test(html))) {
   throw new Error("Renderer build still references external JavaScript or CSS assets.");
 }
 
-// The page talks to the native controller over the message bridge and fetches
-// the meshed GLB through the `lql-glb` custom scheme.
 if (!html.includes("litematicaQL") || !html.includes("meshReady")) {
   throw new Error("Renderer build is missing the native message bridge or mesh handoff.");
 }
 
-// Decoding and meshing moved to the native bridge; the page must not carry a
-// WebAssembly engine, and no inline payload is expected anymore.
 if (html.includes("data:application/wasm;base64,") || html.includes("nucleation")) {
   throw new Error("Renderer build still bundles the WebAssembly mesher.");
 }

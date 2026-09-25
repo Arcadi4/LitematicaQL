@@ -1,16 +1,6 @@
 /**
- * Builds the app's bundled demo schematics.
- *
- * Every model here is authored in this file, block by block, so the bundled
- * demos carry no third-party content and no attribution requirement beyond the
- * project's own license. Run `pnpm --dir Renderer run demos` after changing a
- * model; the script refuses to write a file it cannot read back.
- *
- * Seven models exist because there are seven supported file formats, and each
- * format gets its own build so the gallery shows a distinct model rather
- * than the same one seven times. Nucleation writes the litematic, sponge,
- * snapshot, and mcstructure formats; the classic MCEdit and Java structure
- * formats are import-only, so this script encodes those two itself.
+ * Encodes one bundled demo in each supported format. Every authored block must
+ * survive a decode with its name and declared properties intact.
  */
 
 import { mkdirSync, writeFileSync } from "node:fs";
@@ -20,14 +10,9 @@ import { Schematic } from "nucleation";
 
 const outputDirectory = join(import.meta.dirname, "..", "..", "Fixtures", "Demos");
 
-/**
- * gzip stamps the current time into its header by default, which would make
- * every run rewrite the fixtures with different bytes. Pinning it keeps the
- * generator idempotent, so a rebuild only shows a diff when a model changed.
- */
+/** A fixed mtime keeps gzip output byte-stable so unchanged models produce no diff. */
 const deterministicGzip = { mtime: 0 };
 
-/** Nucleation's own decoding limits. */
 const decodeLimits = JSON.stringify({
   max_block_entities: 100_000,
   max_decompressed_bytes: 1_024 * 1_024 * 1_024,
@@ -43,11 +28,7 @@ const decodeLimits = JSON.stringify({
   max_volume: 16_777_216,
 });
 
-// ---------------------------------------------------------------------------
-// Model
-// ---------------------------------------------------------------------------
 
-/** A voxel position. */
 type Position = readonly [number, number, number];
 
 /** Splits an `"x,y,z"` key back into coordinates; keys only come from `Model.set`. */
@@ -71,7 +52,6 @@ class Model {
     return this;
   }
 
-  /** Skips a cell so a later pass can leave a hole, e.g. for a doorway. */
   clear(x: number, y: number, z: number): this {
     this.blocks.delete(`${x},${y},${z}`);
     return this;
@@ -81,7 +61,6 @@ class Model {
     return this.blocks.has(`${x},${y},${z}`);
   }
 
-  /** Lets callers walk a model's placed blocks uniformly, whatever built it. */
   *[Symbol.iterator](): Generator<[string, string]> {
     yield* this.blocks;
   }
@@ -90,7 +69,7 @@ class Model {
     return this.blocks.keys();
   }
 
-  /** Fills an inclusive box, in the order the caller expects overwrites to win. */
+  /** Fills inclusive bounds; later writes overwrite earlier blocks. */
   box([x0, y0, z0]: Position, [x1, y1, z1]: Position, state: string): this {
     for (let x = x0; x <= x1; x += 1) {
       for (let y = y0; y <= y1; y += 1) {
@@ -102,7 +81,6 @@ class Model {
     return this;
   }
 
-  /** Fills a box's shell, leaving its interior alone. */
   shell([x0, y0, z0]: Position, [x1, y1, z1]: Position, state: string): this {
     for (let x = x0; x <= x1; x += 1) {
       for (let y = y0; y <= y1; y += 1) {
@@ -117,7 +95,6 @@ class Model {
     return this;
   }
 
-  /** A hollow square tube: four walls, no floor or ceiling. */
   walls([x0, y0, z0]: Position, [x1, y1, z1]: Position, state: string): this {
     for (let x = x0; x <= x1; x += 1) {
       for (let y = y0; y <= y1; y += 1) {
@@ -260,9 +237,6 @@ class Model {
   }
 }
 
-// ---------------------------------------------------------------------------
-// Models
-// ---------------------------------------------------------------------------
 
 const oak = "minecraft:oak_planks";
 const spruce = "minecraft:spruce_planks";
@@ -282,18 +256,13 @@ const water = "minecraft:water[level=0]";
 const fence = "minecraft:oak_fence";
 const sprucFence = "minecraft:spruce_fence";
 
-/** A timber cottage: stone footing, plank walls, glazed windows, gable roof. */
 function cottage(): Model {
   const model = new Model();
-  // 13 × 9 footprint. The depth matters: a 1:1 gable closes in
-  // ceil((depth + 2) / 2) courses, so 9 deep closes in 6 and the roof reaches a
-  // real ridge instead of flattening into a slab on top of the walls.
+  // A depth of 9 closes six gable courses, so the roof reaches a ridge at y=10.
   model.box([0, 0, 0], [12, 0, 8], stoneBrick);
 
-  // Walls, four courses, so the roof does not dwarf the building.
   model.shell([0, 1, 0], [12, 4, 8], oak);
 
-  // Corner posts in a darker timber.
   for (const [x, z] of [
     [0, 0],
     [12, 0],
@@ -303,7 +272,6 @@ function cottage(): Model {
     model.box([x, 1, z], [x, 4, z], "minecraft:spruce_log[axis=y]");
   }
 
-  // Windows on every wall, at eye height.
   for (const x of [3, 5, 7, 9]) {
     model.set(x, 3, 0, glass);
   }
@@ -312,31 +280,26 @@ function cottage(): Model {
     model.set(12, 3, z, glass);
   }
 
-  // Doorway, two blocks wide and tall.
   for (const x of [5, 6]) {
     model.clear(x, 1, 0);
     model.clear(x, 2, 0);
   }
 
-  // Roof: six courses of spruce overhanging the walls by one block, which
-  // brings the slopes to a ridge at y=10.
+  // Six courses bring the overhanging roof slopes to a ridge at y=10.
   model.gable([-1, 5, -1], [13, 9], spruce);
   model.gable([-1, 5, -1], [13, 9], spruceLog);
 
-  // A path to the door, with two planted posts.
   model.box([5, 0, -3], [6, 0, -1], dirtPath);
   model.set(4, 0, -2, "minecraft:oak_log[axis=y]");
   model.set(7, 0, -2, "minecraft:oak_log[axis=y]");
 
-  // Hanging lanterns either side of the door.
   model.set(4, 3, 0, lantern);
   model.set(7, 3, 0, lantern);
   return model;
 }
 
 /**
- * A stone gateway: two piers carrying a corbelled arch, wide enough that the
- * opening stays the subject of the model. A narrow opening reads as a wall.
+ * The opening stays nine blocks wide so it remains the model's visual subject.
  */
 function archway(): Model {
   const model = new Model();
@@ -344,43 +307,34 @@ function archway(): Model {
 
   model.box([0, 0, 0], [deck, 0, 4], stoneBrick);
 
-  // Piers, two blocks thick, leaving a nine-wide opening between them.
   model.box([0, 1, 0], [2, 6, 4], stoneBrick);
   model.box([12, 1, 0], [14, 6, 4], stoneBrick);
 
-  // Corbelled arch: each course steps one block further in from each side, so
-  // the opening closes over five courses instead of a flat lintel.
   for (let step = 0; step < 5; step += 1) {
     const inset = 3 + step;
     model.box([inset, 7 + step, 0], [inset, 7 + step, 4], stoneBrick);
     model.box([14 - inset, 7 + step, 0], [14 - inset, 7 + step, 4], stoneBrick);
   }
 
-  // Keystone closing the crown, in the dressed block.
   model.box([7, 11, 0], [7, 11, 4], chiseledBrick);
 
-  // Top course running the full width, tying the piers together.
   model.box([0, 12, 0], [14, 12, 4], stoneBrick);
   model.box([0, 13, 0], [14, 13, 4], chiseledBrick);
 
-  // A mossy footing and a course of moss along the springing, for age.
   model.box([0, 0, 0], [2, 0, 4], mossyBrick);
   model.box([12, 0, 0], [14, 0, 4], mossyBrick);
   model.box([3, 6, 0], [3, 6, 4], mossyBrick);
   model.box([11, 6, 0], [11, 6, 4], mossyBrick);
 
-  // Lanterns hanging under each side of the arch.
   for (const x of [4, 10]) {
     model.set(x, 9, 1, lantern);
     model.set(x, 9, 3, lantern);
   }
 
-  // A worn path through the opening.
   model.box([3, 0, 1], [11, 0, 3], dirtPath);
   return model;
 }
 
-/** A broad oak with a layered canopy and a flowering floor. */
 function bloom(): Model {
   const model = new Model();
   model.box([0, 0, 0], [10, 0, 10], grass);
@@ -392,7 +346,6 @@ function bloom(): Model {
     }
   }
 
-  // Trunk, tapering with a root flare.
   model.box([5, 1, 5], [5, 7, 5], "minecraft:oak_log[axis=y]");
   for (const [x, z] of [
     [4, 5],
@@ -403,13 +356,11 @@ function bloom(): Model {
     model.set(x, 1, z, "minecraft:oak_log[axis=y]");
   }
 
-  // Canopy: a wide base ball plus a smaller crown, so the silhouette reads as
-  // a tree rather than a sphere on a stick.
+  // The smaller crown prevents the canopy from reading as a sphere on a stick.
   model.canopy(5, 9, 5, 3, oakLeaf);
   model.canopy(5, 11, 5, 2, oakLeaf);
   model.set(5, 12, 5, oakLeaf);
 
-  // Flowers around the base.
   for (const [x, z, state] of [
     [2, 2, "minecraft:dandelion"],
     [8, 2, "minecraft:poppy"],
@@ -424,26 +375,22 @@ function bloom(): Model {
   return model;
 }
 
-/** A plank bridge on stone piers, with a fenced walkway. */
 function bridge(): Model {
   const model = new Model();
   model.box([0, 0, 0], [16, 0, 8], "minecraft:water[level=0]");
 
-  // Deck.
   model.box([0, 3, 3], [16, 3, 5], oak);
   for (let x = 0; x <= 16; x += 1) {
     model.set(x, 3, 2, spruce);
     model.set(x, 3, 6, spruce);
   }
 
-  // Piers reaching into the water.
   for (const x of [2, 8, 14]) {
     model.box([x, 1, 3], [x, 2, 5], stoneBrick);
     model.set(x, 0, 3, mossyBrick);
     model.set(x, 0, 5, mossyBrick);
   }
 
-  // Railings, with a gap at each end for the approach.
   for (let x = 1; x <= 15; x += 1) {
     model.set(x, 4, 2, fence);
     model.set(x, 4, 6, fence);
@@ -455,7 +402,6 @@ function bridge(): Model {
     model.set(16, 5, z, sprucFence);
   }
 
-  // Lamp posts at the four corners.
   for (const [x, z] of [
     [1, 2],
     [15, 2],
@@ -466,30 +412,26 @@ function bridge(): Model {
     model.set(x, 6, z, lantern);
   }
 
-  // Approaches rising out of the water.
   model.box([0, 2, 3], [1, 2, 5], stoneBrick);
   model.box([15, 2, 3], [16, 2, 5], stoneBrick);
   return model;
 }
 
-/** A stepped sandstone pyramid crowned with a beacon. */
 function pyramid(): Model {
   const model = new Model();
   model.box([0, 0, 0], [14, 0, 14], smoothSandstone);
   model.pyramid([0, 0], [14, 14], 0, sandstone);
 
-  // Highlight every other step so the tiers stay legible in 3D.
+  // Alternating materials keep the pyramid's tiers legible in 3D.
   for (let level = 1; level < 7; level += 2) {
     const inset = level;
     model.box([inset, level, inset], [14 - inset, level, 14 - inset], cutSandstone);
   }
 
-  // A lapis-and-gold crown.
   model.box([6, 8, 6], [8, 8, 8], "minecraft:gold_block");
   model.set(7, 9, 7, "minecraft:lapis_block");
   model.set(7, 10, 7, "minecraft:beacon");
 
-  // Four stairways up the faces.
   for (let step = 1; step <= 5; step += 1) {
     model.set(7, step, 6 - step - 1, "minecraft:sandstone_stairs[facing=south]");
     model.set(7, step, 14 - (6 - step - 1), "minecraft:sandstone_stairs[facing=north]");
@@ -498,12 +440,10 @@ function pyramid(): Model {
   return model;
 }
 
-/** A walled garden with a pond, hedges, and lantern-lit path. */
 function garden(): Model {
   const model = new Model();
   model.box([0, 0, 0], [12, 0, 12], grass);
 
-  // Pond: water at the surface, with sand and clay showing at its edges.
   model.box([2, 0, 2], [6, 0, 6], water);
   for (const [x, z] of [
     [1, 2],
@@ -522,15 +462,12 @@ function garden(): Model {
     model.set(x, 1, z, "minecraft:lily_pad");
   }
 
-  // Winding path.
   model.box([8, 0, 0], [9, 0, 12], dirtPath);
   model.box([8, 0, 8], [12, 0, 9], dirtPath);
 
-  // Hedge rows along two edges.
   model.box([0, 1, 0], [0, 2, 12], "minecraft:oak_leaves[persistent=true]");
   model.box([0, 1, 12], [12, 2, 12], "minecraft:oak_leaves[persistent=true]");
 
-  // Flower beds.
   for (const [x, z, state] of [
     [2, 9, "minecraft:dandelion"],
     [3, 10, "minecraft:poppy"],
@@ -543,7 +480,6 @@ function garden(): Model {
     model.set(x, 1, z, state);
   }
 
-  // A bench and two lamp posts.
   model.box([10, 1, 10], [12, 1, 10], oak);
   model.set(10, 2, 11, "minecraft:oak_fence");
   model.set(12, 2, 11, "minecraft:oak_fence");
@@ -559,11 +495,7 @@ function garden(): Model {
   return model;
 }
 
-// ---------------------------------------------------------------------------
-// File format encoding
-// ---------------------------------------------------------------------------
 
-/** Builds a Nucleation schematic, which is what most of the writers consume. */
 function toNucleation(
   model: Model,
   { name, author, description }: { name: string; author: string; description: string },
@@ -580,7 +512,6 @@ function toNucleation(
   return schematic;
 }
 
-/** One written NBT tag. The variants mirror the format's own tag numbering. */
 type NbtTag =
   | { kind: "byte"; value: number }
   | { kind: "short"; value: number }
@@ -596,9 +527,8 @@ type NbtTag =
   | { kind: "compound"; value: [string, NbtTag][] };
 
 /**
- * A big-endian NBT writer. Java edition NBT is network byte order, and the tag
- * ids below are the format's own numbering (4 is Long, 7 is ByteArray, 11 is
- * IntArray, 12 is LongArray — not payload-width order).
+ * Writes Java edition NBT in network byte order. Tag ids use the format's
+ * numbering: 4 is Long, 7 is ByteArray, 11 is IntArray, and 12 is LongArray.
  */
 class NbtWriter {
   #chunks: Uint8Array[] = [];
@@ -697,7 +627,6 @@ const int = (value: number): NbtTag => ({ kind: "int", value });
 const short = (value: number): NbtTag => ({ kind: "short", value });
 const string = (value: string): NbtTag => ({ kind: "string", value });
 const compound = (entries: [string, NbtTag][]): NbtTag => ({ kind: "compound", value: entries });
-/** List element ids are written explicitly so an empty list still knows its type. */
 const compoundList = (values: NbtTag[]): NbtTag => ({ kind: "list", elementId: 10, value: values });
 const intList = (values: readonly number[]): NbtTag => ({
   kind: "list",
@@ -765,9 +694,8 @@ function structurePaletteEntry(state: string): NbtTag {
 }
 
 /**
- * Encodes structure SNBT by hand rather than through Nucleation's writer, which
- * pads every region out to its full bounding box. Only placed blocks are
- * listed here, which is what a person writing this format by hand produces.
+ * Nucleation's SNBT writer pads regions to their full bounding box. This
+ * encoder emits only placed blocks so sparse models retain their shape.
  */
 function encodeStructureSnbt(model: Model): Uint8Array {
   const palette = new Map<string, number>();
@@ -798,19 +726,11 @@ function byPosition([left]: [string, string], [right]: [string, string]): number
   return a[1] - b[1] || a[2] - b[2] || a[0] - b[0];
 }
 
-// ---------------------------------------------------------------------------
-// Classic MCEdit `.schematic`
-// ---------------------------------------------------------------------------
 
 /**
- * Legacy numeric block ids, the only vocabulary the MCEdit file format can
- * express. Each entry is the id and metadata this script encodes; the decoded
- * name is what Nucleation's own legacy table produces, which the round-trip
- * check at the bottom compares against.
- *
- * Wooden planks (id 5) are deliberately absent: Nucleation's `wood_variant`
- * ignores the suffix it is given, so id 5 decodes to the non-existent block
- * `minecraft:oak` rather than `minecraft:oak_planks`.
+ * MCEdit accepts only legacy numeric block ids and metadata. Wooden planks are
+ * excluded because Nucleation's `wood_variant` ignores the suffix and decodes
+ * id 5 as `minecraft:oak`.
  */
 const legacyBlocks: Record<string, [number, number]> = {
   "minecraft:cobblestone": [4, 0],
@@ -824,12 +744,7 @@ const legacyBlocks: Record<string, [number, number]> = {
   "minecraft:glass_pane": [102, 0],
 };
 
-/**
- * A round tower in the legacy palette. It is authored separately from the
- * watchtower above because the MCEdit file format cannot carry slabs, stairs, or
- * modern palettes, so sharing one model would force every other format down to
- * this vocabulary too.
- */
+/** A separate model constrains this demo to blocks MCEdit can express. */
 function legacyTower(): Model {
   const model = new Model();
   const centre = 4;
@@ -860,7 +775,6 @@ function legacyTower(): Model {
     }
   }
 
-  // Window slits on the four cardinal faces.
   for (const y of [3, 7, 11]) {
     model.set(centre - 3, y, centre, "minecraft:glass_pane");
     model.set(centre + 3, y, centre, "minecraft:glass_pane");
@@ -868,7 +782,6 @@ function legacyTower(): Model {
     model.set(centre, y, centre + 3, "minecraft:glass_pane");
   }
 
-  // Brick buttresses at the base.
   for (const [x, z] of [
     [centre - 4, centre],
     [centre + 4, centre],
@@ -879,7 +792,6 @@ function legacyTower(): Model {
     model.set(x, 2, z, "minecraft:bricks");
   }
 
-  // Timber balcony, then alternating merlons above it.
   for (let x = 0; x <= 8; x += 1) {
     for (let z = 0; z <= 8; z += 1) {
       if (!inOctagon(x, z, 4)) {
@@ -893,11 +805,9 @@ function legacyTower(): Model {
     }
   }
 
-  // A fence post carrying a lamp, so the silhouette has a focal point.
   model.set(centre, 15, centre, "minecraft:oak_fence");
   model.set(centre, 16, centre, "minecraft:glowstone");
 
-  // Doorway through the base.
   model.clear(centre, 1, 0);
   model.clear(centre, 2, 0);
 
@@ -951,9 +861,6 @@ function toSignedByte(value: number): number {
   return value > 127 ? value - 256 : value;
 }
 
-// ---------------------------------------------------------------------------
-// Output
-// ---------------------------------------------------------------------------
 
 const common = {
   author: "LitematicaQL",
@@ -962,7 +869,6 @@ const common = {
 
 interface Demo {
   file: string;
-  /** Which of the seven supported formats this demo is written in. */
   format: "litematic" | "sponge" | "classic" | "structure" | "snbt" | "bedrock" | "snapshot";
   model: Model;
   encode: (model: Model) => Uint8Array;
@@ -980,8 +886,7 @@ const demos: Demo[] = [
     file: "Archway.schem",
     format: "sponge",
     model: archway(),
-    // Sponge v3 is what WorldEdit writes today; the v2 reader is covered by
-    // the format fixtures instead.
+    // Sponge v3 exercises the writer; the v2 reader has dedicated format fixtures.
     encode: (model) =>
       Buffer.from(
         toNucleation(model, { ...common, name: "Archway" }).saveAsB64("schematic", "v3", ""),
@@ -1023,12 +928,9 @@ const demos: Demo[] = [
 ];
 
 /**
- * Reads a structure `.nbt` back into positions and block states.
- *
- * Nucleation has no importer for the binary structure file format, so nothing
- * else can read this file back. This minimal reader exists to verify the
- * encoder on the writing side, so a malformed tag or a mis-sized palette
- * fails the build here.
+ * Reads structure NBT into positions and block states. Nucleation cannot import
+ * this format, so the minimal reader validates the encoder and catches malformed
+ * tags or palettes before generation succeeds.
  */
 function readStructureNbt(compressed: Uint8Array): Map<string, string> {
   const bytes = gunzipSync(compressed);
@@ -1127,14 +1029,11 @@ function readStructureNbt(compressed: Uint8Array): Map<string, string> {
   return blocks;
 }
 
-/** One parsed NBT tag: a numeric id plus whatever payload that id implies. */
 interface ParsedTag {
   tag: number;
   value: NbtValue;
 }
 
-/** A parsed compound's children, keyed by name. */
-type ParsedCompound = Map<string, ParsedTag>;
 
 /** Everything the minimal reader can produce; lists hold bare payloads. */
 type NbtValue = number | bigint | string | Int8Array | NbtValue[] | ParsedCompound;
@@ -1148,8 +1047,6 @@ for (const demo of demos) {
   writeFileSync(join(outputDirectory, demo.file), written);
   console.log(`${demo.file}: ${written.length} bytes, ${size.x}×${size.y}×${size.z}`);
 
-  // Every file format this script encodes by hand has to survive a decode, so a
-  // wrong tag id or a mis-sized palette fails the run rather than shipping.
   const decoded = demo.format === "structure" ? readStructureNbt(written) : decodeBlocks(written);
   for (const [key, state] of demo.model) {
     const problem = compare(decoded.get(key), state);
@@ -1166,7 +1063,6 @@ if (mismatches > 0) {
 
 console.log(`\nWrote and verified ${demos.length} demos in ${outputDirectory}`);
 
-/** Reads a file back and maps each position to its block state string. */
 function decodeBlocks(bytes: Uint8Array): Map<string, string> {
   // Nucleation's declarations type byte inputs as `Array<number>` even though
   // the runtime accepts typed arrays; casting avoids copying the buffer.
@@ -1211,13 +1107,9 @@ function parseState(state: string): { name: string; properties: Map<string, stri
 }
 
 /**
- * Reports how a decoded block differs from the authored one, or `undefined` when
- * it matches.
- *
- * A file format may fill in defaults the model left out — Nucleation expands
- * `sandstone_stairs[facing=south]` to that block's full legal property set — so
- * the check is that the authored name and every authored property came back,
- * not that the decoded string is character-identical.
+ * Returns a mismatch description, or `undefined` when the decoded name and all
+ * authored properties match. Decoder-supplied default properties are allowed;
+ * Nucleation expands partial states to each block's full legal property set.
  */
 function compare(decoded: string | undefined, authored: string): string | undefined {
   if (decoded === undefined) {

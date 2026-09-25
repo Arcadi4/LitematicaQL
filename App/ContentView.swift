@@ -164,12 +164,6 @@ private struct AppIconMark: View {
     }
 }
 
-/// A demo schematic bundled with the app, keyed by the file format it shows off.
-///
-/// The gallery discovers these from the bundle rather than listing them in
-/// code, so adding a file to `Fixtures/Demos` and rerunning the demo generator
-/// is all it takes to add one. Order follows `LitematicFile`'s extension list so
-/// the gallery reads the same way the documentation does.
 private struct DemoSchematic: Identifiable {
     let url: URL
     let format: String

@@ -1,11 +1,4 @@
 #!/usr/bin/env bash
-#
-# Bumps the release version everywhere it lives: `project.yml`
-# (MARKETING_VERSION) and `Renderer/package.json`, then regenerates the
-# Xcode project so `project.pbxproj` picks the new MARKETING_VERSION up.
-#
-# Usage: scripts/bump-version.sh MAJOR.MINOR.PATCH
-# Then commit: `chore: bump to vMAJOR.MINOR.PATCH`.
 
 set -euo pipefail
 cd "$(dirname "$0")/.."
