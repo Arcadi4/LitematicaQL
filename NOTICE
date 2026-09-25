@@ -1,5 +1,13 @@
-LitematicaQL's original source code is distributed under the MIT License.
-See LICENSE.
+LitematicaQL's original source code is distributed under the GNU Affero
+General Public License, version 3. See LICENSE.
+
+Nucleation 0.10.14 and schematic-mesher 0.2.0 power native file decoding and
+meshing. Both are used from crates.io without source patches. Native compact
+Litematic reading and spatial meshing adapters are adapted from Litematica
+Preview's application-owned implementation; Nucleation-derived portions are
+attributed in NOTICE and ThirdParty/Nucleation-LICENSE.txt. The
+schematic-mesher public-builder adapters are attributed in
+ThirdParty/schematic-mesher-LICENSE.txt.
 
 Third-party Minecraft resource pack
 ------------------------------------
@@ -9,7 +17,7 @@ The file `Renderer/vendor/pack.zip`, including its generated copy at
 pack. Its `pack.mcmeta` identifies it as Minecraft's default textures for pack
 and mod creators (`pack_format` 71). Its Minecraft assets are copyrighted by
 Mojang AB and/or its licensors. They are not original LitematicaQL material
-and are not covered by the MIT License in LICENSE; this project does not offer
+and are not covered by the AGPL license in LICENSE; this project does not offer
 them under that license.
 
 LitematicaQL includes this resource pack solely to provide a legitimate,
@@ -20,6 +28,6 @@ licensed LitematicaQL. No ownership of or permission to redistribute Mojang's
 assets is claimed here; all rights remain with Mojang AB and its licensors.
 
 Anyone redistributing a build containing `pack.zip` is responsible for
-ensuring that their use and redistribution of those assets is permitted under
+ensuring that their use and redistribution of those assets are permitted under
 the applicable Mojang terms. The archive may be omitted or replaced with a
 resource pack obtained with the necessary permission.
