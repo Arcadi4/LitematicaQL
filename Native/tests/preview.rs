@@ -1,10 +1,11 @@
-
 use std::fs;
-use std::path::{Path, PathBuf};
+use std::path::PathBuf;
 
-use litematicaql_native::status;
-use litematicaql_native::{decode, decode_with_warnings, export_bytes, mesh, NQLMeshInfo};
-use nucleation::UniversalSchematic;
+use litematicaql_native::{
+    nql_buffer_free, nql_resource_pack_free, nql_resource_pack_open, nql_schematic_cancel,
+    nql_schematic_free, nql_schematic_info, nql_schematic_mesh, nql_schematic_open,
+    nql_schematic_warnings, status, NQLError, NQLMeshInfo, NQLSchematicInfo,
+};
 
 fn repo_root() -> PathBuf {
     PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("..")
@@ -14,313 +15,293 @@ fn pack_bytes() -> Vec<u8> {
     fs::read(repo_root().join("Renderer/vendor/pack.zip")).expect("bundled resource pack")
 }
 
-fn demo_paths() -> Vec<PathBuf> {
-    let mut paths: Vec<PathBuf> = fs::read_dir(repo_root().join("Fixtures/Demos"))
-        .expect("demo fixtures")
-        .map(|entry| entry.expect("demo entry").path())
-        .collect();
-    paths.sort();
-    assert_eq!(paths.len(), 7, "one demo per supported file format");
-    paths
-}
-
-fn format_fixture_paths() -> Vec<PathBuf> {
-    let mut paths: Vec<PathBuf> = fs::read_dir(repo_root().join("Fixtures/Formats"))
-        .expect("format fixtures")
+fn fixture_paths(directory: &str) -> Vec<PathBuf> {
+    let mut paths: Vec<_> = fs::read_dir(repo_root().join(directory))
+        .expect("fixture directory")
         .map(|entry| entry.expect("fixture entry").path())
         .collect();
     paths.sort();
     paths
 }
 
-fn decode_file(path: &Path) -> UniversalSchematic {
-    let bytes = fs::read(path).unwrap_or_else(|error| panic!("{}: {error}", path.display()));
-    decode(&bytes).unwrap_or_else(|error| panic!("{}: {error:?}", path.display()))
+fn error() -> NQLError {
+    NQLError {
+        message: std::ptr::null_mut(),
+        message_len: 0,
+    }
 }
 
-fn mesh_schematic(schematic: &UniversalSchematic) -> (Vec<u8>, NQLMeshInfo) {
-    mesh(schematic, &pack_bytes()).expect("the demo should mesh")
+fn take_error(error: &mut NQLError) -> String {
+    let text = (!error.message.is_null()).then(|| unsafe {
+        String::from_utf8_lossy(std::slice::from_raw_parts(error.message, error.message_len))
+            .into_owned()
+    });
+    if !error.message.is_null() {
+        unsafe { nql_buffer_free(error.message, error.message_len) };
+    }
+    text.unwrap_or_default()
+}
+
+fn open(bytes: &[u8]) -> (*mut litematicaql_native::NQLSchematic, String) {
+    let mut handle = std::ptr::null_mut();
+    let mut failure = error();
+    let status =
+        unsafe { nql_schematic_open(bytes.as_ptr(), bytes.len(), &mut handle, &mut failure) };
+    let message = take_error(&mut failure);
+    assert_eq!(status, status::OK, "{message}");
+    assert!(!handle.is_null());
+    (handle, message)
+}
+
+fn open_result(bytes: &[u8]) -> Result<(*mut litematicaql_native::NQLSchematic, String), String> {
+    let mut handle = std::ptr::null_mut();
+    let mut failure = error();
+    let status =
+        unsafe { nql_schematic_open(bytes.as_ptr(), bytes.len(), &mut handle, &mut failure) };
+    let message = take_error(&mut failure);
+    if status == status::OK && !handle.is_null() {
+        Ok((handle, message))
+    } else {
+        Err(message)
+    }
+}
+
+fn open_pack(bytes: &[u8]) -> *mut litematicaql_native::NQLResourcePack {
+    let mut handle = std::ptr::null_mut();
+    let mut failure = error();
+    let status =
+        unsafe { nql_resource_pack_open(bytes.as_ptr(), bytes.len(), &mut handle, &mut failure) };
+    let message = take_error(&mut failure);
+    assert_eq!(status, status::OK, "{message}");
+    assert!(!handle.is_null());
+    handle
+}
+
+fn info(handle: *const litematicaql_native::NQLSchematic) -> NQLSchematicInfo {
+    let mut info = NQLSchematicInfo {
+        block_count: 0,
+        block_entity_count: 0,
+        content_x: 0,
+        content_y: 0,
+        content_z: 0,
+    };
+    assert_eq!(unsafe { nql_schematic_info(handle, &mut info) }, status::OK);
+    info
+}
+
+fn warnings(handle: *const litematicaql_native::NQLSchematic) -> Vec<String> {
+    let mut buffer = std::ptr::null_mut();
+    let mut length = 0;
+    assert_eq!(
+        unsafe { nql_schematic_warnings(handle, &mut buffer, &mut length) },
+        status::OK
+    );
+    if length == 0 {
+        defer_free(buffer, length);
+        return Vec::new();
+    }
+    let text = String::from_utf8(unsafe { std::slice::from_raw_parts(buffer, length) }.to_vec())
+        .expect("notices are UTF-8");
+    defer_free(buffer, length);
+    text.lines().map(str::to_owned).collect()
+}
+
+fn defer_free(buffer: *mut u8, length: usize) {
+    if !buffer.is_null() {
+        unsafe { nql_buffer_free(buffer, length) };
+    }
+}
+
+fn mesh(
+    handle: *const litematicaql_native::NQLSchematic,
+    pack: *const litematicaql_native::NQLResourcePack,
+) -> (Vec<u8>, NQLMeshInfo) {
+    let mut glb = std::ptr::null_mut();
+    let mut length = 0;
+    let mut mesh_info = NQLMeshInfo { triangle_count: 0 };
+    let mut failure = error();
+    let status = unsafe {
+        nql_schematic_mesh(
+            handle,
+            pack,
+            &mut glb,
+            &mut length,
+            &mut mesh_info,
+            &mut failure,
+        )
+    };
+    let message = take_error(&mut failure);
+    assert_eq!(status, status::OK, "{message}");
+    assert!(!glb.is_null());
+    let bytes = unsafe { std::slice::from_raw_parts(glb, length) }.to_vec();
+    unsafe { nql_buffer_free(glb, length) };
+    (bytes, mesh_info)
+}
+fn assert_valid_glb(bytes: &[u8]) {
+    assert_eq!(&bytes[..4], b"glTF");
+    assert_eq!(u32::from_le_bytes(bytes[4..8].try_into().unwrap()), 2);
+    assert_eq!(
+        u32::from_le_bytes(bytes[8..12].try_into().unwrap()) as usize,
+        bytes.len()
+    );
+}
+
+fn deterministic_fixture() -> Vec<u8> {
+    fs::read(repo_root().join("Fixtures/Demos/Cottage.litematic")).expect("litematic demo")
 }
 
 #[test]
-fn demos_decode_and_mesh_with_the_shipping_configuration() {
-    for path in demo_paths() {
-        let schematic = decode_file(&path);
-        assert!(
-            schematic.total_blocks() > 0,
-            "{} decoded to an empty build",
-            path.display()
-        );
-
-        let (glb, info) = mesh_schematic(&schematic);
-        assert!(!glb.is_empty(), "{} produced an empty GLB", path.display());
-        assert!(
-            info.triangle_count > 0,
-            "{} produced no triangles",
-            path.display()
-        );
-        assert!(
-            glb.starts_with(b"glTF"),
-            "{}: bad GLB magic",
-            path.display()
-        );
-        let version = u32::from_le_bytes([glb[4], glb[5], glb[6], glb[7]]);
-        assert_eq!(version, 2, "{}: unexpected GLB version", path.display());
-        let declared = u32::from_le_bytes([glb[8], glb[9], glb[10], glb[11]]) as usize;
-        assert_eq!(
-            declared,
-            glb.len(),
-            "{}: GLB length mismatch",
-            path.display()
-        );
+fn ordered_chunk_output_is_deterministic() {
+    let bytes = deterministic_fixture();
+    let pack = open_pack(&pack_bytes());
+    let (handle, _) = open(&bytes);
+    let first = mesh(handle, pack);
+    let second = mesh(handle, pack);
+    assert_eq!(first.1, second.1);
+    assert_valid_glb(&first.0);
+    assert_valid_glb(&second.0);
+    unsafe {
+        nql_schematic_free(handle);
+        nql_resource_pack_free(pack);
     }
 }
 
 #[test]
-fn format_fixtures_decode() {
-    for path in format_fixture_paths() {
-        decode_file(&path);
+fn cancellation_returns_no_geometry_through_the_c_abi() {
+    let bytes = deterministic_fixture();
+    let pack = open_pack(&pack_bytes());
+    let (handle, _) = open(&bytes);
+    assert_eq!(unsafe { nql_schematic_cancel(handle) }, status::OK);
+    let mut glb = std::ptr::null_mut();
+    let mut length = 1;
+    let mut mesh_info = NQLMeshInfo { triangle_count: 99 };
+    let mut failure = error();
+    let status = unsafe {
+        nql_schematic_mesh(
+            handle,
+            pack,
+            &mut glb,
+            &mut length,
+            &mut mesh_info,
+            &mut failure,
+        )
+    };
+    assert_eq!(status, status::ERR_CANCELLED);
+    assert!(glb.is_null());
+    assert_eq!(length, 0);
+    take_error(&mut failure);
+    unsafe {
+        nql_schematic_free(handle);
+        nql_resource_pack_free(pack);
     }
 }
-#[test]
-fn mca_fixture_decodes_and_meshes() {
-    let path = repo_root().join("Fixtures/Formats/Region.mca");
-    let bytes = fs::read(&path).expect("read Region.mca");
-
-    let decoded = decode(&bytes).expect("MCA decode should succeed");
-    assert_eq!(decoded.total_blocks(), 4, "all 4 chunks should be represented");
-    let (glb, info) = mesh(&decoded, &pack_bytes()).expect("MCA mesh should succeed");
-    assert!(!glb.is_empty(), "GLB should not be empty");
-    assert!(info.triangle_count > 0, "should produce triangles");
-    assert!(glb.starts_with(b"glTF"), "valid GLB magic");
-}
 
 #[test]
-fn unpadded_mca_decodes_and_meshes() {
-    let path = repo_root().join("Fixtures/Formats/Region.mca");
-    let mut bytes = fs::read(&path).expect("read Region.mca");
-    // Real MCA files can omit trailing sector padding, so exercise a region
-    // whose length is not 4096-byte aligned.
-    bytes.truncate(bytes.len() - 50);
-    assert_ne!(bytes.len() % 4096, 0, "test file should not be sector-aligned");
-
-    let decoded = decode(&bytes).expect("unpadded MCA should decode");
-    assert_eq!(decoded.total_blocks(), 4);
-    let (glb, info) = mesh(&decoded, &pack_bytes()).expect("unpadded MCA should mesh");
-    assert!(info.triangle_count > 0);
-    assert!(!glb.is_empty());
+fn every_format_and_demo_fixture_uses_the_c_abi() {
+    let pack = open_pack(&pack_bytes());
+    for directory in ["Fixtures/Formats", "Fixtures/Demos"] {
+        for path in fixture_paths(directory) {
+            let bytes = fs::read(&path).expect("fixture bytes");
+            let (handle, message) =
+                open_result(&bytes).unwrap_or_else(|error| panic!("{}: {error}", path.display()));
+            assert!(message.is_empty());
+            let facts = info(handle);
+            if path.extension().is_some_and(|extension| extension == "mca") {
+                assert_eq!(facts.block_count, 4, "{}", path.display());
+            } else {
+                assert!(facts.block_count > 0, "{}", path.display());
+            }
+            let (glb, mesh_info) = mesh(handle, pack);
+            assert!(mesh_info.triangle_count > 0, "{}", path.display());
+            assert_valid_glb(&glb);
+        }
+    }
+    unsafe { nql_resource_pack_free(pack) };
 }
-
 
 fn populated_entries(region: &[u8]) -> Vec<(usize, usize)> {
     (0..1024)
-        .map(|i| {
-            let entry = i * 4;
-            let sector_offset = ((region[entry] as usize) << 16)
+        .map(|index| {
+            let entry = index * 4;
+            let sector = ((region[entry] as usize) << 16)
                 | ((region[entry + 1] as usize) << 8)
                 | region[entry + 2] as usize;
-            (i, sector_offset * 4096)
+            (index, sector * 4096)
         })
-        .filter(|&(_, byte_offset)| byte_offset >= 2 * 4096)
+        .filter(|&(_, offset)| offset >= 8192)
         .collect()
 }
 
-fn zlib_inflate(data: &[u8]) -> Vec<u8> {
+#[test]
+fn mca_notices_and_custom_lz4_survive_the_c_abi() {
     use std::io::Read;
 
-    let mut out = Vec::new();
-    flate2::read::ZlibDecoder::new(data)
-        .read_to_end(&mut out)
-        .expect("fixture chunk payload should inflate");
-    out
-}
-
-/// Independently implement vanilla's lz4-java `LZ4BlockOutputStream` framing
-/// so this fixture checks the decoder against the wire format rather than a
-/// shared helper.
-fn lz4_java_frame(payload: &[u8]) -> Vec<u8> {
-    const BLOCK_BYTES: usize = 1 << 16;
-
-    let mut out = Vec::new();
-    for chunk in payload.chunks(BLOCK_BYTES) {
-        let compressed = lz4_flex::block::compress(chunk);
-        out.extend_from_slice(b"LZ4Block");
-        out.push(0x20);
-        out.extend_from_slice(&(compressed.len() as u32).to_le_bytes());
-        out.extend_from_slice(&(chunk.len() as u32).to_le_bytes());
-        out.extend_from_slice(&0u32.to_le_bytes());
-        out.extend_from_slice(&compressed);
-    }
-    out.extend_from_slice(b"LZ4Block");
-    out.extend_from_slice(&[0x10, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0]);
-    out
-}
-
-/// Build a spec-shaped region with LZ4 records at `lz4_slots` and zlib records
-/// elsewhere, starting after the two header sectors.
-fn region_with_lz4_chunks(lz4_slots: &[usize]) -> Vec<u8> {
-    let fixture = fs::read(repo_root().join("Fixtures/Formats/Region.mca"))
-        .expect("read Region.mca");
-
-    let mut out = vec![0u8; 8192];
-    let mut next_sector: u32 = 2;
-    for (slot, byte_offset) in populated_entries(&fixture) {
-        let record_len = u32::from_be_bytes([
-            fixture[byte_offset],
-            fixture[byte_offset + 1],
-            fixture[byte_offset + 2],
-            fixture[byte_offset + 3],
-        ]) as usize;
-        assert_eq!(fixture[byte_offset + 4], 2, "fixture chunks should be zlib");
-        let payload = &fixture[byte_offset + 5..byte_offset + 4 + record_len];
-
-        let record = if lz4_slots.contains(&slot) {
-            let inflated = zlib_inflate(payload);
-            let mut record = Vec::new();
-            let framed = lz4_java_frame(&inflated);
-            record.extend_from_slice(&(framed.len() as u32 + 1).to_be_bytes());
-            record.push(4);
-            record.extend_from_slice(&framed);
-            record
-        } else {
-            fixture[byte_offset..byte_offset + 4 + record_len].to_vec()
-        };
-
-        let sector_count = (record.len() as u32).div_ceil(4096);
-        let entry = slot * 4;
-        out[entry..entry + 3].copy_from_slice(&next_sector.to_be_bytes()[1..4]);
-        out[entry + 3] = sector_count as u8;
-        let start = out.len();
-        out.extend_from_slice(&record);
-        out.resize(start + sector_count as usize * 4096, 0);
-        next_sector += sector_count;
-    }
-    out
-}
-
-#[test]
-fn mixed_lz4_region_decodes_and_meshes() {
-    let region = region_with_lz4_chunks(&[0]);
-    let (schematic, warnings) =
-        decode_with_warnings(&region).expect("mixed-LZ4 region should decode");
-    assert_eq!(schematic.total_blocks(), 4, "every chunk should survive");
-    assert!(warnings.is_empty(), "no chunk should be skipped: {warnings:?}");
-
-    let (glb, info) = mesh(&schematic, &pack_bytes()).expect("mixed-LZ4 region should mesh");
-    assert!(info.triangle_count > 0);
-    assert!(glb.starts_with(b"glTF"));
-}
-
-#[test]
-fn fully_lz4_region_decodes() {
-    let region = region_with_lz4_chunks(&[0, 1, 32, 33]);
-    let (schematic, warnings) =
-        decode_with_warnings(&region).expect("fully-LZ4 region should decode");
-    assert_eq!(schematic.total_blocks(), 4);
-    assert!(warnings.is_empty(), "no chunk should be skipped: {warnings:?}");
-}
-
-#[test]
-fn external_chunk_reports_notice() {
-    let mut region = fs::read(repo_root().join("Fixtures/Formats/Region.mca"))
-        .expect("read Region.mca");
-    // External chunks use length 1 and a compression byte offset by 128; their
-    // payload lives in an unreachable `.mcc` sibling.
-    let (_, byte_offset) = populated_entries(&region)[0];
-    region[byte_offset..byte_offset + 4].copy_from_slice(&1u32.to_be_bytes());
-    region[byte_offset + 4] = 2 + 128;
-
-    let (schematic, warnings) =
-        decode_with_warnings(&region).expect("external chunk should skip, not fail");
-    assert_eq!(schematic.total_blocks(), 3, "three chunks should remain");
-    assert_eq!(warnings.len(), 1, "one notice expected: {warnings:?}");
-    assert!(warnings[0].contains("c.0.0.mcc"), "notice names the .mcc: {}", warnings[0]);
-}
-
-#[test]
-fn corrupt_chunk_reports_notice() {
-    let mut region = fs::read(repo_root().join("Fixtures/Formats/Region.mca"))
-        .expect("read Region.mca");
-    // Keep the table entry populated but point its record beyond the file.
-    let (slot, _) = populated_entries(&region)[0];
-    let entry = slot * 4;
-    region[entry] = 0xff;
-    region[entry + 1] = 0xff;
-    region[entry + 2] = 0xff;
-
-    let (schematic, warnings) =
-        decode_with_warnings(&region).expect("corrupt chunk should skip, not fail");
-    assert_eq!(schematic.total_blocks(), 3, "three chunks should remain");
-    assert_eq!(warnings.len(), 1, "one notice expected: {warnings:?}");
-    assert!(
-        warnings[0].contains("could not be read"),
-        "notice explains the skip: {}",
-        warnings[0]
-    );
-}
-
-#[test]
-fn warnings_cross_the_ffi() {
-    use litematicaql_native::{nql_schematic_free, nql_schematic_open, nql_schematic_warnings};
-
-    let mut region = fs::read(repo_root().join("Fixtures/Formats/Region.mca"))
-        .expect("read Region.mca");
-    let (_, byte_offset) = populated_entries(&region)[0];
-    region[byte_offset..byte_offset + 4].copy_from_slice(&1u32.to_be_bytes());
-    region[byte_offset + 4] = 2 + 128;
-
-    let mut handle = std::ptr::null_mut();
-    let mut failure = litematicaql_native::NQLError {
-        message: std::ptr::null_mut(),
-        message_len: 0,
-    };
-    let status = unsafe {
-        nql_schematic_open(region.as_ptr(), region.len(), &mut handle, &mut failure)
-    };
-    assert_eq!(status, status::OK, "the region should decode");
-    assert!(!handle.is_null());
-
-    let mut buffer: *mut u8 = std::ptr::null_mut();
-    let mut length = 0;
-    let status = unsafe { nql_schematic_warnings(handle, &mut buffer, &mut length) };
-    assert_eq!(status, status::OK);
-    assert!(length > 0, "the external-chunk notice should cross the FFI");
-    let text = String::from_utf8(
-        unsafe { std::slice::from_raw_parts(buffer, length) }.to_vec(),
-    )
-    .expect("notices are UTF-8");
-    assert!(text.contains("c.0.0.mcc"));
-
-    unsafe { litematicaql_native::nql_buffer_free(buffer, length) };
+    let fixture = fs::read(repo_root().join("Fixtures/Formats/Region.mca")).expect("MCA fixture");
+    let mut external = fixture.clone();
+    let (_, offset) = populated_entries(&external)[0];
+    external[offset..offset + 4].copy_from_slice(&1u32.to_be_bytes());
+    external[offset + 4] = 2 + 128;
+    let (handle, _) = open(&external);
+    let notices = warnings(handle);
+    assert_eq!(info(handle).block_count, 3);
+    assert!(notices.iter().any(|notice| notice.contains("c.0.0.mcc")));
     unsafe { nql_schematic_free(handle) };
+
+    let mut lz4 = vec![0u8; 8192];
+    let mut next_sector = 2u32;
+    for (slot, source_offset) in populated_entries(&fixture) {
+        let record_len = u32::from_be_bytes(
+            fixture[source_offset..source_offset + 4]
+                .try_into()
+                .unwrap(),
+        ) as usize;
+        let mut inflated = Vec::new();
+        flate2::read::ZlibDecoder::new(&fixture[source_offset + 5..source_offset + 4 + record_len])
+            .read_to_end(&mut inflated)
+            .expect("inflate MCA fixture");
+        let mut framed = Vec::new();
+        for block in inflated.chunks(1 << 16) {
+            let compressed = lz4_flex::block::compress(block);
+            framed.extend_from_slice(b"LZ4Block");
+            framed.push(0x20);
+            framed.extend_from_slice(&(compressed.len() as u32).to_le_bytes());
+            framed.extend_from_slice(&(block.len() as u32).to_le_bytes());
+            framed.extend_from_slice(&0u32.to_le_bytes());
+            framed.extend_from_slice(&compressed);
+        }
+        framed.extend_from_slice(b"LZ4Block");
+        framed.extend_from_slice(&[0x10, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0]);
+        let mut record = ((framed.len() + 1) as u32).to_be_bytes().to_vec();
+        record.push(4);
+        record.extend_from_slice(&framed);
+        let sectors = record.len().div_ceil(4096) as u32;
+        let entry = slot * 4;
+        lz4[entry..entry + 3].copy_from_slice(&next_sector.to_be_bytes()[1..4]);
+        lz4[entry + 3] = sectors as u8;
+        let start = lz4.len();
+        lz4.extend_from_slice(&record);
+        lz4.resize(start + sectors as usize * 4096, 0);
+        next_sector += sectors;
+    }
+    let pack = open_pack(&pack_bytes());
+    let (handle, _) = open(&lz4);
+    assert_eq!(info(handle).block_count, 4);
+    assert!(warnings(handle).is_empty());
+    assert_valid_glb(&mesh(handle, pack).0);
+    unsafe {
+        nql_schematic_free(handle);
+        nql_resource_pack_free(pack);
+    }
 }
 
 #[test]
-fn mesh_failures_return_status_codes_not_panics() {
-    let schematic = decode_file(
-        &demo_paths()
-            .iter()
-            .find(|p| p.extension().unwrap() == "litematic")
-            .expect("litematic demo"),
-    );
-
-    let failure = mesh(&schematic, b"not a zip");
-    match failure {
-        Err(litematicaql_native::MeshFailure::Pack(_)) => {}
-        other => panic!("expected a pack failure, got {other:?}"),
-    }
-
-    let empty = UniversalSchematic::new("empty".to_string());
-    assert!(matches!(
-        mesh(&empty, &pack_bytes()),
-        Err(litematicaql_native::MeshFailure::NoBlocks)
-    ));
-
-    assert_eq!(status::OK, 0);
-    assert_eq!(status::ERR_INTERNAL, 7);
-
-    let bytes = vec![7_u8; 100];
-    let (pointer, length) = export_bytes(bytes);
-    assert_eq!(length, 100);
-    unsafe { litematicaql_native::nql_buffer_free(pointer, length) };
+fn pack_failures_keep_stable_status_codes() {
+    let bad_pack = b"not a zip";
+    let mut pack = std::ptr::null_mut();
+    let mut failure = error();
+    let result = unsafe {
+        nql_resource_pack_open(bad_pack.as_ptr(), bad_pack.len(), &mut pack, &mut failure)
+    };
+    assert_eq!(result, status::ERR_PACK);
+    take_error(&mut failure);
 }

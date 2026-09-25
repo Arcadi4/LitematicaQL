@@ -1,22 +1,24 @@
-// Native schematic decoding and meshing for Swift hosts.
+// Native schematic decoding and bounded, chunked preview meshing for Swift hosts.
 //
-// The native heap avoids wasm's memory ceiling for large preview meshes. The
-// decoding and meshing entry points catch panics and return status codes;
-// callers free every returned buffer with `nql_buffer_free`. Swift owns UI
-// policy, while this crate enforces decode and mesh budgets.
+// Decoding retains occupied blocks in 64-block spatial groups. Meshing builds
+// every chunk against one shared texture atlas, consumes worker results in
+// deterministic order, aggregates them into one MeshOutput, and exports one GLB.
 
-use std::collections::HashMap;
 use std::panic::{catch_unwind, AssertUnwindSafe};
 use std::slice;
-use std::sync::{LazyLock, Mutex};
+use std::sync::atomic::{AtomicBool, Ordering};
+use std::sync::Arc;
 
 use nucleation::formats::limits::DecodeLimits;
 use nucleation::formats::manager::get_manager;
-use nucleation::meshing::{MeshConfig, MeshError, ResourcePackSource};
-use nucleation::UniversalSchematic;
+use nucleation::meshing::{MeshConfig, MeshOutput, ResourcePackSource};
 use regex::Regex;
+use schematic_mesher::MeshLayer;
 
+mod litematic;
 mod mca;
+mod meshing;
+mod parallel;
 mod structure_nbt;
 
 const MAX_INPUT_BYTES: usize = 1_024 * 1_024 * 1_024;
@@ -29,14 +31,12 @@ const MAX_ENTITIES: usize = 100_000;
 const MAX_BLOCK_ENTITIES: usize = 100_000;
 const MAX_NBT_DEPTH: usize = 64;
 const MAX_NBT_STRING_BYTES: usize = 1_000_000;
-// Sponge `BlockData` uses one padded cell per VarInt; the parser's collection
-// allowance must cover both the volume and its per-cell encoding overhead.
 const MAX_NBT_COLLECTION_ITEMS: usize = MAX_VOLUME * 2;
 const MAX_NBT_NODES: usize = 4_194_304;
-
-// This is a usefulness bound, not an allocation bound: larger GLBs exceed what
-// the preview can display.
 const MAX_MESH_BLOCKS: i64 = 33_554_432;
+const CHUNK_SIZE: i32 = 64;
+const MAX_WORKERS: usize = 8;
+const DEFAULT_WORKERS: usize = 2;
 
 // Status codes shared with the Swift bridge through the C header.
 pub mod status {
@@ -48,29 +48,30 @@ pub mod status {
     pub const ERR_MESH: i32 = 5;
     pub const ERR_PACK: i32 = 6;
     pub const ERR_INTERNAL: i32 = 7;
+    pub const ERR_CANCELLED: i32 = 8;
 }
 
-// A decoded schematic. Opaque to the host; free with `nql_schematic_free`.
-pub type NQLSchematic = UniversalSchematic;
+/// An application-owned decoded preview. Opaque to C callers.
+pub struct NQLSchematic {
+    source: meshing::CompactBlocks,
+    warnings: Vec<String>,
+    cancelled: Arc<AtomicBool>,
+}
 
-// `UniversalSchematic` cannot carry host-facing notices, so they remain keyed
-// by live handle. Freeing a handle removes its entry before allocator reuse can
-// produce the same address.
-static DECODE_WARNINGS: LazyLock<Mutex<HashMap<usize, Vec<String>>>> =
-    LazyLock::new(|| Mutex::new(HashMap::new()));
+/// A parsed immutable resource pack that may be reused by sequential previews.
+pub struct NQLResourcePack(ResourcePackSource);
 
 #[repr(C)]
 pub struct NQLSchematicInfo {
     pub block_count: i64,
     pub block_entity_count: i64,
-    // Tight content bounds, not the chunk-aligned schematic dimensions.
     pub content_x: i32,
     pub content_y: i32,
     pub content_z: i32,
 }
 
 #[repr(C)]
-#[derive(Debug)]
+#[derive(Debug, PartialEq, Eq)]
 pub struct NQLMeshInfo {
     pub triangle_count: i64,
 }
@@ -99,9 +100,6 @@ pub fn preview_limits() -> DecodeLimits {
     }
 }
 
-// Nucleation maps malformed and oversized inputs to the same parse error. A
-// second decode with wider structural limits distinguishes them without
-// raising the compressed-input cap.
 fn diagnostic_limits() -> DecodeLimits {
     DecodeLimits {
         max_dimension: 65_536,
@@ -111,8 +109,6 @@ fn diagnostic_limits() -> DecodeLimits {
     }
 }
 
-// Greedy merging controls the triangle count; 2048 is the largest atlas the
-// preview can resolve.
 fn mesh_config() -> MeshConfig {
     MeshConfig::new()
         .with_greedy_meshing(true)
@@ -120,28 +116,35 @@ fn mesh_config() -> MeshConfig {
         .with_atlas_max_size(2_048)
 }
 
-// Convert brace-style `state` values such as `axis=y` in
-// `minecraft:oak_log{axis=y}` to the bracket syntax Nucleation accepts. Only
-// `state` values are rewritten, and `None` skips the one normalization retry.
+fn worker_count() -> usize {
+    std::thread::available_parallelism().map_or(DEFAULT_WORKERS, |count| {
+        count.get().min(MAX_WORKERS).min(DEFAULT_WORKERS).max(1)
+    })
+}
+
 fn normalize_structure_snbt(bytes: &[u8]) -> Option<Vec<u8>> {
     static BRACE_STATE: std::sync::LazyLock<Regex> = std::sync::LazyLock::new(|| {
-        Regex::new(
-            r#"state:\s*"([\w.-]+:[\w/.-]+)\{([\w.-]+[=:][\w.\-/]+(?:,[\w.-]+[=:][\w.\-/]+)*)\}""#,
-        )
-        .expect("brace-state pattern is static")
+        Regex::new(r#"state:\s*"([\w./:-]+)\{([^{}"]+)\}""#).expect("brace-state pattern is static")
     });
     let text = std::str::from_utf8(bytes).ok()?;
     let brace_state = &*BRACE_STATE;
-
     if !brace_state.is_match(text) {
         return None;
     }
-    Some(
-        brace_state
-            .replace_all(text, r#"state:"$1[$2]""#)
-            .into_owned()
-            .into_bytes(),
-    )
+    let mut normalized = String::with_capacity(text.len());
+    let mut last = 0;
+    for captures in brace_state.captures_iter(text) {
+        let matched = captures.get(0).expect("capture zero always exists");
+        normalized.push_str(&text[last..matched.start()]);
+        normalized.push_str("state:\"");
+        normalized.push_str(&captures[1]);
+        normalized.push('[');
+        normalized.push_str(&captures[2]);
+        normalized.push_str("]\"");
+        last = matched.end();
+    }
+    normalized.push_str(&text[last..]);
+    Some(normalized.into_bytes())
 }
 
 #[derive(Debug)]
@@ -150,42 +153,65 @@ pub enum DecodeFailure {
     Limit(String),
 }
 
-// Decode schematic `bytes`, refusing anything outside the preview budget.
-pub fn decode(bytes: &[u8]) -> Result<NQLSchematic, DecodeFailure> {
-    decode_with_warnings(bytes).map(|(schematic, _)| schematic)
+#[derive(Debug)]
+pub enum MeshFailure {
+    Pack(String),
+    NoBlocks,
+    Mesh(String),
+    Cancelled,
 }
 
-// Decode under the preview budget and return notices for omitted unreadable or
-// externally stored chunks. The C ABI exposes these through
-// `nql_schematic_warnings`.
-//
-// A second decode with wider structural limits distinguishes Nucleation's
-// ambiguous parse error for malformed input from a limit rejection.
-pub fn decode_with_warnings(bytes: &[u8]) -> Result<(NQLSchematic, Vec<String>), DecodeFailure> {
+/// Decode all supported schematic formats into compact 64-block groups.
+pub fn decode(bytes: &[u8]) -> Result<NQLSchematic, DecodeFailure> {
+    decode_with_warnings(bytes)
+}
+
+pub fn decode_with_warnings(bytes: &[u8]) -> Result<NQLSchematic, DecodeFailure> {
+    preview_limits()
+        .check_input(bytes)
+        .map_err(|error| DecodeFailure::Limit(error.to_string()))?;
+    match litematic::read_compact(
+        bytes,
+        &preview_limits(),
+        Some(CHUNK_SIZE),
+        Some(worker_count() as u8),
+        true,
+        &|| Ok(()),
+    ) {
+        Ok(Some(source)) => return Ok(preview(source, Vec::new())),
+        Ok(None) => {}
+        Err(error) => return Err(compact_decode_failure(&error)),
+    }
+
     let manager = get_manager();
     let guard = manager
         .lock()
         .map_err(|_| DecodeFailure::Format("the format registry is unavailable".to_string()))?;
 
-    if let Ok((_, schematic)) = guard.read_bounded_with_format(bytes, &preview_limits()) {
-        return Ok((schematic, Vec::new()));
-    }
-
     if let Some(normalized) = normalize_structure_snbt(bytes) {
-        if let Ok((_, schematic)) = guard.read_bounded_with_format(&normalized, &preview_limits())
-        {
-            return Ok((schematic, Vec::new()));
+        if let Ok((_, schematic)) = guard.read_bounded_with_format(&normalized, &preview_limits()) {
+            return convert_dense(schematic, Vec::new());
         }
     }
 
+    if let Ok((_, schematic)) = guard.read_bounded_with_format(bytes, &preview_limits()) {
+        return convert_dense(schematic, Vec::new());
+    }
+    drop(guard);
+
     if structure_nbt::is_binary_structure(bytes) {
-        return structure_nbt::load_structure_nbt(bytes).map(|schematic| (schematic, Vec::new()));
+        return structure_nbt::load_structure_nbt(bytes)
+            .and_then(|schematic| convert_dense(schematic, Vec::new()));
     }
-
     if mca::is_mca(bytes) {
-        return mca::load_mca_preview(bytes);
+        let (schematic, warnings) = mca::load_mca_preview(bytes)?;
+        return convert_dense(schematic, warnings);
     }
 
+    let manager = get_manager();
+    let guard = manager
+        .lock()
+        .map_err(|_| DecodeFailure::Format("the format registry is unavailable".to_string()))?;
     match guard.read_bounded_with_format(bytes, &diagnostic_limits()) {
         Ok((_, diagnostic)) => Err(DecodeFailure::Limit(oversized_message(&diagnostic))),
         Err(_) => Err(DecodeFailure::Format(format!(
@@ -195,8 +221,43 @@ pub fn decode_with_warnings(bytes: &[u8]) -> Result<(NQLSchematic, Vec<String>),
     }
 }
 
+fn convert_dense(
+    schematic: nucleation::UniversalSchematic,
+    warnings: Vec<String>,
+) -> Result<NQLSchematic, DecodeFailure> {
+    let source = meshing::CompactBlocks::from_schematic(schematic, Some(CHUNK_SIZE), &|| Ok(()))
+        .map_err(|_| {
+            DecodeFailure::Format(
+                "This schematic could not be converted for previewing.".to_string(),
+            )
+        })?;
+    Ok(preview(source, warnings))
+}
 
-fn oversized_message(schematic: &NQLSchematic) -> String {
+fn preview(source: meshing::CompactBlocks, warnings: Vec<String>) -> NQLSchematic {
+    NQLSchematic {
+        source,
+        warnings,
+        cancelled: Arc::new(AtomicBool::new(false)),
+    }
+}
+
+fn compact_decode_failure(error: &str) -> DecodeFailure {
+    if error.contains("limit")
+        || error.contains("volume")
+        || error.contains("dimensions")
+        || error.contains("too many")
+    {
+        DecodeFailure::Limit("This schematic is too large to preview.".to_string())
+    } else {
+        DecodeFailure::Format(
+            "This file is not a readable Minecraft schematic, or it expands beyond the 1024 MiB preview limit."
+                .to_string(),
+        )
+    }
+}
+
+fn oversized_message(schematic: &nucleation::UniversalSchematic) -> String {
     let block_count = i64::from(schematic.total_blocks());
     if block_count > MAX_MESH_BLOCKS {
         format!(
@@ -210,53 +271,125 @@ fn oversized_message(schematic: &NQLSchematic) -> String {
     }
 }
 
-#[derive(Debug)]
-pub enum MeshFailure {
-    Pack(String),
-    NoBlocks,
-    Mesh(String),
+pub fn resource_pack(bytes: &[u8]) -> Result<NQLResourcePack, MeshFailure> {
+    ResourcePackSource::from_bytes(bytes)
+        .map(NQLResourcePack)
+        .map_err(|error| MeshFailure::Pack(error.to_string()))
 }
 
 pub fn mesh(
     schematic: &NQLSchematic,
-    pack_bytes: &[u8],
+    pack: &NQLResourcePack,
 ) -> Result<(Vec<u8>, NQLMeshInfo), MeshFailure> {
-    let pack = ResourcePackSource::from_bytes(pack_bytes)
-        .map_err(|error| MeshFailure::Pack(error.to_string()))?;
+    let cancelled = schematic.cancelled.clone();
+    let current = || check_cancelled(&cancelled);
+    current().map_err(|_| MeshFailure::Cancelled)?;
 
-    let output = schematic
-        .to_mesh(&pack, &mesh_config())
-        .map_err(|error| match error {
-            MeshError::ResourcePack(error) => MeshFailure::Pack(error),
-            // Nucleation reports an empty build as text rather than a typed
-            // error, so preserve that distinction with a guarded match.
-            MeshError::Meshing(message) if message.contains("No blocks") => MeshFailure::NoBlocks,
-            error => MeshFailure::Mesh(error.to_string()),
+    let block_count = schematic.source.block_count();
+    if block_count > MAX_MESH_BLOCKS {
+        return Err(MeshFailure::Mesh(format!(
+            "This schematic renders {block_count} blocks, beyond the {MAX_MESH_BLOCKS}-block preview limit."
+        )));
+    }
+    let mut chunks =
+        meshing::ChunkMeshes::from_source(&schematic.source, &pack.0, &mesh_config(), &current)
+            .map_err(MeshFailure::Mesh)?;
+    let mut aggregate: Option<MeshOutput> = None;
+    chunks
+        .consume(
+            worker_count(),
+            |output| {
+                current()?;
+                append_mesh(&mut aggregate, output);
+                Ok(())
+            },
+            &current,
+        )
+        .map_err(|error| {
+            if error == "Parallel preview cancelled." {
+                MeshFailure::Cancelled
+            } else {
+                MeshFailure::Mesh(error)
+            }
         })?;
 
+    let Some(mut output) = aggregate else {
+        return Err(MeshFailure::NoBlocks);
+    };
+    output.greedy_materials.sort_by(|left, right| {
+        left.texture_path
+            .cmp(&right.texture_path)
+            .then_with(|| left.texture_png.cmp(&right.texture_png))
+    });
+    current().map_err(|_| MeshFailure::Cancelled)?;
     let greedy_triangles: usize = output
         .greedy_materials
         .iter()
-        .map(|gm| gm.opaque.triangle_count() + gm.transparent.triangle_count())
+        .map(|material| material.opaque.triangle_count() + material.transparent.triangle_count())
         .sum();
-    let total_triangles = output.total_triangles() + greedy_triangles;
-
+    let total_triangles = output
+        .total_triangles()
+        .checked_add(greedy_triangles)
+        .ok_or_else(|| MeshFailure::Mesh("This schematic has too many triangles.".to_string()))?;
     if total_triangles == 0 {
         return Err(MeshFailure::NoBlocks);
     }
-
     let glb = output
         .to_glb()
         .map_err(|error| MeshFailure::Mesh(error.to_string()))?;
-
-    let info = NQLMeshInfo {
-        triangle_count: total_triangles as i64,
-    };
-    Ok((glb, info))
+    current().map_err(|_| MeshFailure::Cancelled)?;
+    let triangle_count = i64::try_from(total_triangles)
+        .map_err(|_| MeshFailure::Mesh("This schematic has too many triangles.".to_string()))?;
+    Ok((glb, NQLMeshInfo { triangle_count }))
 }
 
-// Transfer an owning byte buffer to the host. The boxed slice's capacity equals
-// its length, allowing `nql_buffer_free` to reconstruct the allocation.
+fn check_cancelled(cancelled: &AtomicBool) -> Result<(), String> {
+    if cancelled.load(Ordering::Relaxed) {
+        Err("Parallel preview cancelled.".to_string())
+    } else {
+        Ok(())
+    }
+}
+
+fn append_mesh(aggregate: &mut Option<MeshOutput>, mut output: MeshOutput) {
+    let Some(target) = aggregate else {
+        output.chunk_coord = None;
+        *aggregate = Some(output);
+        return;
+    };
+    append_layer(&mut target.opaque, output.opaque);
+    append_layer(&mut target.cutout, output.cutout);
+    append_layer(&mut target.transparent, output.transparent);
+    for animation in output.animated_textures {
+        if !target.animated_textures.iter().any(|existing| {
+            existing.atlas_x == animation.atlas_x && existing.atlas_y == animation.atlas_y
+        }) {
+            target.animated_textures.push(animation);
+        }
+    }
+    target.greedy_materials.append(&mut output.greedy_materials);
+    for axis in 0..3 {
+        target.bounds.min[axis] = target.bounds.min[axis].min(output.bounds.min[axis]);
+        target.bounds.max[axis] = target.bounds.max[axis].max(output.bounds.max[axis]);
+    }
+}
+
+fn append_layer(target: &mut MeshLayer, mut source: MeshLayer) {
+    let offset = target.positions.len() as u32;
+    target.positions.reserve(source.positions.len());
+    target.normals.reserve(source.normals.len());
+    target.uvs.reserve(source.uvs.len());
+    target.colors.reserve(source.colors.len());
+    target.indices.reserve(source.indices.len());
+    target.positions.append(&mut source.positions);
+    target.normals.append(&mut source.normals);
+    target.uvs.append(&mut source.uvs);
+    target.colors.append(&mut source.colors);
+    target
+        .indices
+        .extend(source.indices.into_iter().map(|index| index + offset));
+}
+
 pub fn export_bytes(bytes: Vec<u8>) -> (*mut u8, usize) {
     let mut bytes = bytes;
     bytes.shrink_to_fit();
@@ -285,13 +418,6 @@ unsafe fn init_error(err_out: *mut NQLError) {
     }
 }
 
-/// Decode schematic bytes into an owning handle.
-///
-/// # Safety
-/// `data` must point to `len` readable bytes, and `out` plus any non-null
-/// `err_out` must be writable. On success, free the handle exactly once with
-/// `nql_schematic_free`. On failure, free any `err_out` message with
-/// `nql_buffer_free`.
 #[no_mangle]
 pub unsafe extern "C" fn nql_schematic_open(
     data: *const u8,
@@ -307,17 +433,11 @@ pub unsafe extern "C" fn nql_schematic_open(
             "The caller passed a null buffer.",
         );
     }
-
+    *out = std::ptr::null_mut();
     let bytes = slice::from_raw_parts(data, len);
-    match catch_unwind(AssertUnwindSafe(|| decode_with_warnings(bytes))) {
-        Ok(Ok((schematic, warnings))) => {
-            let handle = Box::into_raw(Box::new(schematic));
-            if !warnings.is_empty() {
-                if let Ok(mut store) = DECODE_WARNINGS.lock() {
-                    store.insert(handle as usize, warnings);
-                }
-            }
-            *out = handle;
+    match catch_unwind(AssertUnwindSafe(|| decode(bytes))) {
+        Ok(Ok(schematic)) => {
+            *out = Box::into_raw(Box::new(schematic));
             status::OK
         }
         Ok(Err(DecodeFailure::Format(message))) => fail(err_out, status::ERR_FORMAT, &message),
@@ -330,25 +450,24 @@ pub unsafe extern "C" fn nql_schematic_open(
     }
 }
 
-/// Free a schematic handle.
-///
-/// # Safety
-/// `schematic` must be null or a live handle that has not already been freed.
 #[no_mangle]
 pub unsafe extern "C" fn nql_schematic_free(schematic: *mut NQLSchematic) {
     if !schematic.is_null() {
-        if let Ok(mut store) = DECODE_WARNINGS.lock() {
-            store.remove(&(schematic as usize));
-        }
         drop(Box::from_raw(schematic));
     }
 }
 
-/// Return newline-separated decode notices, or an empty allocation when the
-/// schematic has none. The host must free the buffer with `nql_buffer_free`.
-///
-/// # Safety
-/// `schematic` must be live, and `out` and `out_len` must be writable.
+/// Cooperatively cancel decoding-derived meshing while retaining the handle.
+/// Cancellation is monotonic; a cancelled handle cannot publish later geometry.
+#[no_mangle]
+pub unsafe extern "C" fn nql_schematic_cancel(schematic: *const NQLSchematic) -> i32 {
+    if schematic.is_null() {
+        return status::ERR_NULL;
+    }
+    (*schematic).cancelled.store(true, Ordering::Relaxed);
+    status::OK
+}
+
 #[no_mangle]
 pub unsafe extern "C" fn nql_schematic_warnings(
     schematic: *const NQLSchematic,
@@ -358,23 +477,12 @@ pub unsafe extern "C" fn nql_schematic_warnings(
     if schematic.is_null() || out.is_null() || out_len.is_null() {
         return status::ERR_NULL;
     }
-
-    let text = DECODE_WARNINGS
-        .lock()
-        .ok()
-        .and_then(|store| store.get(&(schematic as usize)).cloned())
-        .unwrap_or_default()
-        .join("\n");
-    let (buffer, len) = export_bytes(text.into_bytes());
+    let (buffer, len) = export_bytes((*schematic).warnings.join("\n").into_bytes());
     *out = buffer;
     *out_len = len;
     status::OK
 }
 
-/// Report decoded schematic statistics.
-///
-/// # Safety
-/// `schematic` must be live and `out` must be writable.
 #[no_mangle]
 pub unsafe extern "C" fn nql_schematic_info(
     schematic: *const NQLSchematic,
@@ -383,12 +491,11 @@ pub unsafe extern "C" fn nql_schematic_info(
     if schematic.is_null() || out.is_null() {
         return status::ERR_NULL;
     }
-
-    let schematic = &*schematic;
-    let content = schematic.get_tight_dimensions();
+    let source = &(*schematic).source;
+    let content = source.content_dimensions();
     *out = NQLSchematicInfo {
-        block_count: i64::from(schematic.total_blocks()),
-        block_entity_count: schematic.get_block_entities_as_list().len() as i64,
+        block_count: source.block_count(),
+        block_entity_count: source.block_entity_count(),
         content_x: content.0,
         content_y: content.1,
         content_z: content.2,
@@ -396,35 +503,73 @@ pub unsafe extern "C" fn nql_schematic_info(
     status::OK
 }
 
-/// Mesh a schematic into an owned GLB allocation.
-///
-/// On success, free `glb_out` with `nql_buffer_free`. `info_out` and `err_out`
-/// are optional; when non-null they must be writable.
-///
-/// # Safety
-/// `schematic` must be live, and `pack_data` must point to `pack_len` readable
-/// bytes. `glb_out` and `glb_len` must be writable.
 #[no_mangle]
-pub unsafe extern "C" fn nql_schematic_mesh(
-    schematic: *const NQLSchematic,
-    pack_data: *const u8,
-    pack_len: usize,
-    glb_out: *mut *mut u8,
-    glb_len: *mut usize,
-    info_out: *mut NQLMeshInfo,
+pub unsafe extern "C" fn nql_resource_pack_open(
+    data: *const u8,
+    len: usize,
+    out: *mut *mut NQLResourcePack,
     err_out: *mut NQLError,
 ) -> i32 {
     init_error(err_out);
-    if schematic.is_null() || pack_data.is_null() || glb_out.is_null() || glb_len.is_null() {
+    if data.is_null() || out.is_null() {
         return fail(
             err_out,
             status::ERR_NULL,
             "The caller passed a null buffer.",
         );
     }
+    *out = std::ptr::null_mut();
+    let bytes = slice::from_raw_parts(data, len);
+    match catch_unwind(AssertUnwindSafe(|| resource_pack(bytes))) {
+        Ok(Ok(pack)) => {
+            *out = Box::into_raw(Box::new(pack));
+            status::OK
+        }
+        Ok(Err(MeshFailure::Pack(error))) => fail(
+            err_out,
+            status::ERR_PACK,
+            &format!("The bundled block resources are invalid: {error}"),
+        ),
+        Ok(Err(_)) => fail(
+            err_out,
+            status::ERR_INTERNAL,
+            "Something went wrong while reading the bundled block resources.",
+        ),
+        Err(_) => fail(
+            err_out,
+            status::ERR_INTERNAL,
+            "Something went wrong while reading the bundled block resources.",
+        ),
+    }
+}
 
-    let pack_bytes = slice::from_raw_parts(pack_data, pack_len);
-    let outcome = catch_unwind(AssertUnwindSafe(|| mesh(&*schematic, pack_bytes)));
+#[no_mangle]
+pub unsafe extern "C" fn nql_resource_pack_free(pack: *mut NQLResourcePack) {
+    if !pack.is_null() {
+        drop(Box::from_raw(pack));
+    }
+}
+
+#[no_mangle]
+pub unsafe extern "C" fn nql_schematic_mesh(
+    schematic: *const NQLSchematic,
+    pack: *const NQLResourcePack,
+    glb_out: *mut *mut u8,
+    glb_len: *mut usize,
+    info_out: *mut NQLMeshInfo,
+    err_out: *mut NQLError,
+) -> i32 {
+    init_error(err_out);
+    if schematic.is_null() || pack.is_null() || glb_out.is_null() || glb_len.is_null() {
+        return fail(
+            err_out,
+            status::ERR_NULL,
+            "The caller passed a null buffer.",
+        );
+    }
+    *glb_out = std::ptr::null_mut();
+    *glb_len = 0;
+    let outcome = catch_unwind(AssertUnwindSafe(|| mesh(&*schematic, &*pack)));
     match outcome {
         Err(_) => fail(
             err_out,
@@ -441,6 +586,9 @@ pub unsafe extern "C" fn nql_schematic_mesh(
             status::ERR_NO_BLOCKS,
             "This schematic contains no blocks to render.",
         ),
+        Ok(Err(MeshFailure::Cancelled)) => {
+            fail(err_out, status::ERR_CANCELLED, "Preview cancelled.")
+        }
         Ok(Err(MeshFailure::Mesh(_))) => fail(
             err_out,
             status::ERR_MESH,
@@ -458,11 +606,6 @@ pub unsafe extern "C" fn nql_schematic_mesh(
     }
 }
 
-/// Free a buffer returned by this library.
-///
-/// # Safety
-/// `buffer` must be null or a live library allocation paired with the length
-/// returned with it.
 #[no_mangle]
 pub unsafe extern "C" fn nql_buffer_free(buffer: *mut u8, len: usize) {
     if !buffer.is_null() {

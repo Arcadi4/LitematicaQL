@@ -9,6 +9,7 @@ extern "C" {
 #endif
 
 typedef struct NQLSchematic NQLSchematic;
+typedef struct NQLResourcePack NQLResourcePack;
 
 typedef enum {
     NQL_OK = 0,
@@ -18,7 +19,8 @@ typedef enum {
     NQL_ERR_NO_BLOCKS = 4,
     NQL_ERR_MESH = 5,
     NQL_ERR_PACK = 6,
-    NQL_ERR_INTERNAL = 7
+    NQL_ERR_INTERNAL = 7,
+    NQL_ERR_CANCELLED = 8
 } NQLStatus;
 
 typedef struct {
@@ -40,10 +42,13 @@ typedef struct {
 
 NQLStatus nql_schematic_open(const uint8_t *data, size_t len, NQLSchematic **out, NQLError *err);
 void nql_schematic_free(NQLSchematic *schematic);
+NQLStatus nql_schematic_cancel(const NQLSchematic *schematic);
 NQLStatus nql_schematic_info(const NQLSchematic *schematic, NQLSchematicInfo *out);
 NQLStatus nql_schematic_warnings(const NQLSchematic *schematic, uint8_t **out, size_t *out_len);
-NQLStatus nql_schematic_mesh(const NQLSchematic *schematic, const uint8_t *pack_data,
-                             size_t pack_len, uint8_t **glb_out, size_t *glb_len,
+NQLStatus nql_resource_pack_open(const uint8_t *data, size_t len, NQLResourcePack **out, NQLError *err);
+void nql_resource_pack_free(NQLResourcePack *pack);
+NQLStatus nql_schematic_mesh(const NQLSchematic *schematic, const NQLResourcePack *pack,
+                             uint8_t **glb_out, size_t *glb_len,
                              NQLMeshInfo *info_out, NQLError *err);
 void nql_buffer_free(uint8_t *buffer, size_t len);
 

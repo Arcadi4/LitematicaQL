@@ -72,7 +72,6 @@ fn is_air(name: &str) -> bool {
     )
 }
 
-
 /// Compression byte for `region-file-compression=lz4` regions (since 24w04a).
 const COMPRESSION_LZ4: u8 = 4;
 
@@ -257,9 +256,8 @@ fn chunk_record_compression(data: &[u8], index: usize) -> Option<u8> {
     const SECTOR_BYTES: usize = 4096;
 
     let entry = data.get(index * 4..index * 4 + 4)?;
-    let sector_offset = ((entry[0] as usize) << 16)
-        | ((entry[1] as usize) << 8)
-        | entry[2] as usize;
+    let sector_offset =
+        ((entry[0] as usize) << 16) | ((entry[1] as usize) << 8) | entry[2] as usize;
     if sector_offset < 2 {
         return None;
     }
@@ -278,7 +276,9 @@ fn missing_chunk_notice(bytes: &[u8], region: (i32, i32), cx: i32, cz: i32) -> S
         && chunk_record_compression(bytes, (local_z * 32 + local_x) as usize)
             .is_some_and(|compression| compression >= 128);
     if external {
-        format!("Chunk ({cx}, {cz}) is stored in the external c.{cx}.{cz}.mcc file and is not shown.")
+        format!(
+            "Chunk ({cx}, {cz}) is stored in the external c.{cx}.{cz}.mcc file and is not shown."
+        )
     } else {
         format!("Chunk ({cx}, {cz}) has an empty record and is not shown.")
     }
@@ -469,8 +469,10 @@ fn select_preview_chunks(
 
     let populated_set: HashSet<(i32, i32)> = populated.iter().cloned().collect();
 
-    let centroid_x = populated.iter().map(|&(x, _)| x as f64).sum::<f64>() / (populated.len() as f64);
-    let centroid_z = populated.iter().map(|&(_, z)| z as f64).sum::<f64>() / (populated.len() as f64);
+    let centroid_x =
+        populated.iter().map(|&(x, _)| x as f64).sum::<f64>() / (populated.len() as f64);
+    let centroid_z =
+        populated.iter().map(|&(_, z)| z as f64).sum::<f64>() / (populated.len() as f64);
 
     let base_cx = region_x * 32;
     let base_cz = region_z * 32;
@@ -484,15 +486,10 @@ fn select_preview_chunks(
             let cx = base_cx + lx;
             let cz = base_cz + lz;
 
-            let count = [
-                (cx, cz),
-                (cx + 1, cz),
-                (cx, cz + 1),
-                (cx + 1, cz + 1),
-            ]
-            .iter()
-            .filter(|pos| populated_set.contains(pos))
-            .count();
+            let count = [(cx, cz), (cx + 1, cz), (cx, cz + 1), (cx + 1, cz + 1)]
+                .iter()
+                .filter(|pos| populated_set.contains(pos))
+                .count();
 
             if count == 0 {
                 continue;
@@ -514,12 +511,7 @@ fn select_preview_chunks(
 
     let mut selected = Vec::new();
     let window_center = if let Some((wx, wz)) = best_window {
-        for pos in [
-            (wx, wz),
-            (wx + 1, wz),
-            (wx, wz + 1),
-            (wx + 1, wz + 1),
-        ] {
+        for pos in [(wx, wz), (wx + 1, wz), (wx, wz + 1), (wx + 1, wz + 1)] {
             if populated_set.contains(&pos) {
                 selected.push(pos);
             }
@@ -619,7 +611,8 @@ mod tests {
         let framed = frame_lz4_java_stream(&payload, 1 << 12, 0x20);
         let truncated_at_endmark = &framed[..framed.len() - 21];
         assert_eq!(
-            lz4_java_block_stream_decompress(truncated_at_endmark).expect("stream should decompress"),
+            lz4_java_block_stream_decompress(truncated_at_endmark)
+                .expect("stream should decompress"),
             payload
         );
     }
