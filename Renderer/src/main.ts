@@ -1,32 +1,39 @@
 import { postNativeMessage } from "./bridge";
 import { SchematicViewer } from "./viewer";
+import type { BatchProgress } from "./stream";
 import "./style.css";
-
-// Native decoding and meshing supply metadata and a GLB; this module owns
-// presentation, camera state, and failure panels.
 
 interface LoadMetaInfo {
   name: string;
-  // Display-ready content dimensions like `13 × 9 × 11`.
   dimensions: string;
   blockCount: number;
   blockEntityCount: number;
-  // Reader notices about content that exists but is not shown.
   warnings?: string[];
   large: boolean;
 }
 
-interface MeshReadyInfo {
+interface MeshStartInfo {
   name: string;
+  atlasUrl: string;
+  atlasWidth: number;
+  atlasHeight: number;
+  batchCount: number;
+}
+
+interface ProgressInfo {
+  phase: "decode" | "mesh" | "upload";
+  completed: number;
+  total: number;
+  bytes: number;
   triangles: number;
-  url: string;
 }
 
 declare global {
   interface Window {
     litematicaQL: {
       loadMeta(info: LoadMetaInfo): Promise<void>;
-      meshReady(info: MeshReadyInfo): Promise<void>;
+      progress(info: ProgressInfo): Promise<void>;
+      meshStart(info: MeshStartInfo): Promise<void>;
       loadError(message: string): Promise<void>;
     };
   }
@@ -41,23 +48,30 @@ const fileName = requiredElement<HTMLElement>("file-name");
 const fileDimensions = requiredElement<HTMLElement>("file-dimensions");
 const fileBlockCount = requiredElement<HTMLElement>("file-block-count");
 const fileBlockEntities = requiredElement<HTMLElement>("file-block-entities");
+const fileModelStats = requiredElement<HTMLElement>("file-model-stats");
+const fileMemory = requiredElement<HTMLElement>("file-memory");
 const fileWarnings = requiredElement<HTMLElement>("file-warnings");
 const controlsHint = requiredElement<HTMLElement>("controls-hint");
 
 const viewer = new SchematicViewer(canvas);
+let activeGeneration = 0;
+let streamAbort: AbortController | undefined;
 
 const largeRenderStatusTitle = "Building preview";
 const largeRenderStatusDetail = "This schematic is large — rendering it will take a while.";
 
-window.addEventListener("resize", () => {
-  viewer.resize();
-});
+window.addEventListener("resize", () => viewer.resize());
 
 setStatus("Ready", "Waiting for a schematic file…");
 postNativeMessage({ type: "ready", detail: "" });
 
 window.litematicaQL = {
   async loadMeta(info: LoadMetaInfo): Promise<void> {
+    activeGeneration += 1;
+    streamAbort?.abort();
+    streamAbort = undefined;
+    viewer.cancelStream();
+    viewer.clearContent();
     showPreviewMetadata(
       info.name,
       info.dimensions,
@@ -71,17 +85,65 @@ window.litematicaQL = {
     );
   },
 
-  async meshReady(info: MeshReadyInfo): Promise<void> {
-    if (!info.url) {
-      throw new Error("The preview did not provide a mesh location.");
+  async progress(info: ProgressInfo): Promise<void> {
+    if (info.phase === "decode") {
+      setStatus("Reading schematic", `${formatBytes(info.bytes)} · ${info.completed}/${info.total}`);
+    } else if (info.phase === "mesh") {
+      setStatus(
+        "Building geometry",
+        `${info.completed}/${info.total} batches · ${Math.round((info.completed / Math.max(1, info.total)) * 100)}% · ${formatBytes(info.bytes)} · ${info.triangles.toLocaleString()} triangles`,
+      );
+    } else {
+      setStatus(
+        "Uploading preview",
+        `${Math.max(0, info.completed - 1)}/${Math.max(0, info.total - 1)} batches · ${formatBytes(info.bytes)} uploaded`,
+      );
     }
-    const response = await fetch(info.url);
-    if (!response.ok) {
-      throw new Error(`The mesh could not be read (HTTP ${response.status}).`);
+  },
+
+  async meshStart(info: MeshStartInfo): Promise<void> {
+    const generation = activeGeneration;
+    streamAbort?.abort();
+    const abort = new AbortController();
+    streamAbort = abort;
+    setStatus("Uploading shared atlas", `0/${info.batchCount + 1} · preparing textures`);
+    try {
+      const result = await viewer.loadStream({
+        atlasURL: info.atlasUrl,
+        atlasWidth: info.atlasWidth,
+        atlasHeight: info.atlasHeight,
+        batchCount: info.batchCount,
+        signal: abort.signal,
+        fetchBatch: (index) => fetch(`lql-mesh://preview/batch/${index}`, { signal: abort.signal, cache: "no-store" }),
+        onProgress: (progress: BatchProgress) => {
+          if (generation !== activeGeneration || abort.signal.aborted) return;
+          if (progress.phase === "atlas") {
+            setStatus("Uploading shared atlas", `${formatBytes(progress.bytes)} · texture atlas uploaded once`);
+          } else {
+            setStatus(
+              "Uploading geometry",
+              `${progress.completed - 1}/${info.batchCount} batches · ${Math.round((progress.completed / progress.total) * 100)}% · ${formatBytes(progress.bytes)} transferred`,
+            );
+          }
+        },
+      });
+      if (generation !== activeGeneration || abort.signal.aborted) {
+        viewer.cancelStream();
+        return;
+      }
+      if (result.triangles === 0) {
+        throw new Error("The schematic contains no visible geometry to render.");
+      }
+      fileModelStats.textContent = `${result.triangles.toLocaleString()} triangles · ${formatBytes(result.bytes)} total model data`;
+      const memory = (performance as Performance & { memory?: { usedJSHeapSize: number } }).memory;
+      fileMemory.textContent = memory ? `Renderer memory ${formatBytes(memory.usedJSHeapSize)}` : "";
+      fileMemory.hidden = !memory;
+      status.hidden = true;
+      postNativeMessage({ type: "loaded", detail: info.name });
+    } catch (error) {
+      if (error instanceof DOMException && error.name === "AbortError") return;
+      showLoadError(error instanceof Error ? error.message : "The preview could not be uploaded.");
     }
-    await viewer.loadGlb(await response.arrayBuffer());
-    status.hidden = true;
-    postNativeMessage({ type: "loaded", detail: info.name });
   },
 
   // Quick Look discards rejected previews, so the page must render native errors.
@@ -101,9 +163,10 @@ function showPreviewMetadata(
   fileDimensions.textContent = dimensions;
   fileBlockCount.textContent = `${blockCount.toLocaleString()} blocks`;
   fileBlockEntities.textContent = `${blockEntityCount.toLocaleString()} block entities`;
+  fileModelStats.textContent = "";
+  fileMemory.hidden = true;
   fileInfo.hidden = false;
   controlsHint.hidden = false;
-
   fileWarnings.replaceChildren(
     ...warnings.map((warning) => {
       const item = document.createElement("li");
@@ -128,6 +191,12 @@ function setStatus(title: string, detail: string): void {
   status.classList.remove("status--error");
   statusTitle.textContent = title;
   statusDetail.textContent = detail;
+}
+
+function formatBytes(bytes: number): string {
+  if (bytes < 1024) return `${bytes} B`;
+  if (bytes < 1024 * 1024) return `${(bytes / 1024).toFixed(1)} KB`;
+  return `${(bytes / (1024 * 1024)).toFixed(1)} MB`;
 }
 
 function requiredElement<ElementType extends HTMLElement>(id: string): ElementType {

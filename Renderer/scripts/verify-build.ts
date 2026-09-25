@@ -14,8 +14,8 @@ if (externalAssetPatterns.some((pattern) => pattern.test(html))) {
   throw new Error("Renderer build still references external JavaScript or CSS assets.");
 }
 
-if (!html.includes("litematicaQL") || !html.includes("meshReady")) {
-  throw new Error("Renderer build is missing the native message bridge or mesh handoff.");
+if (!html.includes("litematicaQL") || !html.includes("meshStart")) {
+  throw new Error("Renderer build is missing the native message bridge or batch handoff.");
 }
 
 if (html.includes("data:application/wasm;base64,") || html.includes("nucleation")) {

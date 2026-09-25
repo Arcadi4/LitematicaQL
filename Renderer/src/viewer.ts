@@ -1,4 +1,3 @@
-import { GLTFLoader } from "three/examples/jsm/loaders/GLTFLoader.js";
 import { OrbitControls } from "three/examples/jsm/controls/OrbitControls.js";
 import {
   AmbientLight,
@@ -7,8 +6,6 @@ import {
   DirectionalLight,
   GridHelper,
   type LineBasicMaterial,
-  type Material,
-  type Mesh,
   type Object3D,
   PerspectiveCamera,
   Scene,
@@ -16,6 +13,12 @@ import {
   Vector3,
   WebGLRenderer,
 } from "three";
+import {
+  StreamUploader,
+  type StreamUploaderOptions,
+  type StreamUploadResult,
+  uploadStream,
+} from "./stream";
 
 const backgroundColor = 0x0b1016;
 const gridMajorColor = 0x2a3440;
@@ -89,12 +92,12 @@ export class SchematicViewer {
   private readonly controls: OrbitControls;
   private readonly renderer: WebGLRenderer;
   private readonly scene: Scene;
-  private readonly loader = new GLTFLoader();
+  private stagedUploader: StreamUploader | undefined;
+  private contentUploader: StreamUploader | undefined;
   private content: Object3D | undefined;
   private grid: GridHelper | undefined;
   private framedBounds: Box3 | undefined;
   private fittedDistance = 0;
-
   constructor(canvas: HTMLCanvasElement) {
     this.canvas = canvas;
     this.renderer = new WebGLRenderer({ antialias: true, canvas, preserveDrawingBuffer: true });
@@ -118,12 +121,36 @@ export class SchematicViewer {
     this.resize();
   }
 
-  async loadGlb(glb: ArrayBuffer): Promise<void> {
-    const root = (await this.loader.parseAsync(glb, "")).scene;
+  async loadStream(options: Omit<StreamUploaderOptions, "uploader" | "onStaged">): Promise<StreamUploadResult> {
+    this.releaseStaged();
+    const uploader = new StreamUploader(options.decoder);
+    this.stagedUploader = uploader;
+    this.scene.add(uploader.root);
+    try {
+      const result = await uploadStream({
+        ...options,
+        uploader,
+        onStaged: () => this.render(),
+      });
+      this.releaseContent();
+      this.content = result.root;
+      this.frameContent();
+      this.stagedUploader = undefined;
+      this.contentUploader = uploader;
+      return result;
+    } catch (error) {
+      this.releaseStaged();
+      this.content = undefined;
+      throw error;
+    }
+  }
+
+  cancelStream(): void {
+    this.releaseStaged();
+  }
+
+  clearContent(): void {
     this.releaseContent();
-    this.content = root;
-    this.scene.add(root);
-    this.frameContent();
   }
 
   render(): void {
@@ -153,6 +180,7 @@ export class SchematicViewer {
   }
 
   dispose(): void {
+    this.releaseStaged();
     this.releaseContent();
     this.controls.dispose();
     this.renderer.dispose();
@@ -251,25 +279,26 @@ export class SchematicViewer {
     this.scene.add(grid);
   }
 
+  private releaseStaged(): void {
+    const staged = this.stagedUploader;
+    if (!staged) return;
+    this.stagedUploader = undefined;
+    this.scene.remove(staged.root);
+    staged.dispose();
+  }
+
   private releaseContent(): void {
     this.releaseGrid();
-    if (!this.content) {
+    const uploader = this.contentUploader;
+    if (!uploader) {
+      this.content = undefined;
       return;
     }
-
     this.framedBounds = undefined;
     this.fittedDistance = 0;
-    this.scene.remove(this.content);
-    this.content.traverse((object) => {
-      const mesh = object as Partial<Mesh>;
-      mesh.geometry?.dispose();
-      const material = mesh.material;
-      if (Array.isArray(material)) {
-        material.forEach((entry) => entry.dispose());
-      } else if (material) {
-        (material as Material).dispose();
-      }
-    });
+    this.scene.remove(uploader.root);
+    uploader.dispose();
+    this.contentUploader = undefined;
     this.content = undefined;
   }
 

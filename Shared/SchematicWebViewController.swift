@@ -12,7 +12,7 @@ final class SchematicWebViewController: NSViewController {
 
     private static let messageHandlerName = "litematicaQL"
     private static let contentRuleIdentifier = "moe.arcadia.LitematicaQL.offline"
-    private static let glbURL = URL(string: "lql-glb://preview/mesh.glb")
+    private static let meshScheme = "lql-mesh"
     private static let logger = Logger(
         subsystem: "moe.arcadia.LitematicaQL",
         category: "Renderer"
@@ -57,10 +57,10 @@ final class SchematicWebViewController: NSViewController {
         nativeSession?.cancel()
         nativeLoad = nil
         nativeSession = nil
-        glbHandler.clear()
+        meshHandler.clear()
     }
 
-    private let glbHandler = GLBResourceHandler()
+    private let meshHandler = BatchResourceHandler()
 
     override func loadView() {
         let containerView = NSView()
@@ -109,7 +109,7 @@ final class SchematicWebViewController: NSViewController {
             WeakScriptMessageHandler(delegate: self),
             name: Self.messageHandlerName
         )
-        configuration.setURLSchemeHandler(glbHandler, forURLScheme: "lql-glb")
+        configuration.setURLSchemeHandler(meshHandler, forURLScheme: Self.meshScheme)
         configuration.userContentController.addUserScript(
             WKUserScript(
                 source: Self.javaScriptDiagnostics,
@@ -162,7 +162,7 @@ final class SchematicWebViewController: NSViewController {
         loadGeneration += 1
         let generation = loadGeneration
         let displayName = url.lastPathComponent
-        let handler = glbHandler
+        let handler = meshHandler
         let session = NativeSchematicSession()
         nativeLoad?.cancel()
         nativeSession?.cancel()
@@ -189,9 +189,14 @@ final class SchematicWebViewController: NSViewController {
         pack: NativeResourcePack,
         displayName: String,
         generation: Int,
-        handler: GLBResourceHandler
+        handler: BatchResourceHandler
     ) async {
+        defer {
+            session.endMesh()
+            handler.clear(generation: generation)
+        }
         do {
+            await presentProgress(phase: "decode", completed: 0, total: 1, bytes: data.count, triangles: 0)
             let facts = try session.decode(data)
             guard await isCurrentLoad(generation) else { return }
             await presentDecoded(
@@ -200,11 +205,30 @@ final class SchematicWebViewController: NSViewController {
                 warnings: facts.warnings,
                 large: facts.blockCount > Self.immediateRenderNoticeBlocks
             )
+            await presentProgress(phase: "decode", completed: 1, total: 1, bytes: data.count, triangles: 0)
 
-            let mesh = try session.mesh(pack: pack)
+            let mesh = try session.beginMesh(pack: pack)
             guard await isCurrentLoad(generation) else { return }
-            handler.store(mesh.glb)
-            await presentMesh(displayName: displayName, triangles: mesh.triangleCount)
+            handler.install(
+                generation: generation,
+                session: session,
+                pack: pack,
+                atlas: mesh.atlas,
+                batchCount: mesh.batchCount
+            ) { [weak self] (batch: NativeMeshBatch) in
+                Task { @MainActor [weak self] in
+                    await self?.presentProgress(
+                        phase: "mesh",
+                        completed: batch.index + 1,
+                        total: mesh.batchCount,
+                        bytes: batch.bytes,
+                        triangles: batch.triangles
+                    )
+                }
+            }
+            await presentMesh(displayName: displayName, mesh: mesh)
+        } catch is CancellationError {
+            return
         } catch is NativeSchematicCancelled {
             return
         } catch let refusal as NativeSchematicRefusal {
@@ -214,6 +238,7 @@ final class SchematicWebViewController: NSViewController {
             guard await isCurrentLoad(generation) else { return }
             await presentRefusal("Something went wrong while reading this schematic.")
         }
+
     }
 
     private func isCurrentLoad(_ generation: Int) -> Bool {
@@ -251,15 +276,41 @@ final class SchematicWebViewController: NSViewController {
         )
     }
 
-    private func presentMesh(displayName: String, triangles: Int) async {
+    private func presentMesh(displayName: String, mesh: NativeMeshStart) async {
         guard let webView else { return }
         _ = try? await webView.callAsyncJavaScript(
-            "return window.litematicaQL.meshReady(info);",
+            "return window.litematicaQL.meshStart(info);",
             arguments: [
                 "info": [
                     "name": displayName,
+                    "atlasUrl": "lql-mesh://preview/atlas",
+                    "atlasWidth": mesh.atlasWidth,
+                    "atlasHeight": mesh.atlasHeight,
+                    "batchCount": mesh.batchCount,
+                ]
+            ],
+            in: nil,
+            contentWorld: .page
+        )
+    }
+
+    private func presentProgress(
+        phase: String,
+        completed: Int,
+        total: Int,
+        bytes: Int,
+        triangles: Int
+    ) async {
+        guard let webView else { return }
+        _ = try? await webView.callAsyncJavaScript(
+            "return window.litematicaQL.progress(info);",
+            arguments: [
+                "info": [
+                    "phase": phase,
+                    "completed": completed,
+                    "total": total,
+                    "bytes": bytes,
                     "triangles": triangles,
-                    "url": Self.glbURL?.absoluteString ?? "",
                 ]
             ],
             in: nil,
@@ -490,64 +541,111 @@ extension SchematicWebViewController: WKScriptMessageHandler {
     }
 }
 
-/// Publishes the latest GLB through the `lql-glb` custom scheme.
-///
-/// Native loading and WebKit's loader thread access the payload concurrently; the lock
-/// is the handler's sole synchronization boundary.
-final class GLBResourceHandler: NSObject, WKURLSchemeHandler, @unchecked Sendable {
+/// Publishes the shared atlas once and lazily materializes ordered geometry
+/// batches as the renderer requests them. WebKit's loader thread is the only
+/// caller of `nextBatch`, so the native stream remains bounded to one payload.
+final class BatchResourceHandler: NSObject, WKURLSchemeHandler, @unchecked Sendable {
+    private struct Context {
+        let generation: Int
+        let session: NativeSchematicSession
+        let pack: NativeResourcePack
+        let atlas: Data
+        let batchCount: Int
+        let progress: (NativeMeshBatch) -> Void
+    }
+
     private let lock = NSLock()
-    private var glb: Data?
+    nonisolated(unsafe) private var context: Context?
 
-    nonisolated func store(_ data: Data) {
+    nonisolated func install(
+        generation: Int,
+        session: NativeSchematicSession,
+        pack: NativeResourcePack,
+        atlas: Data,
+        batchCount: Int,
+        progress: @escaping (NativeMeshBatch) -> Void
+    ) {
         lock.lock()
-        defer { lock.unlock() }
-        glb = data
-    }
-
-    nonisolated func clear() {
-        lock.lock()
-        defer { lock.unlock() }
-        glb = nil
-    }
-
-    func webView(_: WKWebView, start task: WKURLSchemeTask) {
-        guard let url = task.request.url,
-              url.scheme == "lql-glb",
-              url.host == "preview",
-              url.path == "/mesh.glb" else {
-            task.didFailWithError(URLError(.fileDoesNotExist))
-            return
-        }
-
-        lock.lock()
-        let data = glb
+        context = Context(
+            generation: generation,
+            session: session,
+            pack: pack,
+            atlas: atlas,
+            batchCount: batchCount,
+            progress: progress
+        )
         lock.unlock()
+    }
 
-        guard let data else {
+    nonisolated func clear(generation: Int? = nil) {
+        lock.lock()
+        if generation == nil || context?.generation == generation {
+            context = nil
+        }
+        lock.unlock()
+    }
+
+    nonisolated func webView(_: WKWebView, start task: WKURLSchemeTask) {
+        guard let url = task.request.url,
+              url.scheme == "lql-mesh",
+              url.host == "preview" else {
+            task.didFailWithError(URLError(.fileDoesNotExist))
+            return
+        }
+        lock.lock()
+        let context = self.context
+        lock.unlock()
+        guard let context else {
             task.didFailWithError(URLError(.fileDoesNotExist))
             return
         }
 
-        // A `file://` page requires an explicit CORS grant to fetch the custom scheme.
+        let data: Data
+        let contentType: String
+        if url.path == "/atlas" {
+            data = context.atlas
+            contentType = "image/png"
+        } else {
+            let components = url.path.split(separator: "/")
+            guard components.count == 2,
+                  components[0] == "batch",
+                  let index = Int(components[1]),
+                  index >= 0,
+                  index < context.batchCount else {
+                task.didFailWithError(URLError(.fileDoesNotExist))
+                return
+            }
+            do {
+                guard let batch = try context.session.nextBatch(index: index) else {
+                    task.didFailWithError(URLError(.fileDoesNotExist))
+                    return
+                }
+                data = batch.payload
+                contentType = "application/vnd.litematicaql.batch"
+                context.progress(batch)
+            } catch {
+                task.didFailWithError(error as NSError)
+                return
+            }
+        }
+
         let response = HTTPURLResponse(
             url: url,
             statusCode: 200,
             httpVersion: "HTTP/1.1",
             headerFields: [
-                "Content-Type": "model/gltf-binary",
+                "Content-Type": contentType,
                 "Content-Length": String(data.count),
                 "Access-Control-Allow-Origin": "*",
                 "Cache-Control": "no-store",
             ]
         )
-        if let response {
-            task.didReceive(response)
-        }
+        if let response { task.didReceive(response) }
         task.didReceive(data)
         task.didFinish()
     }
 
-    func webView(_: WKWebView, stop _: WKURLSchemeTask) {
+    nonisolated func webView(_: WKWebView, stop _: WKURLSchemeTask) {
     }
 }
 

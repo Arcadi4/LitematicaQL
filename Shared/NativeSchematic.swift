@@ -19,9 +19,20 @@ struct NativeSchematicFacts: Sendable {
     let warnings: [String]
 }
 
-struct NativeMeshResult: Sendable {
-    let triangleCount: Int
-    let glb: Data
+struct NativeMeshStart: Sendable {
+    let batchCount: Int
+    let atlas: Data
+    let atlasWidth: Int
+    let atlasHeight: Int
+}
+
+struct NativeMeshBatch: Sendable {
+    let index: Int
+    let triangles: Int
+    let vertices: Int
+    let indices: Int
+    let bytes: Int
+    let payload: Data
 }
 
 /// Owns a parsed immutable resource pack. One instance may be reused by any
@@ -74,8 +85,11 @@ final class NativeResourcePack: @unchecked Sendable {
 /// synchronous calls; only cancellation may overlap a mesh call.
 final class NativeSchematicSession: @unchecked Sendable {
     private var handle: OpaquePointer?
+    private var meshStream: OpaquePointer?
+    private let meshLock = NSLock()
 
     deinit {
+        endMesh()
         if let handle { nql_schematic_free(handle) }
     }
 
@@ -134,43 +148,105 @@ final class NativeSchematicSession: @unchecked Sendable {
         return text.split(separator: "\n", omittingEmptySubsequences: true).map(String.init)
     }
 
-    func mesh(pack: NativeResourcePack) throws -> NativeMeshResult {
+    func beginMesh(pack: NativeResourcePack) throws -> NativeMeshStart {
         guard let handle else {
-            throw NativeSchematicRefusal(
-                message: "Something went wrong while reading this schematic."
-            )
+            throw NativeSchematicRefusal(message: "Something went wrong while reading this schematic.")
+        }
+        meshLock.lock()
+        defer { meshLock.unlock() }
+        guard meshStream == nil else {
+            throw NativeSchematicRefusal(message: "A mesh stream is already active.")
         }
         return try pack.withHandle { packHandle in
-            var glb: UnsafeMutablePointer<UInt8>?
-            var glbLength = 0
-            var info = NQLMeshInfo(triangle_count: 0)
+            var atlas: UnsafeMutablePointer<UInt8>?
+            var atlasLength = 0
+            var atlasInfo = NQLAtlasInfo(width: 0, height: 0)
+            var meshInfo = NQLMeshInfo(batch_count: 0, triangle_count: 0)
+            var stream: OpaquePointer?
             var failure = NQLError(message: nil, message_len: 0)
-            let status = nql_schematic_mesh(
+            let status = nql_mesh_stream_open(
                 handle,
                 packHandle,
-                &glb,
-                &glbLength,
-                &info,
+                &atlas,
+                &atlasLength,
+                &atlasInfo,
+                &meshInfo,
+                &stream,
                 &failure
             )
             if status == NQL_ERR_CANCELLED {
-                if let message = failure.message {
-                    nql_buffer_free(message, failure.message_len)
-                }
+                if let message = failure.message { nql_buffer_free(message, failure.message_len) }
                 throw NativeSchematicCancelled()
             }
-            guard status == NQL_OK else { throw Self.refusal(status, failure) }
-            defer { if let glb { nql_buffer_free(glb, glbLength) } }
-            guard let glb, glbLength > 0 else {
-                throw NativeSchematicRefusal(
-                    message: "Something went wrong while reading this schematic."
-                )
+            guard status == NQL_OK, let atlas, let stream, atlasLength > 0 else {
+                throw Self.refusal(status, failure)
             }
-            return NativeMeshResult(
-                triangleCount: Int(info.triangle_count),
-                glb: Data(bytes: glb, count: glbLength)
+            defer { nql_buffer_free(atlas, atlasLength) }
+            let data = Data(bytes: atlas, count: atlasLength)
+            meshStream = stream
+            return NativeMeshStart(
+                batchCount: Int(meshInfo.batch_count),
+                atlas: data,
+                atlasWidth: Int(atlasInfo.width),
+                atlasHeight: Int(atlasInfo.height)
             )
         }
+    }
+
+    func nextBatch(index: Int) throws -> NativeMeshBatch? {
+        meshLock.lock()
+        defer { meshLock.unlock() }
+        guard let meshStream else {
+            throw NativeSchematicRefusal(message: "The native mesh stream is not available.")
+        }
+        var bytes: UnsafeMutablePointer<UInt8>?
+        var length = 0
+        var info = NQLBatchInfo(
+            batch_index: 0,
+            part_count: 0,
+            vertex_count: 0,
+            index_count: 0,
+            triangle_count: 0,
+            payload_length: 0,
+            bounds_min: (0, 0, 0),
+            bounds_max: (0, 0, 0)
+        )
+        var failure = NQLError(message: nil, message_len: 0)
+        let status = nql_mesh_stream_next(
+            meshStream,
+            UInt32(index),
+            &bytes,
+            &length,
+            &info,
+            &failure
+        )
+        if status == NQL_DONE {
+            return nil
+        }
+        if status == NQL_ERR_CANCELLED {
+            if let message = failure.message { nql_buffer_free(message, failure.message_len) }
+            throw NativeSchematicCancelled()
+        }
+        guard status == NQL_OK, let bytes, length > 0 else {
+            throw Self.refusal(status, failure)
+        }
+        defer { nql_buffer_free(bytes, length) }
+        return NativeMeshBatch(
+            index: Int(info.batch_index),
+            triangles: Int(info.triangle_count),
+            vertices: Int(info.vertex_count),
+            indices: Int(info.index_count),
+            bytes: length,
+            payload: Data(bytes: bytes, count: length)
+        )
+    }
+
+    func endMesh() {
+        meshLock.lock()
+        let stream = meshStream
+        meshStream = nil
+        meshLock.unlock()
+        if let stream { nql_mesh_stream_free(stream) }
     }
 
     private static func refusal(_ status: NQLStatus, _ failure: NQLError) -> NativeSchematicRefusal {
