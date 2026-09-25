@@ -2,9 +2,10 @@ use std::fs;
 use std::path::PathBuf;
 
 use litematicaql_native::{
-    nql_buffer_free, nql_resource_pack_free, nql_resource_pack_open, nql_schematic_cancel,
-    nql_schematic_free, nql_schematic_info, nql_schematic_mesh, nql_schematic_open,
-    nql_schematic_warnings, status, NQLError, NQLMeshInfo, NQLSchematicInfo,
+    nql_buffer_free, nql_mesh_stream_free, nql_mesh_stream_next, nql_mesh_stream_open,
+    nql_resource_pack_free, nql_resource_pack_open, nql_schematic_cancel, nql_schematic_free,
+    nql_schematic_info, nql_schematic_open, nql_schematic_warnings, status, NQLAtlasInfo,
+    NQLBatchInfo, NQLError, NQLMeshInfo, NQLSchematicInfo,
 };
 
 fn repo_root() -> PathBuf {
@@ -112,38 +113,155 @@ fn defer_free(buffer: *mut u8, length: usize) {
     }
 }
 
+struct MeshResult {
+    atlas: Vec<u8>,
+    atlas_info: NQLAtlasInfo,
+    info: NQLMeshInfo,
+    batches: Vec<(Vec<u8>, NQLBatchInfo)>,
+}
+
 fn mesh(
     handle: *const litematicaql_native::NQLSchematic,
     pack: *const litematicaql_native::NQLResourcePack,
-) -> (Vec<u8>, NQLMeshInfo) {
-    let mut glb = std::ptr::null_mut();
-    let mut length = 0;
-    let mut mesh_info = NQLMeshInfo { triangle_count: 0 };
+) -> MeshResult {
+    let mut atlas = std::ptr::null_mut();
+    let mut atlas_len = 0;
+    let mut atlas_info = NQLAtlasInfo {
+        width: 0,
+        height: 0,
+    };
+    let mut mesh_info = NQLMeshInfo {
+        batch_count: 0,
+        triangle_count: 0,
+    };
+    let mut stream = std::ptr::null_mut();
     let mut failure = error();
     let status = unsafe {
-        nql_schematic_mesh(
+        nql_mesh_stream_open(
             handle,
             pack,
-            &mut glb,
-            &mut length,
+            &mut atlas,
+            &mut atlas_len,
+            &mut atlas_info,
             &mut mesh_info,
+            &mut stream,
             &mut failure,
         )
     };
     let message = take_error(&mut failure);
     assert_eq!(status, status::OK, "{message}");
-    assert!(!glb.is_null());
-    let bytes = unsafe { std::slice::from_raw_parts(glb, length) }.to_vec();
-    unsafe { nql_buffer_free(glb, length) };
-    (bytes, mesh_info)
+    assert!(!stream.is_null());
+    assert!(!atlas.is_null());
+    let atlas_bytes = unsafe { std::slice::from_raw_parts(atlas, atlas_len) }.to_vec();
+    unsafe {
+        nql_buffer_free(atlas, atlas_len);
+    }
+    let mut batches = Vec::new();
+    for expected in 0..mesh_info.batch_count {
+        let mut bytes = std::ptr::null_mut();
+        let mut length = 0;
+        let mut batch_info = NQLBatchInfo {
+            batch_index: 0,
+            part_count: 0,
+            vertex_count: 0,
+            index_count: 0,
+            triangle_count: 0,
+            payload_length: 0,
+            bounds_min: [0.0; 3],
+            bounds_max: [0.0; 3],
+        };
+        let mut failure = error();
+        let result = unsafe {
+            nql_mesh_stream_next(
+                stream,
+                expected,
+                &mut bytes,
+                &mut length,
+                &mut batch_info,
+                &mut failure,
+            )
+        };
+        let message = take_error(&mut failure);
+        assert_eq!(result, status::OK, "batch {expected}: {message}");
+        assert!(!bytes.is_null());
+        let payload = unsafe { std::slice::from_raw_parts(bytes, length) }.to_vec();
+        unsafe {
+            nql_buffer_free(bytes, length);
+        }
+        batches.push((payload, batch_info));
+    }
+    let mut bytes = std::ptr::null_mut();
+    let mut length = 1;
+    let mut batch_info = NQLBatchInfo {
+        batch_index: 0,
+        part_count: 0,
+        vertex_count: 0,
+        index_count: 0,
+        triangle_count: 0,
+        payload_length: 0,
+        bounds_min: [0.0; 3],
+        bounds_max: [0.0; 3],
+    };
+    let mut failure = error();
+    let result = unsafe {
+        nql_mesh_stream_next(
+            stream,
+            mesh_info.batch_count,
+            &mut bytes,
+            &mut length,
+            &mut batch_info,
+            &mut failure,
+        )
+    };
+    assert_eq!(result, status::DONE);
+    assert!(bytes.is_null());
+    assert_eq!(length, 0);
+    take_error(&mut failure);
+    unsafe { nql_mesh_stream_free(stream) };
+    MeshResult {
+        atlas: atlas_bytes,
+        atlas_info,
+        info: mesh_info,
+        batches,
+    }
 }
-fn assert_valid_glb(bytes: &[u8]) {
-    assert_eq!(&bytes[..4], b"glTF");
-    assert_eq!(u32::from_le_bytes(bytes[4..8].try_into().unwrap()), 2);
+
+fn assert_valid_batch(bytes: &[u8], info: &NQLBatchInfo) {
+    assert_eq!(&bytes[..4], b"LQMB");
+    assert_eq!(u16::from_le_bytes(bytes[4..6].try_into().unwrap()), 1);
     assert_eq!(
-        u32::from_le_bytes(bytes[8..12].try_into().unwrap()) as usize,
-        bytes.len()
+        u32::from_le_bytes(bytes[8..12].try_into().unwrap()),
+        info.batch_index
     );
+    assert_eq!(
+        u32::from_le_bytes(bytes[12..16].try_into().unwrap()),
+        info.part_count
+    );
+    assert_eq!(bytes.len(), info.payload_length as usize);
+}
+
+fn assert_shared_atlas(result: &MeshResult) {
+    assert_eq!(&result.atlas[..8], b"\x89PNG\r\n\x1a\n");
+    assert!(result.atlas_info.width > 0 && result.atlas_info.height > 0);
+    for (payload, info) in &result.batches {
+        assert_valid_batch(payload, info);
+        let mut offset = 64usize;
+        for _ in 0..info.part_count {
+            let texture_index = u32::from_le_bytes(payload[offset..offset + 4].try_into().unwrap());
+            let texture_length =
+                u32::from_le_bytes(payload[offset + 16..offset + 20].try_into().unwrap());
+            assert!(
+                texture_index != 0 || texture_length == 0,
+                "atlas was embedded in a batch"
+            );
+            let vertices =
+                u32::from_le_bytes(payload[offset + 8..offset + 12].try_into().unwrap()) as usize;
+            let indices =
+                u32::from_le_bytes(payload[offset + 12..offset + 16].try_into().unwrap()) as usize;
+            offset += 24 + vertices * 48 + indices * 4 + texture_length as usize;
+        }
+        assert_eq!(offset, payload.len());
+    }
 }
 
 fn deterministic_fixture() -> Vec<u8> {
@@ -151,15 +269,31 @@ fn deterministic_fixture() -> Vec<u8> {
 }
 
 #[test]
-fn ordered_chunk_output_is_deterministic() {
+fn ordered_batch_delivery_is_deterministic() {
     let bytes = deterministic_fixture();
     let pack = open_pack(&pack_bytes());
     let (handle, _) = open(&bytes);
     let first = mesh(handle, pack);
     let second = mesh(handle, pack);
-    assert_eq!(first.1, second.1);
-    assert_valid_glb(&first.0);
-    assert_valid_glb(&second.0);
+    assert_eq!(first.info, second.info);
+    assert_eq!(first.atlas, second.atlas);
+    assert_eq!(
+        first.batches.len(),
+        second.batches.len(),
+        "batch counts differ"
+    );
+    for (index, (left, right)) in first.batches.iter().zip(&second.batches).enumerate() {
+        assert_eq!(left.1.batch_index, index as u32);
+        assert_eq!(right.1.batch_index, index as u32);
+        assert_eq!(left.1.part_count, right.1.part_count);
+        assert_eq!(left.1.vertex_count, right.1.vertex_count);
+        assert_eq!(left.1.index_count, right.1.index_count);
+        assert_eq!(left.1.triangle_count, right.1.triangle_count);
+        assert_eq!(left.1.bounds_min, right.1.bounds_min);
+        assert_eq!(left.1.bounds_max, right.1.bounds_max);
+        assert_valid_batch(&left.0, &left.1);
+    }
+    assert_shared_atlas(&first);
     unsafe {
         nql_schematic_free(handle);
         nql_resource_pack_free(pack);
@@ -171,26 +305,64 @@ fn cancellation_returns_no_geometry_through_the_c_abi() {
     let bytes = deterministic_fixture();
     let pack = open_pack(&pack_bytes());
     let (handle, _) = open(&bytes);
-    assert_eq!(unsafe { nql_schematic_cancel(handle) }, status::OK);
-    let mut glb = std::ptr::null_mut();
-    let mut length = 1;
-    let mut mesh_info = NQLMeshInfo { triangle_count: 99 };
+    let mut atlas = std::ptr::null_mut();
+    let mut atlas_len = 0;
+    let mut atlas_info = NQLAtlasInfo {
+        width: 0,
+        height: 0,
+    };
+    let mut mesh_info = NQLMeshInfo {
+        batch_count: 0,
+        triangle_count: 0,
+    };
+    let mut stream = std::ptr::null_mut();
     let mut failure = error();
-    let status = unsafe {
-        nql_schematic_mesh(
+    let result = unsafe {
+        nql_mesh_stream_open(
             handle,
             pack,
-            &mut glb,
-            &mut length,
+            &mut atlas,
+            &mut atlas_len,
+            &mut atlas_info,
             &mut mesh_info,
+            &mut stream,
             &mut failure,
         )
     };
-    assert_eq!(status, status::ERR_CANCELLED);
-    assert!(glb.is_null());
+    assert_eq!(result, status::OK, "{}", take_error(&mut failure));
+    assert!(!stream.is_null());
+    unsafe { nql_buffer_free(atlas, atlas_len) };
+    assert_eq!(unsafe { nql_schematic_cancel(handle) }, status::OK);
+    let mut batch = std::ptr::null_mut();
+    let mut length = 1;
+    let mut batch_info = NQLBatchInfo {
+        batch_index: 0,
+        part_count: 0,
+        vertex_count: 0,
+        index_count: 0,
+        triangle_count: 99,
+        payload_length: 0,
+        bounds_min: [0.0; 3],
+        bounds_max: [0.0; 3],
+    };
+    let mut failure = error();
+    let result = unsafe {
+        nql_mesh_stream_next(
+            stream,
+            0,
+            &mut batch,
+            &mut length,
+            &mut batch_info,
+            &mut failure,
+        )
+    };
+    assert_eq!(result, status::ERR_CANCELLED);
+    assert!(batch.is_null());
     assert_eq!(length, 0);
+    assert_eq!(batch_info.triangle_count, 0);
     take_error(&mut failure);
     unsafe {
+        nql_mesh_stream_free(stream);
         nql_schematic_free(handle);
         nql_resource_pack_free(pack);
     }
@@ -211,9 +383,18 @@ fn every_format_and_demo_fixture_uses_the_c_abi() {
             } else {
                 assert!(facts.block_count > 0, "{}", path.display());
             }
-            let (glb, mesh_info) = mesh(handle, pack);
-            assert!(mesh_info.triangle_count > 0, "{}", path.display());
-            assert_valid_glb(&glb);
+            let result = mesh(handle, pack);
+            assert!(!result.batches.is_empty());
+            assert_shared_atlas(&result);
+            assert!(
+                result
+                    .batches
+                    .iter()
+                    .any(|(_, info)| info.triangle_count > 0),
+                "{}",
+                path.display()
+            );
+            unsafe { nql_schematic_free(handle) };
         }
     }
     unsafe { nql_resource_pack_free(pack) };
@@ -287,7 +468,7 @@ fn mca_notices_and_custom_lz4_survive_the_c_abi() {
     let (handle, _) = open(&lz4);
     assert_eq!(info(handle).block_count, 4);
     assert!(warnings(handle).is_empty());
-    assert_valid_glb(&mesh(handle, pack).0);
+    assert_shared_atlas(&mesh(handle, pack));
     unsafe {
         nql_schematic_free(handle);
         nql_resource_pack_free(pack);

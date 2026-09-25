@@ -342,7 +342,6 @@ fn chunk_bounds(coord: ChunkCoord, size: i32) -> ([i64; 3], [i64; 3]) {
 
 pub(super) struct ChunkMeshes<'a> {
     source: &'a CompactBlocks,
-    index: usize,
     chunk_size: i32,
     pack: &'a ResourcePack,
     config: MesherConfig,
@@ -368,7 +367,6 @@ impl<'a> ChunkMeshes<'a> {
         current()?;
         Ok(Self {
             source,
-            index: 0,
             chunk_size: 64,
             pack: pack.pack(),
             config,
@@ -377,35 +375,23 @@ impl<'a> ChunkMeshes<'a> {
         })
     }
 
-    pub(super) fn consume(
-        &mut self,
-        workers: usize,
-        consume: impl FnMut(MeshOutput) -> Result<(), String>,
-        current: &impl Fn() -> Result<(), String>,
-    ) -> Result<(), String> {
-        if self.source.chunks.is_empty() {
-            return Ok(());
-        }
-        crate::parallel::ordered(
-            (self.index..self.source.chunks.len()).map(Ok),
-            workers,
-            true,
-            |index, cancelled| {
-                crate::parallel::check_cancelled(cancelled)?;
-                let mesh = self.mesh_at(index).map_err(|error| {
-                    format!("This schematic is too detailed to preview: {error}")
-                })?;
-                crate::parallel::check_cancelled(cancelled)?;
-                Ok(mesh)
-            },
-            consume,
-            current,
-        )?;
-        self.index = self.source.chunks.len();
-        Ok(())
+    pub(super) fn batch_count(&self) -> usize {
+        self.source.chunks.len()
     }
 
-    fn mesh_at(&self, index: usize) -> Result<MeshOutput, String> {
+    pub(super) fn atlas_width(&self) -> u32 {
+        self.atlas.width
+    }
+
+    pub(super) fn atlas_height(&self) -> u32 {
+        self.atlas.height
+    }
+
+    pub(super) fn atlas_png(&self) -> Result<Vec<u8>, String> {
+        self.atlas.to_png().map_err(|error| error.to_string())
+    }
+
+    pub(super) fn mesh_at(&self, index: usize) -> Result<MeshOutput, String> {
         let (coord, blocks) = &self.source.chunks[index];
         let (min, max) = chunk_bounds(*coord, self.chunk_size);
         let bounds = BoundingBox::new(min.map(|value| value as f32), max.map(|value| value as f32));

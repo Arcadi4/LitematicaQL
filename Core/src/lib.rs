@@ -1,8 +1,8 @@
 // Native schematic decoding and bounded, chunked preview meshing for Swift hosts.
 //
 // Decoding retains occupied blocks in 64-block spatial groups. Meshing builds
-// every chunk against one shared texture atlas, consumes worker results in
-// deterministic order, aggregates them into one MeshOutput, and exports one GLB.
+// every chunk against one shared texture atlas, then emits ordered geometry
+// batches with first-use greedy textures for the renderer.
 
 use std::panic::{catch_unwind, AssertUnwindSafe};
 use std::slice;
@@ -11,9 +11,10 @@ use std::sync::Arc;
 
 use nucleation::formats::limits::DecodeLimits;
 use nucleation::formats::manager::get_manager;
-use nucleation::meshing::{MeshConfig, MeshOutput, ResourcePackSource};
+use nucleation::meshing::{MeshConfig, ResourcePackSource};
 use regex::Regex;
-use schematic_mesher::MeshLayer;
+
+pub mod stream;
 
 mod litematic;
 mod mca;
@@ -35,10 +36,6 @@ const MAX_NBT_COLLECTION_ITEMS: usize = MAX_VOLUME * 2;
 const MAX_NBT_NODES: usize = 4_194_304;
 const MAX_MESH_BLOCKS: i64 = 33_554_432;
 const CHUNK_SIZE: i32 = 64;
-const MAX_WORKERS: usize = 8;
-// Two workers leave the available CPU budget unused on large previews. Four
-// keeps the bounded output window while allowing chunk meshing to scale.
-const DEFAULT_WORKERS: usize = 4;
 
 // Status codes shared with the Swift bridge through the C header.
 pub mod status {
@@ -51,6 +48,7 @@ pub mod status {
     pub const ERR_PACK: i32 = 6;
     pub const ERR_INTERNAL: i32 = 7;
     pub const ERR_CANCELLED: i32 = 8;
+    pub const DONE: i32 = 9;
 }
 
 /// An application-owned decoded preview. Opaque to C callers.
@@ -75,7 +73,28 @@ pub struct NQLSchematicInfo {
 #[repr(C)]
 #[derive(Debug, PartialEq, Eq)]
 pub struct NQLMeshInfo {
+    pub batch_count: u32,
     pub triangle_count: i64,
+}
+
+#[repr(C)]
+#[derive(Debug, PartialEq, Eq)]
+pub struct NQLAtlasInfo {
+    pub width: u32,
+    pub height: u32,
+}
+
+#[repr(C)]
+#[derive(Debug, PartialEq)]
+pub struct NQLBatchInfo {
+    pub batch_index: u32,
+    pub part_count: u32,
+    pub vertex_count: u32,
+    pub index_count: u32,
+    pub triangle_count: u32,
+    pub payload_length: u32,
+    pub bounds_min: [f32; 3],
+    pub bounds_max: [f32; 3],
 }
 
 // A UTF-8 failure message. The host frees `message` with `nql_buffer_free`.
@@ -118,16 +137,12 @@ fn mesh_config() -> MeshConfig {
         .with_atlas_max_size(2_048)
 }
 
-fn decode_worker_count() -> usize {
-    std::thread::available_parallelism().map_or(2, |count| {
-        count.get().min(2).max(1)
-    })
+fn worker_count() -> usize {
+    std::thread::available_parallelism().map_or(2, |count| count.get().min(4).max(1))
 }
 
-fn mesh_worker_count() -> usize {
-    std::thread::available_parallelism().map_or(DEFAULT_WORKERS, |count| {
-        count.get().min(MAX_WORKERS).max(1)
-    })
+fn decode_worker_count() -> usize {
+    std::thread::available_parallelism().map_or(2, |count| count.get().min(2).max(1))
 }
 
 fn normalize_structure_snbt(bytes: &[u8]) -> Option<Vec<u8>> {
@@ -283,119 +298,6 @@ pub fn resource_pack(bytes: &[u8]) -> Result<NQLResourcePack, MeshFailure> {
     ResourcePackSource::from_bytes(bytes)
         .map(NQLResourcePack)
         .map_err(|error| MeshFailure::Pack(error.to_string()))
-}
-
-pub fn mesh(
-    schematic: &NQLSchematic,
-    pack: &NQLResourcePack,
-) -> Result<(Vec<u8>, NQLMeshInfo), MeshFailure> {
-    let cancelled = schematic.cancelled.clone();
-    let current = || check_cancelled(&cancelled);
-    current().map_err(|_| MeshFailure::Cancelled)?;
-
-    let block_count = schematic.source.block_count();
-    if block_count > MAX_MESH_BLOCKS {
-        return Err(MeshFailure::Mesh(format!(
-            "This schematic renders {block_count} blocks, beyond the {MAX_MESH_BLOCKS}-block preview limit."
-        )));
-    }
-    let mut chunks =
-        meshing::ChunkMeshes::from_source(&schematic.source, &pack.0, &mesh_config(), &current)
-            .map_err(MeshFailure::Mesh)?;
-    let mut aggregate: Option<MeshOutput> = None;
-    chunks
-        .consume(
-            mesh_worker_count(),
-            |output| {
-                current()?;
-                append_mesh(&mut aggregate, output);
-                Ok(())
-            },
-            &current,
-        )
-        .map_err(|error| {
-            if error == "Parallel preview cancelled." {
-                MeshFailure::Cancelled
-            } else {
-                MeshFailure::Mesh(error)
-            }
-        })?;
-
-    let Some(mut output) = aggregate else {
-        return Err(MeshFailure::NoBlocks);
-    };
-    output.greedy_materials.sort_by(|left, right| {
-        left.texture_path
-            .cmp(&right.texture_path)
-            .then_with(|| left.texture_png.cmp(&right.texture_png))
-    });
-    current().map_err(|_| MeshFailure::Cancelled)?;
-    let greedy_triangles: usize = output
-        .greedy_materials
-        .iter()
-        .map(|material| material.opaque.triangle_count() + material.transparent.triangle_count())
-        .sum();
-    let total_triangles = output
-        .total_triangles()
-        .checked_add(greedy_triangles)
-        .ok_or_else(|| MeshFailure::Mesh("This schematic has too many triangles.".to_string()))?;
-    if total_triangles == 0 {
-        return Err(MeshFailure::NoBlocks);
-    }
-    let glb = output
-        .to_glb()
-        .map_err(|error| MeshFailure::Mesh(error.to_string()))?;
-    current().map_err(|_| MeshFailure::Cancelled)?;
-    let triangle_count = i64::try_from(total_triangles)
-        .map_err(|_| MeshFailure::Mesh("This schematic has too many triangles.".to_string()))?;
-    Ok((glb, NQLMeshInfo { triangle_count }))
-}
-
-fn check_cancelled(cancelled: &AtomicBool) -> Result<(), String> {
-    if cancelled.load(Ordering::Relaxed) {
-        Err("Parallel preview cancelled.".to_string())
-    } else {
-        Ok(())
-    }
-}
-
-fn append_mesh(aggregate: &mut Option<MeshOutput>, mut output: MeshOutput) {
-    let Some(target) = aggregate else {
-        output.chunk_coord = None;
-        *aggregate = Some(output);
-        return;
-    };
-    append_layer(&mut target.opaque, output.opaque);
-    append_layer(&mut target.cutout, output.cutout);
-    append_layer(&mut target.transparent, output.transparent);
-    for animation in output.animated_textures {
-        if !target.animated_textures.iter().any(|existing| {
-            existing.atlas_x == animation.atlas_x && existing.atlas_y == animation.atlas_y
-        }) {
-            target.animated_textures.push(animation);
-        }
-    }
-    target.greedy_materials.append(&mut output.greedy_materials);
-    for axis in 0..3 {
-        target.bounds.min[axis] = target.bounds.min[axis].min(output.bounds.min[axis]);
-        target.bounds.max[axis] = target.bounds.max[axis].max(output.bounds.max[axis]);
-    }
-}
-
-fn append_layer(target: &mut MeshLayer, mut source: MeshLayer) {
-    let offset = target.positions.len() as u32;
-    target.positions.reserve(source.positions.len());
-    target.normals.reserve(source.normals.len());
-    target.uvs.reserve(source.uvs.len());
-    target.colors.reserve(source.colors.len());
-    target.indices.reserve(source.indices.len());
-    target.positions.append(&mut source.positions);
-    target.normals.append(&mut source.normals);
-    target.uvs.append(&mut source.uvs);
-    target.colors.append(&mut source.colors);
-    target
-        .indices
-        .extend(source.indices.into_iter().map(|index| index + offset));
 }
 
 pub fn export_bytes(bytes: Vec<u8>) -> (*mut u8, usize) {
@@ -559,58 +461,143 @@ pub unsafe extern "C" fn nql_resource_pack_free(pack: *mut NQLResourcePack) {
 }
 
 #[no_mangle]
-pub unsafe extern "C" fn nql_schematic_mesh(
+pub unsafe extern "C" fn nql_mesh_stream_open(
     schematic: *const NQLSchematic,
     pack: *const NQLResourcePack,
-    glb_out: *mut *mut u8,
-    glb_len: *mut usize,
+    atlas_png_out: *mut *mut u8,
+    atlas_png_len: *mut usize,
+    atlas_info_out: *mut NQLAtlasInfo,
     info_out: *mut NQLMeshInfo,
+    stream_out: *mut *mut stream::NQLMeshStream<'_>,
     err_out: *mut NQLError,
 ) -> i32 {
     init_error(err_out);
-    if schematic.is_null() || pack.is_null() || glb_out.is_null() || glb_len.is_null() {
+    if schematic.is_null()
+        || pack.is_null()
+        || atlas_png_out.is_null()
+        || atlas_png_len.is_null()
+        || stream_out.is_null()
+    {
         return fail(
             err_out,
             status::ERR_NULL,
             "The caller passed a null buffer.",
         );
     }
-    *glb_out = std::ptr::null_mut();
-    *glb_len = 0;
-    let outcome = catch_unwind(AssertUnwindSafe(|| mesh(&*schematic, &*pack)));
+    *atlas_png_out = std::ptr::null_mut();
+    *atlas_png_len = 0;
+    *stream_out = std::ptr::null_mut();
+    let outcome = catch_unwind(AssertUnwindSafe(|| {
+        let cancelled = (*schematic).cancelled.clone();
+        let current = || {
+            if cancelled.load(Ordering::Relaxed) {
+                Err("Preview cancelled.".to_string())
+            } else {
+                Ok(())
+            }
+        };
+        stream::NQLMeshStream::open(&*schematic, &*pack, &current)
+    }));
     match outcome {
         Err(_) => fail(
             err_out,
             status::ERR_MESH,
             "This schematic has too much visible surface to preview. Its block geometry exceeds what the renderer can build.",
         ),
-        Ok(Err(MeshFailure::Pack(error))) => fail(
-            err_out,
-            status::ERR_PACK,
-            &format!("The bundled block resources are invalid: {error}"),
-        ),
-        Ok(Err(MeshFailure::NoBlocks)) => fail(
-            err_out,
-            status::ERR_NO_BLOCKS,
-            "This schematic contains no blocks to render.",
-        ),
-        Ok(Err(MeshFailure::Cancelled)) => {
-            fail(err_out, status::ERR_CANCELLED, "Preview cancelled.")
+        Ok(Err(error)) => mesh_failure(err_out, error),
+        Ok(Ok((stream, atlas, atlas_info, info))) => {
+            let (data, len) = export_bytes(atlas);
+            *atlas_png_out = data;
+            *atlas_png_len = len;
+            if !atlas_info_out.is_null() {
+                *atlas_info_out = atlas_info;
+            }
+            if !info_out.is_null() {
+                *info_out = info;
+            }
+            *stream_out = Box::into_raw(Box::new(stream));
+            status::OK
         }
-        Ok(Err(MeshFailure::Mesh(_))) => fail(
+    }
+}
+
+#[no_mangle]
+pub unsafe extern "C" fn nql_mesh_stream_next(
+    stream: *mut stream::NQLMeshStream<'_>,
+    expected_batch: u32,
+    batch_out: *mut *mut u8,
+    batch_len: *mut usize,
+    info_out: *mut NQLBatchInfo,
+    err_out: *mut NQLError,
+) -> i32 {
+    init_error(err_out);
+    if stream.is_null() || batch_out.is_null() || batch_len.is_null() {
+        return fail(
+            err_out,
+            status::ERR_NULL,
+            "The caller passed a null buffer.",
+        );
+    }
+    *batch_out = std::ptr::null_mut();
+    *batch_len = 0;
+    if !info_out.is_null() {
+        *info_out = NQLBatchInfo {
+            batch_index: 0,
+            part_count: 0,
+            vertex_count: 0,
+            index_count: 0,
+            triangle_count: 0,
+            payload_length: 0,
+            bounds_min: [0.0; 3],
+            bounds_max: [0.0; 3],
+        };
+    }
+    let outcome = catch_unwind(AssertUnwindSafe(|| (*stream).next(expected_batch)));
+    match outcome {
+        Err(_) => fail(
             err_out,
             status::ERR_MESH,
             "This schematic has too much visible surface to preview. Its block geometry exceeds what the renderer can build.",
         ),
-        Ok(Ok((glb, info))) => {
-            let (data, len) = export_bytes(glb);
-            *glb_out = data;
-            *glb_len = len;
+        Ok(Err(error)) => mesh_failure(err_out, error),
+        Ok(Ok(None)) => status::DONE,
+        Ok(Ok(Some(payload))) => {
+            let (data, len) = export_bytes(payload.bytes);
+            *batch_out = data;
+            *batch_len = len;
             if !info_out.is_null() {
-                *info_out = info;
+                *info_out = payload.info;
             }
             status::OK
         }
+    }
+}
+
+#[no_mangle]
+pub unsafe extern "C" fn nql_mesh_stream_free(stream: *mut stream::NQLMeshStream<'_>) {
+    if !stream.is_null() {
+        drop(Box::from_raw(stream));
+    }
+}
+
+unsafe fn mesh_failure(err_out: *mut NQLError, error: MeshFailure) -> i32 {
+    match error {
+        MeshFailure::Pack(error) => fail(
+            err_out,
+            status::ERR_PACK,
+            &format!("The bundled block resources are invalid: {error}"),
+        ),
+        MeshFailure::NoBlocks => fail(
+            err_out,
+            status::ERR_NO_BLOCKS,
+            "This schematic contains no blocks to render.",
+        ),
+        MeshFailure::Cancelled => fail(err_out, status::ERR_CANCELLED, "Preview cancelled."),
+        MeshFailure::Mesh(_) => fail(
+            err_out,
+            status::ERR_MESH,
+            "This schematic has too much visible surface to preview. Its block geometry exceeds what the renderer can build.",
+        ),
     }
 }
 

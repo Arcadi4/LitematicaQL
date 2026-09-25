@@ -20,8 +20,10 @@ typedef enum {
     NQL_ERR_MESH = 5,
     NQL_ERR_PACK = 6,
     NQL_ERR_INTERNAL = 7,
-    NQL_ERR_CANCELLED = 8
+    NQL_ERR_CANCELLED = 8,
+    NQL_DONE = 9
 } NQLStatus;
+typedef struct NQLMeshStream NQLMeshStream;
 
 typedef struct {
     int64_t block_count;
@@ -32,8 +34,25 @@ typedef struct {
 } NQLSchematicInfo;
 
 typedef struct {
+    uint32_t batch_count;
     int64_t triangle_count;
 } NQLMeshInfo;
+
+typedef struct {
+    uint32_t width;
+    uint32_t height;
+} NQLAtlasInfo;
+
+typedef struct {
+    uint32_t batch_index;
+    uint32_t part_count;
+    uint32_t vertex_count;
+    uint32_t index_count;
+    uint32_t triangle_count;
+    uint32_t payload_length;
+    float bounds_min[3];
+    float bounds_max[3];
+} NQLBatchInfo;
 
 typedef struct {
     uint8_t *message;
@@ -47,9 +66,15 @@ NQLStatus nql_schematic_info(const NQLSchematic *schematic, NQLSchematicInfo *ou
 NQLStatus nql_schematic_warnings(const NQLSchematic *schematic, uint8_t **out, size_t *out_len);
 NQLStatus nql_resource_pack_open(const uint8_t *data, size_t len, NQLResourcePack **out, NQLError *err);
 void nql_resource_pack_free(NQLResourcePack *pack);
-NQLStatus nql_schematic_mesh(const NQLSchematic *schematic, const NQLResourcePack *pack,
-                             uint8_t **glb_out, size_t *glb_len,
-                             NQLMeshInfo *info_out, NQLError *err);
+NQLStatus nql_mesh_stream_open(const NQLSchematic *schematic,
+                               const NQLResourcePack *pack,
+                               uint8_t **atlas_png_out, size_t *atlas_png_len,
+                               NQLAtlasInfo *atlas_info_out, NQLMeshInfo *info_out,
+                               NQLMeshStream **stream_out, NQLError *err);
+NQLStatus nql_mesh_stream_next(NQLMeshStream *stream, uint32_t expected_batch,
+                               uint8_t **batch_out, size_t *batch_len,
+                               NQLBatchInfo *info_out, NQLError *err);
+void nql_mesh_stream_free(NQLMeshStream *stream);
 void nql_buffer_free(uint8_t *buffer, size_t len);
 
 #ifdef __cplusplus

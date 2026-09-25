@@ -36,7 +36,7 @@ pub(crate) fn ordered<T: Send, R: Send>(
     std::thread::scope(|scope| {
         let mut inputs = Vec::with_capacity(workers);
         let mut outputs = Vec::with_capacity(workers);
-        let mut handles = Vec::with_capacity(workers);
+        let mut handles = Vec::new();
         let result = (|| {
             for _ in 0..workers {
                 current()?;
