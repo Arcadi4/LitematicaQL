@@ -32,7 +32,7 @@ quartz_nbt = { version = "0.2.9", features = ["preserve_order"] }
 flate2 = { version = "1", default-features = false, features = ["zlib-rs"] }
 # Vanilla LZ4 regions use the lz4-java block-stream container, not lz4_flex's
 # `frame` format. `mca` implements the small framing layer over the block codec.
-lz4_flex = { version = "0.11", default-features = false, features = ["std"] }
+lz4_flex = { version = "0.14", default-features = false, features = ["std"] }
 regex = "1"
 
 [dev-dependencies]
@@ -41,4 +41,4 @@ nucleation = { version = "=0.10.14", default-features = false, features = [
   "meshing",
 ] }
 flate2 = { version = "1", default-features = false, features = ["zlib-rs"] }
-lz4_flex = { version = "0.11", default-features = false, features = ["std"] }
+lz4_flex = { version = "0.14", default-features = false, features = ["std"] }
