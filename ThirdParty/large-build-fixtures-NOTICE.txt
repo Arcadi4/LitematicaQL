@@ -1,0 +1,80 @@
+Third-party build fixtures
+==========================
+
+`Fixtures/Large/Valkyrie.litematic` and `Fixtures/Large/Atrium.litematic` are
+Minecraft builds made by other people. They are test fixtures only: they are
+never bundled with the app or the Quick Look extension, they are not
+redistributed by any release artifact, and the test that reads them is the only
+thing in this repository that touches them.
+
+Unlike `Nucleation-LICENSE.txt` and `schematic-mesher-LICENSE.txt`, this file is
+not a software license. Both builds were published for others to download and
+reuse, so this file records who to credit rather than terms to comply with.
+
+
+Valkyrie.litematic
+------------------
+
+Build
+    Space Valkyria 3 V2, a large base in the End on the 2b2t Minecraft server.
+    Construction started in early April 2018 and the base was griefed on
+    9 May 2019. The wiki describes it as quartz, obsidian, and coloured glass
+    around a round core tower inside a torus, with a rainbow road of stained
+    glass and five further rings.
+
+Builders
+    Credited by the 2b2t wiki as Jacktherippa (founder), AlphaComputer,
+    HermeticLock, Kinorana, monaxide, Parthicus, SilverKrownKing, xarviar, and
+    xcc2.
+
+Source
+    https://2b2t.miraheze.org/wiki/Space_Valkyria_3_V2
+    The wiki links a Google Drive download of a world save of the base.
+
+The file here
+    Not the world save. A Litematica export made with Minecraft 1.19.4 (data
+    version 2865), Litematic format version 6, on 2022-11-26. Its `Author`
+    metadata field reads "Isobreeze", which is whoever ran the export, not one
+    of the builders above.
+
+Terms
+    The 2b2t wiki publishes a world download of the base for public use. The
+    build has nine credited contributors, listed above.
+
+
+Atrium.litematic
+----------------
+
+Build
+    艾兰德·中庭, a fantasy build published as a large building tutorial.
+
+Author
+    正在修行的星雨诺yino, https://space.bilibili.com/19524366
+
+Source
+    https://www.bilibili.com/video/BV1GA411v7pP/
+    【我的世界】---奇幻系建筑艾兰德·中庭（大型建筑教程）, published 2020-07-21,
+    for Minecraft 1.12.2.
+
+The file here
+    Not the archive linked from the video. A Litematica export made with
+    Minecraft 1.20.1 (data version 2586), Litematic format version 5, on
+    2023-05-22. Its `Author` metadata field reads "mhy". The build is therefore
+    several Minecraft versions and three years newer than the tutorial, and the
+    exporting account is not the author.
+
+Terms
+    The author distributes the build openly. The video description says
+    视频中出现的图纸均上传至动态 and links the 中庭1.12.2 archive on Baidu Pan.
+    The 未经作者授权，禁止转载 line further down the page is bilibili's standard
+    notice against republication, not a statement about this video: it renders
+    among the page's stat tiles, and the description does not repeat it.
+
+
+Scope
+-----
+
+Both files are test fixtures. They are not bundled with the app or the Quick
+Look extension, and no release artifact of this project redistributes them. If
+either is ever replaced, keep the credit pointing at whoever made the build
+rather than at whoever exported the Litematic.
