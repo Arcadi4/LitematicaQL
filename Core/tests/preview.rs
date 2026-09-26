@@ -369,6 +369,10 @@ fn cancellation_returns_no_geometry_through_the_c_abi() {
     }
 }
 
+// `Fixtures/Large` is deliberately absent: this sweep keeps every batch payload
+// in a `Vec`, and those builds mesh to about 1.6 GB between them. The large
+// fixtures have their own test, which validates and releases each batch as it
+// arrives, the way the host does.
 #[test]
 fn every_format_and_demo_fixture_uses_the_c_abi() {
     let pack = open_pack(&pack_bytes());
