@@ -259,6 +259,7 @@ fn assert_shared_atlas(result: &MeshResult) {
             let indices =
                 u32::from_le_bytes(payload[offset + 12..offset + 16].try_into().unwrap()) as usize;
             offset += 24 + vertices * 48 + indices * 4 + texture_length as usize;
+            offset = (offset + 3) & !3;
         }
         assert_eq!(offset, payload.len());
     }

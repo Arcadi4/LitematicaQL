@@ -11,7 +11,7 @@ function batch(index: number, textureIndex = 0, texturePNG?: Uint8Array): ArrayB
   const vertices = 3;
   const indices = 3;
   const textureLength = texturePNG?.byteLength ?? 0;
-  const buffer = new ArrayBuffer(64 + 24 + vertices * 48 + indices * 4 + textureLength);
+  const buffer = new ArrayBuffer((64 + 24 + vertices * 48 + indices * 4 + textureLength + 3) & ~3);
   const bytes = new Uint8Array(buffer);
   const view = new DataView(buffer);
   bytes.set([0x4c, 0x51, 0x4d, 0x42], 0);
@@ -41,7 +41,7 @@ function batch(index: number, textureIndex = 0, texturePNG?: Uint8Array): ArrayB
   values[2] = 2;
   const indexArray = new Uint32Array(buffer, offset + vertices * 48, indices);
   indexArray.set([0, 1, 2]);
-  if (texturePNG) bytes.set(texturePNG, buffer.byteLength - textureLength);
+  if (texturePNG) bytes.set(texturePNG, offset + vertices * 48 + indices * 4);
   return buffer;
 }
 
@@ -54,6 +54,40 @@ describe("native mesh batches", () => {
     expect(payload.parts[0].texturePNG).toBeUndefined();
     expect(payload.boundsMin.x).toBe(-1);
     expect(payload.boundsMax.z).toBe(6);
+  });
+
+  it("accepts a first-use texture before a following part", () => {
+    const vertices = 3;
+    const indices = 3;
+    const textureLength = 3;
+    const buffer = new ArrayBuffer(64 + 24 * 2 + vertices * 48 * 2 + indices * 4 * 2 + textureLength + 1);
+    const bytes = new Uint8Array(buffer);
+    const view = new DataView(buffer);
+    bytes.set([0x4c, 0x51, 0x4d, 0x42], 0);
+    view.setUint16(4, 1, true);
+    view.setUint16(6, 64, true);
+    view.setUint32(8, 0, true);
+    view.setUint32(12, 2, true);
+    view.setUint32(16, vertices * 2, true);
+    view.setUint32(20, indices * 2, true);
+    view.setUint32(24, 2, true);
+    let offset = 64;
+    for (let part = 0; part < 2; part += 1) {
+      view.setUint32(offset, part === 0 ? 1 : 0, true);
+      view.setUint32(offset + 4, part === 0 ? 0x100 : 0, true);
+      view.setUint32(offset + 8, vertices, true);
+      view.setUint32(offset + 12, indices, true);
+      view.setUint32(offset + 16, part === 0 ? textureLength : 0, true);
+      offset += 24 + vertices * 48 + indices * 4;
+      if (part === 0) {
+        bytes.set([1, 2, 3], offset);
+        offset = (offset + textureLength + 3) & ~3;
+      }
+    }
+    expect(offset).toBe(buffer.byteLength);
+    const payload = decodeBatch(buffer);
+    expect(payload.parts[0].texturePNG).toHaveLength(textureLength);
+    expect(payload.parts[1].textureIndex).toBe(0);
   });
 
   it("reuses the atlas and first-use greedy textures", async () => {
