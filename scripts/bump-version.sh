@@ -9,8 +9,8 @@ if [[ $# -ne 1 ]] || ! [[ $1 =~ ^[0-9]+\.[0-9]+\.[0-9]+$ ]]; then
 fi
 version=$1
 
-sed -i '' "s/^MARKETING_VERSION: .*/MARKETING_VERSION: ${version}/" project.yml
-sed -i '' "s/^  \"version\": \".*\"/  \"version\": \"${version}\"/" Renderer/package.json
+sed -i '' "s/^\([[:space:]]*\)MARKETING_VERSION: .*/\1MARKETING_VERSION: ${version}/" project.yml
+sed -i '' "s/^\([[:space:]]*\"version\": \)\"[^\"]*\"/\1\"${version}\"/" Renderer/package.json
 
 grep -q "MARKETING_VERSION: ${version}" project.yml
 grep -q "\"version\": \"${version}\"" Renderer/package.json
