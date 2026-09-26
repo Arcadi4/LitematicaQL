@@ -310,6 +310,7 @@ fn append_layer(
             return Err(MeshFailure::Mesh("Texture is too large.".into()));
         }
         bytes.extend_from_slice(png);
+        bytes.resize((bytes.len() + 3) & !3, 0);
     }
     Ok(())
 }

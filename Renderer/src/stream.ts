@@ -351,6 +351,7 @@ export function decodeBatch(buffer: ArrayBuffer): BatchPayload {
     const texturePNG = textureLength
       ? new Uint8Array(buffer, dataOffset, textureLength)
       : undefined;
+    dataOffset += textureLength;
     parts.push({
       textureIndex,
       alphaMode,
@@ -366,7 +367,7 @@ export function decodeBatch(buffer: ArrayBuffer): BatchPayload {
     });
     vertices += partVertices;
     indices += partIndices;
-    offset = dataOffset + textureLength;
+    offset = (dataOffset + 3) & ~3;
   }
   if (offset !== buffer.byteLength || vertices !== vertexCount || indices !== indexCount) {
     throw new Error("The native mesh returned truncated or oversized batch data.");
