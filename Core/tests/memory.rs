@@ -1,54 +1,11 @@
-use std::alloc::{GlobalAlloc, Layout, System};
-use std::sync::atomic::{AtomicUsize, Ordering};
+mod support;
+
+use support::AllocationMeter;
 
 use litematicaql_native::{
     nql_schematic_free, nql_schematic_info, nql_schematic_open, status, NQLError, NQLSchematicInfo,
 };
 use quartz_nbt::{NbtCompound, NbtList, NbtTag};
-
-struct AllocationMeter;
-static LIVE: AtomicUsize = AtomicUsize::new(0);
-static PEAK: AtomicUsize = AtomicUsize::new(0);
-
-fn allocated(bytes: usize) {
-    let live = LIVE.fetch_add(bytes, Ordering::Relaxed) + bytes;
-    PEAK.fetch_max(live, Ordering::Relaxed);
-}
-
-unsafe impl GlobalAlloc for AllocationMeter {
-    unsafe fn alloc(&self, layout: Layout) -> *mut u8 {
-        let pointer = unsafe { System.alloc(layout) };
-        if !pointer.is_null() {
-            allocated(layout.size());
-        }
-        pointer
-    }
-
-    unsafe fn alloc_zeroed(&self, layout: Layout) -> *mut u8 {
-        let pointer = unsafe { System.alloc_zeroed(layout) };
-        if !pointer.is_null() {
-            allocated(layout.size());
-        }
-        pointer
-    }
-
-    unsafe fn dealloc(&self, pointer: *mut u8, layout: Layout) {
-        unsafe { System.dealloc(pointer, layout) };
-        LIVE.fetch_sub(layout.size(), Ordering::Relaxed);
-    }
-
-    unsafe fn realloc(&self, pointer: *mut u8, layout: Layout, size: usize) -> *mut u8 {
-        let next = unsafe { System.realloc(pointer, layout, size) };
-        if !next.is_null() {
-            if size >= layout.size() {
-                allocated(size - layout.size());
-            } else {
-                LIVE.fetch_sub(layout.size() - size, Ordering::Relaxed);
-            }
-        }
-        next
-    }
-}
 
 #[global_allocator]
 static ALLOCATOR: AllocationMeter = AllocationMeter;
@@ -101,8 +58,8 @@ fn sparse_litematic(width: usize) -> Vec<u8> {
 fn sparse_litematic_never_materializes_its_dense_volume() {
     for width in [256, 512] {
         let bytes = sparse_litematic(width);
-        let baseline = LIVE.load(Ordering::Relaxed);
-        PEAK.store(baseline, Ordering::Relaxed);
+        let baseline = AllocationMeter::live();
+        AllocationMeter::reset_peak();
         let mut handle = std::ptr::null_mut();
         let mut failure = NQLError {
             message: std::ptr::null_mut(),
@@ -120,7 +77,7 @@ fn sparse_litematic_never_materializes_its_dense_volume() {
         };
         assert_eq!(unsafe { nql_schematic_info(handle, &mut info) }, status::OK);
         assert_eq!(info.block_count, 3);
-        let peak = PEAK.load(Ordering::Relaxed).saturating_sub(baseline);
+        let peak = AllocationMeter::peak().saturating_sub(baseline);
         unsafe { nql_schematic_free(handle) };
         assert!(
             peak < 1024 * 1024,
