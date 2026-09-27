@@ -121,7 +121,9 @@ export class SchematicViewer {
     this.resize();
   }
 
-  async loadStream(options: Omit<StreamUploaderOptions, "uploader" | "onStaged">): Promise<StreamUploadResult> {
+  async loadStream(
+    options: Omit<StreamUploaderOptions, "uploader" | "onStaged">,
+  ): Promise<StreamUploadResult> {
     this.releaseStaged();
     const uploader = new StreamUploader(options.decoder);
     this.stagedUploader = uploader;
@@ -130,7 +132,11 @@ export class SchematicViewer {
       const result = await uploadStream({
         ...options,
         uploader,
-        onStaged: () => this.render(),
+        onStaged: () => {
+          // The render uploads the staged batch; its CPU-side runs can go.
+          this.render();
+          uploader.releaseUploadedArrays();
+        },
       });
       this.releaseContent();
       this.content = result.root;

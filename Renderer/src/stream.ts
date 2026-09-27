@@ -97,6 +97,7 @@ export class StreamUploader {
   private readonly textures = new Map<number, Texture>();
   private readonly materials = new Map<string, MeshStandardMaterial>();
   private readonly geometries = new Set<BufferGeometry>();
+  private readonly pendingRelease: BufferGeometry[] = [];
   private atlasTexture: Texture | undefined;
   private atlasBytes = 0;
   private transferredBytes = 0;
@@ -154,6 +155,7 @@ export class StreamUploader {
       const mesh = new Mesh(geometry, material);
       mesh.frustumCulled = false;
       this.root.add(mesh);
+      this.pendingRelease.push(geometry);
     }
     this.nextBatch = payload.index + 1;
     this.triangles += payload.triangleCount;
@@ -175,6 +177,33 @@ export class StreamUploader {
     };
   }
 
+  /**
+   * Drop the CPU-side vertex runs staged since the previous call. Their arrays
+   * alias the batch wire payload, so a preview would otherwise hold a second
+   * full copy of the model beside the buffers the renderer already uploaded.
+   *
+   * Each geometry is visited exactly once: its bounding box is computed while
+   * the arrays are still here, and recomputing over the emptied arrays would
+   * poison that box with NaN. The attribute objects are mutated in place
+   * without a version bump, and their draw counts stay untouched, so the
+   * uploaded GPU buffers keep rendering.
+   */
+  releaseUploadedArrays(): void {
+    for (const geometry of this.pendingRelease) {
+      geometry.computeBoundingBox();
+      // These are plain BufferAttributes built in `stage`; the union type with
+      // InterleavedBufferAttribute hides the mutable field.
+      const attributes = Object.values(geometry.attributes) as BufferAttribute[];
+      for (const attribute of attributes) {
+        attribute.array = attribute.array.slice(0, 0);
+      }
+      const index = geometry.index as BufferAttribute | null;
+      if (index) {
+        index.array = index.array.slice(0, 0);
+      }
+    }
+    this.pendingRelease.length = 0;
+  }
 
   bytes(): number {
     return this.transferredBytes;
@@ -211,11 +240,7 @@ export class StreamUploader {
     return texture;
   }
 
-  private materialFor(
-    texture: Texture,
-    alphaMode: number,
-    repeat: boolean,
-  ): MeshStandardMaterial {
+  private materialFor(texture: Texture, alphaMode: number, repeat: boolean): MeshStandardMaterial {
     const key = `${texture.uuid}:${alphaMode}:${repeat ? 1 : 0}`;
     const existing = this.materials.get(key);
     if (existing) return existing;
@@ -330,8 +355,10 @@ export function decodeBatch(buffer: ArrayBuffer): BatchPayload {
     const partIndices = view.getUint32(offset + 12, true);
     const textureLength = view.getUint32(offset + 16, true);
     const alphaMode = flags & 0xff;
-    if (textureIndex === 0 && textureLength !== 0) throw new Error("The shared atlas was embedded in a geometry batch.");
-    if (alphaMode > blend || partIndices % 3 !== 0) throw new Error("The native mesh returned an invalid batch part.");
+    if (textureIndex === 0 && textureLength !== 0)
+      throw new Error("The shared atlas was embedded in a geometry batch.");
+    if (alphaMode > blend || partIndices % 3 !== 0)
+      throw new Error("The native mesh returned an invalid batch part.");
     const attributeBytes = partVertices * 48 + partIndices * 4 + textureLength;
     requireBytes(buffer, offset + partHeaderBytes, attributeBytes);
     let dataOffset = offset + partHeaderBytes;
@@ -372,7 +399,17 @@ export function decodeBatch(buffer: ArrayBuffer): BatchPayload {
   if (offset !== buffer.byteLength || vertices !== vertexCount || indices !== indexCount) {
     throw new Error("The native mesh returned truncated or oversized batch data.");
   }
-  return { index, partCount, vertexCount, indexCount, triangleCount, boundsMin, boundsMax, parts, byteLength: buffer.byteLength };
+  return {
+    index,
+    partCount,
+    vertexCount,
+    indexCount,
+    triangleCount,
+    boundsMin,
+    boundsMax,
+    parts,
+    byteLength: buffer.byteLength,
+  };
 }
 
 function configureTexture(texture: Texture): void {
@@ -393,6 +430,7 @@ function requireBytes(buffer: ArrayBuffer, offset: number, length: number): void
 
 function readAscii(view: DataView, offset: number, length: number): string {
   let value = "";
-  for (let index = 0; index < length; index += 1) value += String.fromCharCode(view.getUint8(offset + index));
+  for (let index = 0; index < length; index += 1)
+    value += String.fromCharCode(view.getUint8(offset + index));
   return value;
 }
