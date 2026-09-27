@@ -62,26 +62,34 @@ brew install --cask arcadi4/tap/litematicaql
 
 ## 开发
 
-编译原生核心：
+所有命令都由 [just](https://github.com/casey/just) 统一调度。不带参数运行即可列出全部配方：
 
 ```sh
-cargo check --manifest-path Core/Cargo.toml
+just
 ```
 
-运行 Swift 测试：
+| 命令 | 作用 |
+| --- | --- |
+| `just doctor` | 检查工具链依赖是否已安装 |
+| `just build` | 构建临时签名（ad-hoc）的 Apple 芯片与 Intel 版本 |
+| `just run` | 构建并打开应用 |
+| `just test` | 运行 Swift 文件校验测试与 Rust 桥接测试 |
+| `just check` | 对 Rust 桥接层做类型检查 |
+| `just clean` | 删除全部构建产物 |
+| `just ci` | 在本地复现 CI 流程 |
+| `just unregister` | 清理 LitematicaQL 的旧 Quick Look 注册记录，同时保留 `/Applications` 中的已安装版本 |
+| `just bump patch` | 在 `main` 上提升版本号（默认 `patch`，也可选 `minor`、`major`），提交并打标签 |
+| `just release 1.2.6 arm64` | 归档、校验并打包单一架构 |
+| `just demos` | 重新生成内置演示原理图 |
 
-```sh
-swift test
-```
-
-清理 LitematicaQL 的旧 Quick Look 注册记录，同时保留已安装的 `/Applications` 版本：
-
-```sh
-./scripts/clean-quick-look-registrations.sh
-```
+`just` 会读取环境变量 `CONFIGURATION`、`ARCHS` 与 `CURRENT_PROJECT_VERSION`，
+CI 与发布矩阵正是通过它们驱动同一批配方。
 
 ### 构建
 
+前置依赖：
+
+- [just](https://github.com/casey/just)
 - Xcode 26 或更高，包含 Metal Toolchain 组件
 - Rust（rustup）
 - [XcodeGen](https://github.com/yonaskolb/XcodeGen)
@@ -90,14 +98,7 @@ swift test
 git clone https://github.com/Arcadi4/LitematicaQL.git
 cd LitematicaQL
 
-xcodegen generate
-
-xcodebuild \
-  -project LitematicaQL.xcodeproj \
-  -scheme LitematicaQL \
-  -configuration Debug \
-  -derivedDataPath DerivedData \
-  build
+just build
 ```
 
 ## 致谢

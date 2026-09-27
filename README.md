@@ -62,26 +62,35 @@ and on-demand drawing. See [the rendering architecture](docs/rendering.md).
 
 ## Development
 
-Compile the native core:
+Everything is driven by [just](https://github.com/casey/just). Run it with no
+arguments to list every recipe:
 
 ```sh
-cargo check --manifest-path Core/Cargo.toml
+just
 ```
 
-Run the Swift tests:
+| Command | What it does |
+| --- | --- |
+| `just doctor` | Check that the toolchain prerequisites are installed |
+| `just build` | Build the ad-hoc signed app for Apple silicon and Intel |
+| `just run` | Build the app and open it |
+| `just test` | Run the Swift file-validation tests and the Rust bridge tests |
+| `just check` | Type-check the Rust bridge |
+| `just clean` | Delete every generated build artifact |
+| `just ci` | Reproduce the CI pipeline locally |
+| `just unregister` | Clean stale LitematicaQL Quick Look registrations, keeping the installed `/Applications` copy |
+| `just bump patch` | Bump the version on `main` (`patch` by default, or `minor`, `major`), commit it, and tag it |
+| `just release 1.2.6 arm64` | Archive, verify, and package one architecture |
+| `just demos` | Regenerate the bundled demo schematics |
 
-```sh
-swift test
-```
-
-Clean stale LitematicaQL Quick Look registrations while keeping the installed `/Applications` copy with:
-
-```sh
-./scripts/clean-quick-look-registrations.sh
-```
+`just` honors `CONFIGURATION`, `ARCHS`, and `CURRENT_PROJECT_VERSION` from the
+environment, which is how CI and the release matrix drive these same recipes.
 
 ### Build
 
+Prerequisites:
+
+- [just](https://github.com/casey/just)
 - Xcode 26 or later, including the Metal Toolchain component
 - Rust (rustup)
 - [XcodeGen](https://github.com/yonaskolb/XcodeGen)
@@ -90,14 +99,7 @@ Clean stale LitematicaQL Quick Look registrations while keeping the installed `/
 git clone https://github.com/Arcadi4/LitematicaQL.git
 cd LitematicaQL
 
-xcodegen generate
-
-xcodebuild \
-  -project LitematicaQL.xcodeproj \
-  -scheme LitematicaQL \
-  -configuration Debug \
-  -derivedDataPath DerivedData \
-  build
+just build
 ```
 
 ## Acknowledgements
