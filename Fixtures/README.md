@@ -7,8 +7,7 @@ scans of anyone else's world, and no attribution requirement beyond this
 project's own license. Regenerate them with:
 
 ```sh
-pnpm --dir scripts/demos install --frozen-lockfile
-pnpm --dir scripts/demos run generate
+just demos
 ```
 
 The generator refuses to write a file it cannot read back, so a file format whose
@@ -62,8 +61,8 @@ rather than by `generate-demos.ts`, and a model far too big for the shared atlas
 to cover. `Core/tests/large_builds.rs` runs them end to end: it decodes, meshes,
 and streams every batch, validating each one against the same contract the
 renderer's `decodeBatch` enforces, then reports throughput and peak memory
-against recorded budgets. Run it with `--nocapture` to see the report, which is
-also written to `Core/target/tmp/large-builds.txt`.
+against recorded budgets. Run `just test-large` to see the report, which is also
+written to `Core/target/tmp/large-builds.txt`.
 
 Two properties of these builds are worth keeping in mind when reading the test.
 Their meshed bounds are the chunk-padded region rather than the content box —
