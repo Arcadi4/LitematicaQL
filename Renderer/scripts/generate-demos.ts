@@ -28,7 +28,6 @@ const decodeLimits = JSON.stringify({
   max_volume: 16_777_216,
 });
 
-
 type Position = readonly [number, number, number];
 
 /** Splits an `"x,y,z"` key back into coordinates; keys only come from `Model.set`. */
@@ -236,7 +235,6 @@ class Model {
     };
   }
 }
-
 
 const oak = "minecraft:oak_planks";
 const spruce = "minecraft:spruce_planks";
@@ -495,7 +493,6 @@ function garden(): Model {
   return model;
 }
 
-
 function toNucleation(
   model: Model,
   { name, author, description }: { name: string; author: string; description: string },
@@ -726,7 +723,6 @@ function byPosition([left]: [string, string], [right]: [string, string]): number
   return a[1] - b[1] || a[2] - b[2] || a[0] - b[0];
 }
 
-
 /**
  * MCEdit accepts only legacy numeric block ids and metadata. Wooden planks are
  * excluded because Nucleation's `wood_variant` ignores the suffix and decodes
@@ -860,7 +856,6 @@ function encodeClassic(model: Model): Uint8Array {
 function toSignedByte(value: number): number {
   return value > 127 ? value - 256 : value;
 }
-
 
 const common = {
   author: "LitematicaQL",
@@ -1033,7 +1028,6 @@ interface ParsedTag {
   tag: number;
   value: NbtValue;
 }
-
 
 /** Everything the minimal reader can produce; lists hold bare payloads. */
 type NbtValue = number | bigint | string | Int8Array | NbtValue[] | ParsedCompound;
