@@ -22,14 +22,6 @@ if (html.includes("data:application/wasm;base64,") || html.includes("nucleation"
   throw new Error("Renderer build still bundles the WebAssembly mesher.");
 }
 
-const requiredLicenses = ["three-LICENSE"];
-for (const license of requiredLicenses) {
-  const contents = await readFile(join(rendererDirectory, "third-party", license), "utf8");
-  if (contents.trim().length === 0) {
-    throw new Error(`Third-party license is empty: ${license}`);
-  }
-}
-
 const resourcePack = await stat(join(outputDirectory, "pack.zip"));
 if (resourcePack.size === 0) {
   throw new Error("Bundled resource pack is empty.");

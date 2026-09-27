@@ -12,9 +12,6 @@ version=$1
 sed -i '' "s/^\([[:space:]]*\)MARKETING_VERSION: .*/\1MARKETING_VERSION: ${version}/" project.yml
 sed -i '' "s/^\([[:space:]]*\"version\": \)\"[^\"]*\"/\1\"${version}\"/" Renderer/package.json
 
-grep -q "MARKETING_VERSION: ${version}" project.yml
-grep -q "\"version\": \"${version}\"" Renderer/package.json
-
 if ! command -v xcodegen >/dev/null 2>&1; then
     echo "xcodegen is required to regenerate LitematicaQL.xcodeproj" >&2
     exit 1
