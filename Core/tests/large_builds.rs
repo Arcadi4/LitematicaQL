@@ -93,7 +93,7 @@ const BASELINES: &[Baseline] = &[
         triangles: 10_705_456,
         payload_bytes: 1_156_261_144,
         geometry: [704.0, 256.0, 576.0],
-        peak_budget: 246_250_000,
+        peak_budget: 137_560_888,
     },
     Baseline {
         name: "Valkyrie",
@@ -107,7 +107,7 @@ const BASELINES: &[Baseline] = &[
         triangles: 4_937_416,
         payload_bytes: 533_333_244,
         geometry: [1024.0, 320.0, 1024.0],
-        peak_budget: 218_750_000,
+        peak_budget: 129_110_885,
     },
 ];
 
