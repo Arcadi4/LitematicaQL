@@ -41,7 +41,6 @@ const fileName = requiredElement<HTMLElement>("file-name");
 const fileDimensions = requiredElement<HTMLElement>("file-dimensions");
 const fileBlockCount = requiredElement<HTMLElement>("file-block-count");
 const fileBlockEntities = requiredElement<HTMLElement>("file-block-entities");
-const fileModelStats = requiredElement<HTMLElement>("file-model-stats");
 const fileMemory = requiredElement<HTMLElement>("file-memory");
 const fileWarnings = requiredElement<HTMLElement>("file-warnings");
 const controlsHint = requiredElement<HTMLElement>("controls-hint");
@@ -127,7 +126,6 @@ window.litematicaQL = {
       if (result.triangles === 0) {
         throw new Error("The schematic contains no visible geometry to render.");
       }
-      fileModelStats.textContent = `${result.triangles.toLocaleString()} triangles · ${formatBytes(result.bytes)} total model data`;
       const memory = (performance as Performance & { memory?: { usedJSHeapSize: number } }).memory;
       fileMemory.textContent = memory
         ? `Renderer memory ${formatBytes(memory.usedJSHeapSize)}`
@@ -159,7 +157,6 @@ function showPreviewMetadata(
   fileDimensions.textContent = dimensions;
   fileBlockCount.textContent = `${blockCount.toLocaleString()} blocks`;
   fileBlockEntities.textContent = `${blockEntityCount.toLocaleString()} block entities`;
-  fileModelStats.textContent = "";
   fileMemory.hidden = true;
   fileInfo.hidden = false;
   controlsHint.hidden = false;
