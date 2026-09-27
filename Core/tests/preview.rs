@@ -85,6 +85,9 @@ fn info(handle: *const litematicaql_native::NQLSchematic) -> NQLSchematicInfo {
         content_x: 0,
         content_y: 0,
         content_z: 0,
+        content_min_x: 0,
+        content_min_y: 0,
+        content_min_z: 0,
     };
     assert_eq!(unsafe { nql_schematic_info(handle, &mut info) }, status::OK);
     info

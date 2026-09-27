@@ -74,6 +74,9 @@ fn sparse_litematic_never_materializes_its_dense_volume() {
             content_x: 0,
             content_y: 0,
             content_z: 0,
+            content_min_x: 0,
+            content_min_y: 0,
+            content_min_z: 0,
         };
         assert_eq!(unsafe { nql_schematic_info(handle, &mut info) }, status::OK);
         assert_eq!(info.block_count, 3);
