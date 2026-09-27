@@ -12,9 +12,10 @@
 
       <section id="status" class="status" role="status" aria-live="polite">
         <div class="status__mark" aria-hidden="true"><span></span><span></span><span></span></div>
-        <div>
+        <div class="status__body">
           <p id="status-title" class="status__title">Preparing renderer</p>
           <p id="status-detail" class="status__detail">Loading block resources…</p>
+          <progress id="status-progress" class="status__progress" max="1"></progress>
         </div>
       </section>
 

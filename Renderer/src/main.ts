@@ -36,6 +36,7 @@ const canvas = requiredElement<HTMLCanvasElement>("schematic-canvas");
 const status = requiredElement<HTMLElement>("status");
 const statusTitle = requiredElement<HTMLElement>("status-title");
 const statusDetail = requiredElement<HTMLElement>("status-detail");
+const statusProgress = requiredElement<HTMLProgressElement>("status-progress");
 const fileInfo = requiredElement<HTMLElement>("file-info");
 const fileName = requiredElement<HTMLElement>("file-name");
 const fileDimensions = requiredElement<HTMLElement>("file-dimensions");
@@ -55,14 +56,24 @@ function renderStatus(): void {
   const view = statusModel.current;
   status.hidden = view.kind === "hidden";
   status.classList.toggle("status--error", view.kind === "error");
+  status.classList.toggle("status--progress", view.kind === "progress");
   if (view.kind === "progress") {
-    statusTitle.textContent = "Building preview";
+    statusTitle.textContent = "";
     statusDetail.textContent = view.notice;
     statusDetail.hidden = view.notice === "";
-  } else if (view.kind === "error" || view.kind === "idle") {
-    statusTitle.textContent = view.title;
-    statusDetail.textContent = view.message;
-    statusDetail.hidden = false;
+    statusProgress.hidden = false;
+    if (view.fraction === undefined) {
+      statusProgress.removeAttribute("value");
+    } else {
+      statusProgress.value = view.fraction;
+    }
+  } else {
+    statusProgress.hidden = true;
+    if (view.kind === "error" || view.kind === "idle") {
+      statusTitle.textContent = view.title;
+      statusDetail.textContent = view.message;
+      statusDetail.hidden = false;
+    }
   }
 }
 

@@ -110,6 +110,41 @@ body {
   line-height: 1.4;
 }
 
+.status__body {
+  flex: 1 1 auto;
+  min-width: 0;
+}
+
+/* Loading is a plain progress bar: no mark, no titles, no numbers. */
+.status--progress .status__mark,
+.status--progress .status__title {
+  display: none;
+}
+
+.status--progress {
+  padding: 16px 18px;
+}
+
+.status__progress {
+  appearance: none;
+  display: block;
+  width: 100%;
+  height: 6px;
+  border: none;
+  border-radius: 999px;
+  background: rgba(255, 255, 255, 0.14);
+  overflow: hidden;
+}
+
+.status__progress::-webkit-progress-bar {
+  background: transparent;
+}
+
+.status__progress::-webkit-progress-value {
+  border-radius: 999px;
+  background: #75c69d;
+}
+
 .file-info,
 .controls-hint {
   position: absolute;
