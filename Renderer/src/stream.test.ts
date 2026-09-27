@@ -1,5 +1,5 @@
 import { afterEach, describe, expect, it } from "vite-plus/test";
-import { Texture } from "three";
+import { BufferAttribute, BufferGeometry, Mesh, Texture } from "three";
 import { decodeBatch, StreamUploader, uploadStream, type BatchDecoder } from "./stream";
 
 const originalFetch = globalThis.fetch;
@@ -35,7 +35,11 @@ function batch(index: number, textureIndex = 0, texturePNG?: Uint8Array): ArrayB
   view.setUint32(offset + 12, indices, true);
   view.setUint32(offset + 16, textureLength, true);
   offset += 24;
-  const values = new Float32Array(buffer, offset, vertices * 3 + vertices * 3 + vertices * 2 + vertices * 4);
+  const values = new Float32Array(
+    buffer,
+    offset,
+    vertices * 3 + vertices * 3 + vertices * 2 + vertices * 4,
+  );
   values[0] = 0;
   values[1] = 1;
   values[2] = 2;
@@ -60,7 +64,9 @@ describe("native mesh batches", () => {
     const vertices = 3;
     const indices = 3;
     const textureLength = 3;
-    const buffer = new ArrayBuffer(64 + 24 * 2 + vertices * 48 * 2 + indices * 4 * 2 + textureLength + 1);
+    const buffer = new ArrayBuffer(
+      64 + 24 * 2 + vertices * 48 * 2 + indices * 4 * 2 + textureLength + 1,
+    );
     const bytes = new Uint8Array(buffer);
     const view = new DataView(buffer);
     bytes.set([0x4c, 0x51, 0x4d, 0x42], 0);
@@ -92,10 +98,12 @@ describe("native mesh batches", () => {
 
   it("reuses the atlas and first-use greedy textures", async () => {
     let decodes = 0;
-    const decoder: BatchDecoder = { decode: async () => {
-      decodes += 1;
-      return new Texture();
-    } };
+    const decoder: BatchDecoder = {
+      decode: async () => {
+        decodes += 1;
+        return new Texture();
+      },
+    };
     globalThis.fetch = async () => new Response(new Uint8Array([1]));
     const uploader = new StreamUploader(decoder);
     await uploader.loadAtlas("atlas");
@@ -110,31 +118,64 @@ describe("native mesh batches", () => {
     uploader.dispose();
   });
 
+  it("discards staged arrays after upload but keeps framing bounds", async () => {
+    const decoder: BatchDecoder = {
+      decode: async () => new Texture(),
+    };
+    globalThis.fetch = async () => new Response(new Uint8Array([1]));
+    const uploader = new StreamUploader(decoder);
+    await uploader.loadAtlas("atlas");
+    await uploader.stage(decodeBatch(batch(0)));
+    uploader.releaseUploadedArrays();
+
+    const geometry = (uploader.root.children[0] as Mesh).geometry as BufferGeometry;
+    expect((geometry.attributes.position as BufferAttribute).array).toHaveLength(0);
+    expect((geometry.attributes.color as BufferAttribute).array).toHaveLength(0);
+    expect((geometry.index as BufferAttribute).array).toHaveLength(0);
+    // Framing must keep fitting the visible model, not the batch grid.
+    expect(geometry.boundingBox?.min.toArray()).toEqual([0, 0, 0]);
+    expect(geometry.boundingBox?.max.toArray()).toEqual([0, 1, 2]);
+
+    // A later release visits only freshly staged geometry; recomputing over
+    // emptied arrays would poison the bounds framing reads at the end.
+    await uploader.stage(decodeBatch(batch(1)));
+    uploader.releaseUploadedArrays();
+    expect(geometry.boundingBox?.max.toArray()).toEqual([0, 1, 2]);
+    expect(
+      ((uploader.root.children[1] as Mesh).geometry as BufferGeometry).boundingBox?.max.toArray(),
+    ).toEqual([0, 1, 2]);
+    uploader.dispose();
+  });
+
   it("stops requesting stale batches after cancellation", async () => {
-    const decoder: BatchDecoder = { decode: async () => {
-      const texture = new Texture();
-      texture.image = { width: 1, height: 1 };
-      return texture;
-    } };
+    const decoder: BatchDecoder = {
+      decode: async () => {
+        const texture = new Texture();
+        texture.image = { width: 1, height: 1 };
+        return texture;
+      },
+    };
     globalThis.fetch = async () => new Response(new Uint8Array([1]));
     const abort = new AbortController();
     let requests = 0;
-    await expect(uploadStream({
-      atlasURL: "atlas",
-      atlasWidth: 1,
-      atlasHeight: 1,
-      batchCount: 3,
-      decoder,
-      signal: abort.signal,
-      fetchBatch: async () => {
-        requests += 1;
-        abort.abort();
-        return new Response(batch(requests - 1));
-      },
-      onProgress: (progress) => {
-        if (progress.phase === "upload") abort.abort();
-      },
-    })).rejects.toMatchObject({ name: "AbortError" });
+    await expect(
+      uploadStream({
+        atlasURL: "atlas",
+        atlasWidth: 1,
+        atlasHeight: 1,
+        batchCount: 3,
+        decoder,
+        signal: abort.signal,
+        fetchBatch: async () => {
+          requests += 1;
+          abort.abort();
+          return new Response(batch(requests - 1));
+        },
+        onProgress: (progress) => {
+          if (progress.phase === "upload") abort.abort();
+        },
+      }),
+    ).rejects.toMatchObject({ name: "AbortError" });
     expect(requests).toBe(1);
   });
 });
