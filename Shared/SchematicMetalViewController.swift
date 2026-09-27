@@ -1,5 +1,6 @@
 import AppKit
 import MetalKit
+import simd
 
 /// The app and Quick Look share the same native view and bounded loader.
 @MainActor
@@ -130,6 +131,9 @@ final class SchematicMetalViewController: NSViewController {
                         return try session.decode(data)
                     }
                     try Task.checkCancellation()
+                    // Pin the camera before any geometry exists, so streamed
+                    // batches cannot drag the view around while they load.
+                    await self?.pinFrame(current, facts: facts)
                     await self?.update(current, message: "Preparing block textures…", fraction: 0)
                     let pack = try NativeResourcePack.bundled.get()
                     let batchCount = try autoreleasepool {
@@ -179,8 +183,17 @@ final class SchematicMetalViewController: NSViewController {
         }
     }
 
+    private func pinFrame(_ generation: Int, facts: NativeSchematicFacts) {
+        guard generation == self.generation else { return }
+        let (x, y, z) = facts.contentDimensions
+        guard x > 0, y > 0, z > 0 else { return }
+        let (ox, oy, oz) = facts.contentOrigin
+        renderer?.setContentBounds(min: SIMD3(ox, oy, oz), size: SIMD3(x, y, z))
+    }
+
     private func finish(_ generation: Int, facts: NativeSchematicFacts) {
         guard generation == self.generation else { return }
+        renderer?.settleFraming()
         let size = renderer?.dimensions ?? .zero
         status.stringValue = "\(facts.blockCount.formatted()) blocks · \(size.x) × \(size.y) × \(size.z)"
         details.stringValue = facts.warnings.joined(separator: "\n")

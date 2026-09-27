@@ -17,6 +17,13 @@ final class SchematicMetalRenderer: NSObject, MTKViewDelegate {
     private var chunks: [MetalMeshChunk] = []
     private var low = SIMD3<Float>(repeating: .infinity)
     private var high = SIMD3<Float>(repeating: -.infinity)
+    // The camera frames this box, not the geometry bounds. It is seeded from
+    // the decoded schematic's occupied-block bounds, so streaming batches never
+    // move the camera; the box only grows to admit geometry that reaches past
+    // those bounds, and the camera is re-fit once when loading settles.
+    private var frameLow = SIMD3<Float>(repeating: .infinity)
+    private var frameHigh = SIMD3<Float>(repeating: -.infinity)
+    private var framingPinned = false
     private var target = SIMD3<Float>(repeating: 0)
     private var distance: Float = 10
     private var yaw: Float = .pi / 4
@@ -91,9 +98,35 @@ final class SchematicMetalRenderer: NSObject, MTKViewDelegate {
         chunks.removeAll(keepingCapacity: false)
         low = SIMD3(repeating: .infinity)
         high = SIMD3(repeating: -.infinity)
+        frameLow = SIMD3(repeating: .infinity)
+        frameHigh = SIMD3(repeating: -.infinity)
+        framingPinned = false
         cameraMoved = false
         yaw = .pi / 4
         pitch = .pi / 6
+        requestDraw()
+    }
+
+    /// Pins the camera frame to the schematic's occupied-block bounds, which
+    /// are known before meshing starts. Without this the frame would follow the
+    /// growing geometry bounds and the view would drift as chunks stream in.
+    func setContentBounds(min: SIMD3<Int>, size: SIMD3<Int>) {
+        let origin = SIMD3<Float>(Float(min.x), Float(min.y), Float(min.z))
+        let extent = SIMD3<Float>(Float(size.x), Float(size.y), Float(size.z))
+        // Geometry is authored in block-center coordinates, so a block at `p`
+        // spans [p - 0.5, p + 0.5]. Pad the block box to keep that margin.
+        frameLow = simd_min(frameLow, origin - 0.5)
+        frameHigh = simd_max(frameHigh, origin + extent - 0.5)
+        framingPinned = true
+        if !cameraMoved { fit() }
+        requestDraw()
+    }
+
+    /// Re-frames once all geometry has arrived, so entities rendered outside
+    /// the block bounds still sit inside the view.
+    func settleFraming() {
+        guard framingPinned, !cameraMoved else { return }
+        fit()
         requestDraw()
     }
 
@@ -101,7 +134,11 @@ final class SchematicMetalRenderer: NSObject, MTKViewDelegate {
         chunks.append(chunk)
         low = simd_min(low, chunk.origin)
         high = simd_max(high, chunk.origin + chunk.extent)
-        if !cameraMoved { fit() }
+        // Geometry may reach past the block bounds. Admit it to the frame, but
+        // hold the camera still until loading settles so the view never drifts.
+        frameLow = simd_min(frameLow, chunk.origin)
+        frameHigh = simd_max(frameHigh, chunk.origin + chunk.extent)
+        if !framingPinned, !cameraMoved { fit() }
     }
 
     var dimensions: SIMD3<Int> {
@@ -118,14 +155,17 @@ final class SchematicMetalRenderer: NSObject, MTKViewDelegate {
         requestDraw()
     }
 
-    private var radius: Float { chunks.isEmpty ? 1 : max(simd_length(high - low) * 0.5, 0.5) }
+    private var radius: Float {
+        guard frameLow.x.isFinite else { return 1 }
+        return max(simd_length(frameHigh - frameLow) * 0.5, 0.5)
+    }
     private var eye: SIMD3<Float> {
         target + SIMD3(sin(yaw) * cos(pitch), sin(pitch), cos(yaw) * cos(pitch)) * distance
     }
 
     private func fit() {
-        guard !chunks.isEmpty else { return }
-        target = (low + high) * 0.5
+        guard frameLow.x.isFinite else { return }
+        target = (frameLow + frameHigh) * 0.5
         let size = view?.drawableSize ?? CGSize(width: 1, height: 1)
         let aspect = Float(max(size.width, 1) / max(size.height, 1))
         let angle = min(Float.pi / 8, atan(tan(Float.pi / 8) * aspect))
@@ -242,7 +282,10 @@ final class SchematicMetalRenderer: NSObject, MTKViewDelegate {
             SIMD4(x.x, y.x, z.x, 0), SIMD4(x.y, y.y, z.y, 0), SIMD4(x.z, y.z, z.z, 0),
             SIMD4(-simd_dot(x, eye), -simd_dot(y, eye), -simd_dot(z, eye), 1)
         ))
-        let sceneDistance = chunks.isEmpty ? distance : simd_length(eye - (low + high) * 0.5)
+        // Measure the scene against the same pinned frame the camera uses, so
+        // depth precision does not shift as batches stream in.
+        let sceneCenter = frameLow.x.isFinite ? (frameLow + frameHigh) * 0.5 : target
+        let sceneDistance = chunks.isEmpty ? distance : simd_length(eye - sceneCenter)
         let near = max(0.01, sceneDistance - radius * 1.1)
         let far = max(near + 1, sceneDistance + radius * 1.1)
         let scale = 1 / tan(Float.pi / 8)

@@ -13,6 +13,9 @@ struct NativeSchematicFacts: Sendable {
     let blockEntityCount: Int
     /// Occupied-block bounds; region padding can make declared dimensions larger.
     let contentDimensions: (Int, Int, Int)
+    /// Lower corner of the occupied-block box. Pairs with `contentDimensions`
+    /// to give the full framing box before any geometry is meshed.
+    let contentOrigin: (Int, Int, Int)
     /// Notices for content that exists but cannot be displayed, such as unreadable
     /// chunks or regions held in external `.mcc` files.
     let warnings: [String]
@@ -135,7 +138,10 @@ final class NativeSchematicSession: @unchecked Sendable {
             block_entity_count: 0,
             content_x: 0,
             content_y: 0,
-            content_z: 0
+            content_z: 0,
+            content_min_x: 0,
+            content_min_y: 0,
+            content_min_z: 0
         )
         guard nql_schematic_info(handle, &info) == NQL_OK else {
             throw NativeSchematicRefusal(
@@ -146,6 +152,8 @@ final class NativeSchematicSession: @unchecked Sendable {
             blockCount: Int(info.block_count),
             blockEntityCount: Int(info.block_entity_count),
             contentDimensions: (Int(info.content_x), Int(info.content_y), Int(info.content_z)),
+            contentOrigin: (Int(info.content_min_x), Int(info.content_min_y),
+                            Int(info.content_min_z)),
             warnings: readWarnings()
         )
     }
