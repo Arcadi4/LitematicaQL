@@ -13,11 +13,68 @@ mod atlas;
 mod builder;
 
 pub(crate) type ChunkCoord = (i32, i32, i32);
-type IndexedBlock = (BlockPosition, u32);
+
+/// One occupied block, packed as `y | z | x | palette entry`: twelve bits per
+/// axis of chunk-local coordinates and a twenty-eight-bit palette index. The
+/// chunk's blocks then cost 8 bytes instead of 16, which is the difference
+/// between a preview holding its model twice and holding it once.
+type IndexedBlock = u64;
+
+const INDEX_BITS: u32 = 28;
+const AXIS_BITS: u32 = 12;
+const INDEX_MASK: u64 = (1 << INDEX_BITS) - 1;
+const AXIS_MASK: u64 = (1 << AXIS_BITS) - 1;
+const X_SHIFT: u32 = INDEX_BITS;
+const Z_SHIFT: u32 = INDEX_BITS + AXIS_BITS;
+const Y_SHIFT: u32 = INDEX_BITS + 2 * AXIS_BITS;
+
+/// Pack a chunk-local position and palette index. The index stays a source
+/// alias until [`CompactBlocksBuilder::finish`] resolves it.
+fn pack_block(relative: [i32; 3], index: u32) -> Result<IndexedBlock, String> {
+    if u64::from(index) > INDEX_MASK {
+        return Err("The schematic has too many block states.".into());
+    }
+    let axis = |value: i32, shift: u32| -> Result<u64, String> {
+        let value =
+            u32::try_from(value).map_err(|_| "A block sits outside its mesh chunk.".to_string())?;
+        if u64::from(value) > AXIS_MASK {
+            return Err("A block sits outside its mesh chunk.".into());
+        }
+        Ok(u64::from(value) << shift)
+    };
+    // y | z | x | index, so plain integer order walks a chunk in the y-z-x
+    // order the mesher consumes.
+    Ok(axis(relative[1], Y_SHIFT)?
+        | axis(relative[2], Z_SHIFT)?
+        | axis(relative[0], X_SHIFT)?
+        | u64::from(index))
+}
+
+fn block_axes(packed: IndexedBlock) -> (i32, i32, i32) {
+    (
+        ((packed >> X_SHIFT) & AXIS_MASK) as i32,
+        ((packed >> Y_SHIFT) & AXIS_MASK) as i32,
+        ((packed >> Z_SHIFT) & AXIS_MASK) as i32,
+    )
+}
+
+fn block_position(packed: IndexedBlock, origin: [i32; 3]) -> BlockPosition {
+    let (x, y, z) = block_axes(packed);
+    BlockPosition::new(origin[0] + x, origin[1] + y, origin[2] + z)
+}
+
+fn block_index(packed: IndexedBlock) -> u32 {
+    (packed & INDEX_MASK) as u32
+}
+
+fn chunk_origin(coord: ChunkCoord, size: i32) -> [i32; 3] {
+    [coord.0 * size, coord.1 * size, coord.2 * size]
+}
 
 pub(crate) struct CompactBlocks {
     pub(crate) chunks: Vec<(ChunkCoord, Vec<IndexedBlock>)>,
     palette: Vec<InputBlock>,
+    chunk_size: i32,
     block_count: i64,
     block_entity_count: i64,
     tight_min: [i32; 3],
@@ -34,7 +91,8 @@ pub(crate) struct CompactBlocksBuilder {
     chunks: HashMap<ChunkCoord, Vec<IndexedBlock>>,
     palette: Vec<InputBlock>,
     states: HashMap<BlockState, u32>,
-    chunk_size: Option<i32>,
+    entities: HashMap<String, u32>,
+    chunk_size: i32,
     block_count: i64,
     block_entity_count: i64,
     source_order: Option<Vec<(usize, u32)>>,
@@ -45,14 +103,18 @@ pub(crate) struct CompactBlocksBuilder {
 }
 
 impl CompactBlocksBuilder {
-    pub(crate) fn new(chunk_size: Option<i32>) -> Result<Self, String> {
-        if chunk_size.is_some_and(|size| size <= 0) {
+    pub(crate) fn new(chunk_size: i32) -> Result<Self, String> {
+        if chunk_size <= 0 {
             return Err("The mesh chunk size must be positive.".into());
+        }
+        if chunk_size > 1 << AXIS_BITS {
+            return Err("The mesh chunk size exceeds the packed block range.".into());
         }
         Ok(Self {
             chunks: HashMap::new(),
             palette: Vec::new(),
             states: HashMap::new(),
+            entities: HashMap::new(),
             chunk_size,
             block_count: 0,
             block_entity_count: 0,
@@ -135,10 +197,21 @@ impl CompactBlocksBuilder {
             entity.position.1.floor() as i32,
             entity.position.2.floor() as i32,
         );
-        let index = u32::try_from(self.palette.len())
-            .map_err(|_| "The schematic has too many block states.")?;
-        self.palette.try_reserve(1).map_err(|e| e.to_string())?;
-        self.palette.push(entity_to_input_block(entity));
+        // Identical entities share one palette entry: a build packed with the
+        // same mob would otherwise hold a property map per entity. Each push
+        // still gets its own source alias, so source ordering is unchanged.
+        let block = entity_to_input_block(entity);
+        let signature = input_signature(&block);
+        let index = if let Some(&index) = self.entities.get(&signature) {
+            index
+        } else {
+            let index = u32::try_from(self.palette.len())
+                .map_err(|_| "The schematic has too many block states.")?;
+            self.palette.try_reserve(1).map_err(|e| e.to_string())?;
+            self.palette.push(block);
+            self.entities.insert(signature, index);
+            index
+        };
         let index = self.source_index(index)?;
         self.push_index(position, index)
     }
@@ -152,12 +225,19 @@ impl CompactBlocksBuilder {
     }
 
     fn push_index(&mut self, position: BlockPosition, index: u32) -> Result<(), String> {
-        let coord = self
-            .chunk_size
-            .map_or((0, 0, 0), |size| chunk_coord(position, size));
+        let coord = chunk_coord(position, self.chunk_size);
+        let origin = chunk_origin(coord, self.chunk_size);
+        let packed = pack_block(
+            [
+                position.x - origin[0],
+                position.y - origin[1],
+                position.z - origin[2],
+            ],
+            index,
+        )?;
         let blocks = self.chunks.entry(coord).or_default();
         blocks.try_reserve(1).map_err(|e| e.to_string())?;
-        blocks.push((position, index));
+        blocks.push(packed);
         for (axis, value) in [position.x, position.y, position.z].into_iter().enumerate() {
             self.tight_min[axis] = self.tight_min[axis].min(value);
             self.tight_max[axis] = self.tight_max[axis].max(value);
@@ -171,17 +251,30 @@ impl CompactBlocksBuilder {
         chunks.sort_unstable_by_key(|(coord, _)| *coord);
         for (_, blocks) in &mut chunks {
             if let Some(order) = &self.source_order {
-                blocks.sort_by_key(|(pos, index)| (pos.y, pos.z, pos.x, order[*index as usize].0));
-                for (_, index) in blocks {
-                    *index = order[*index as usize].1;
+                blocks.sort_by_key(|&packed| {
+                    let (x, y, z) = block_axes(packed);
+                    (y, z, x, order[block_index(packed) as usize].0)
+                });
+                for packed in blocks.iter_mut() {
+                    let index = order[block_index(*packed) as usize].1;
+                    *packed = (*packed & !INDEX_MASK) | u64::from(index);
                 }
             } else {
-                blocks.sort_by_key(|(pos, _)| (pos.y, pos.z, pos.x));
+                blocks.sort_by_key(|&packed| {
+                    let (x, y, z) = block_axes(packed);
+                    (y, z, x)
+                });
+            }
+            // Decode pushes blocks one at a time, so chunk Vecs carry
+            // geometric-growth slack a preview would hold for its whole life.
+            if blocks.capacity() > blocks.len() {
+                blocks.shrink_to_fit();
             }
         }
         CompactBlocks {
             chunks,
             palette: self.palette,
+            chunk_size: self.chunk_size,
             block_count: self.block_count,
             block_entity_count: self.block_entity_count,
             tight_min: self.tight_min,
@@ -194,7 +287,7 @@ impl CompactBlocksBuilder {
 impl CompactBlocks {
     pub(crate) fn from_schematic(
         schematic: UniversalSchematic,
-        chunk_size: Option<i32>,
+        chunk_size: i32,
         current: &impl Fn() -> Result<(), String>,
     ) -> Result<Self, String> {
         let mut builder = CompactBlocksBuilder::new(chunk_size)?;
@@ -270,27 +363,27 @@ impl CompactBlocks {
         } else {
             &[]
         };
-        let actual_positions = chunks.iter().flat_map(|(_, blocks)| {
+        let actual_positions = chunks.iter().flat_map(|(coord, blocks)| {
             let positioned = &positioned;
-            blocks.iter().filter_map(move |&(pos, index)| {
-                positioned[index as usize].then_some((pos, &self.palette[index as usize]))
+            let origin = chunk_origin(*coord, self.chunk_size);
+            blocks.iter().filter_map(move |&packed| {
+                let index = block_index(packed) as usize;
+                positioned[index].then_some((block_position(packed, origin), &self.palette[index]))
             })
         });
         atlas::build(pack.pack(), config, representatives.chain(actual_positions))
             .map_err(|error| format!("Unable to prepare schematic textures: {error}"))
     }
 
-    fn context(
-        &self,
+    /// Visit the blocks that neighbor one chunk: the chunk itself plus the
+    /// one-block shell face culling and ambient occlusion read through.
+    fn for_each_context<'a>(
+        &'a self,
         coord: ChunkCoord,
-        chunk_size: Option<i32>,
-    ) -> Vec<(BlockPosition, &InputBlock)> {
-        let (min, max) = chunk_bounds(coord, chunk_size.unwrap_or(1));
-        let capacity = self
-            .chunks
-            .binary_search_by_key(&coord, |(coord, _)| *coord)
-            .map_or(0, |index| self.chunks[index].1.len());
-        let mut context = Vec::with_capacity(capacity);
+        min: [i64; 3],
+        max: [i64; 3],
+        mut visit: impl FnMut((BlockPosition, &'a InputBlock)),
+    ) {
         for dx in -1i32..=1 {
             for dy in -1i32..=1 {
                 for dz in -1i32..=1 {
@@ -308,20 +401,38 @@ impl CompactBlocks {
                         continue;
                     };
                     let blocks = &self.chunks[index].1;
-                    let start = blocks.partition_point(|(pos, _)| i64::from(pos.y) < min[1] - 1);
-                    let end = blocks.partition_point(|(pos, _)| i64::from(pos.y) < max[1] + 1);
-                    for &(pos, state) in &blocks[start..end] {
-                        if i64::from(pos.x) >= min[0] - 1
-                            && i64::from(pos.x) < max[0] + 1
-                            && i64::from(pos.z) >= min[2] - 1
-                            && i64::from(pos.z) < max[2] + 1
+                    let origin = chunk_origin((x, y, z), self.chunk_size);
+                    let layer = |packed: &IndexedBlock| {
+                        i64::from(block_axes(*packed).1) + i64::from(origin[1])
+                    };
+                    let start = blocks.partition_point(|packed| layer(packed) < min[1] - 1);
+                    let end = blocks.partition_point(|packed| layer(packed) < max[1] + 1);
+                    for &packed in &blocks[start..end] {
+                        let (px, py, pz) = block_axes(packed);
+                        if i64::from(origin[0] + px) >= min[0] - 1
+                            && i64::from(origin[0] + px) < max[0] + 1
+                            && i64::from(origin[2] + pz) >= min[2] - 1
+                            && i64::from(origin[2] + pz) < max[2] + 1
                         {
-                            context.push((pos, &self.palette[state as usize]));
+                            let position =
+                                BlockPosition::new(origin[0] + px, origin[1] + py, origin[2] + pz);
+                            visit((position, &self.palette[block_index(packed) as usize]));
                         }
                     }
                 }
             }
         }
+    }
+
+    fn context(&self, coord: ChunkCoord) -> Vec<(BlockPosition, &InputBlock)> {
+        let (min, max) = chunk_bounds(coord, self.chunk_size);
+        // Count before filling: the context spans the one-block shell around
+        // the chunk, so sizing from the chunk's own blocks would grow a Vec
+        // that is already several megabytes per worker.
+        let mut count = 0usize;
+        self.for_each_context(coord, min, max, |_| count += 1);
+        let mut context = Vec::with_capacity(count);
+        self.for_each_context(coord, min, max, |entry| context.push(entry));
         context
     }
 }
@@ -342,7 +453,6 @@ fn chunk_bounds(coord: ChunkCoord, size: i32) -> ([i64; 3], [i64; 3]) {
 
 pub(super) struct ChunkMeshes<'a> {
     source: &'a CompactBlocks,
-    chunk_size: i32,
     pack: &'a ResourcePack,
     config: MesherConfig,
     atlas: TextureAtlas,
@@ -367,7 +477,6 @@ impl<'a> ChunkMeshes<'a> {
         current()?;
         Ok(Self {
             source,
-            chunk_size: 64,
             pack: pack.pack(),
             config,
             atlas,
@@ -387,22 +496,34 @@ impl<'a> ChunkMeshes<'a> {
         self.atlas.height
     }
 
-    pub(super) fn atlas_png(&self) -> Result<Vec<u8>, String> {
-        self.atlas.to_png().map_err(|error| error.to_string())
+    /// Encode the shared atlas and release its pixel storage. The host uploads
+    /// the PNG; later batches validate against the atlas metadata only, so a
+    /// preview does not keep a second pixel copy alive for its whole life.
+    pub(super) fn atlas_png(&mut self) -> Result<Vec<u8>, String> {
+        let png = self.atlas.to_png().map_err(|error| error.to_string())?;
+        self.atlas.pixels = Vec::new();
+        Ok(png)
     }
 
     pub(super) fn mesh_at(&self, index: usize) -> Result<MeshOutput, String> {
         let (coord, blocks) = &self.source.chunks[index];
-        let (min, max) = chunk_bounds(*coord, self.chunk_size);
+        let (min, max) = chunk_bounds(*coord, self.source.chunk_size);
         let bounds = BoundingBox::new(min.map(|value| value as f32), max.map(|value| value as f32));
-        let context = self.source.context(*coord, Some(self.chunk_size));
+        let context = self.source.context(*coord);
+        // Unpack once, exactly sized: the mesher consumes absolute positions,
+        // and a batch's blocks are a few hundred kilobytes either way.
+        let origin = chunk_origin(*coord, self.source.chunk_size);
+        let unpacked: Vec<(BlockPosition, u32)> = blocks
+            .iter()
+            .map(|&packed| (block_position(packed, origin), block_index(packed)))
+            .collect();
         let mut mesh = builder::mesh(
             self.pack,
             &self.config,
             &self.atlas,
             &self.source.palette,
             &self.atlas_only,
-            blocks,
+            &unpacked,
             &context,
             bounds,
         )?;
@@ -432,6 +553,22 @@ fn is_air(name: &str) -> bool {
         name,
         "minecraft:air" | "minecraft:cave_air" | "minecraft:void_air"
     )
+}
+
+/// A stable identity for an [`InputBlock`], whose property map cannot key a
+/// hash map on its own.
+fn input_signature(block: &InputBlock) -> String {
+    let mut pairs: Vec<_> = block.properties.iter().collect();
+    pairs.sort_unstable();
+    let mut signature = String::with_capacity(64);
+    signature.push_str(&block.name);
+    for (key, value) in pairs {
+        signature.push('\u{0}');
+        signature.push_str(key);
+        signature.push('\u{1}');
+        signature.push_str(value);
+    }
+    signature
 }
 
 fn block_state_to_input_block(state: &BlockState) -> InputBlock {

@@ -621,7 +621,7 @@ impl<'a, F: Fn() -> Result<(), String>> Scan<'a, F> {
 pub(super) fn read(
     data: &[u8],
     limits: &DecodeLimits,
-    chunk_size: Option<i32>,
+    chunk_size: i32,
     thread_count: Option<u8>,
     speed_first: bool,
     current: &impl Fn() -> Result<(), String>,

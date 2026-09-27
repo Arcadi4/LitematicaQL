@@ -4,7 +4,7 @@
 //! time. The atlas is returned by `open`; batch payloads contain only typed
 //! vertex/index data and first-use textures for greedy materials. Batch
 //! generation uses a small ordered worker window before payloads are encoded.
-use std::collections::HashMap;
+use std::collections::{HashMap, HashSet};
 use std::sync::{
     atomic::{AtomicBool, Ordering},
     Arc,
@@ -52,7 +52,7 @@ impl<'a> NQLMeshStream<'a> {
                 crate::MAX_MESH_BLOCKS
             )));
         }
-        let chunks =
+        let mut chunks =
             ChunkMeshes::from_source(&source.source, &pack.0, &crate::mesh_config(), current)
                 .map_err(MeshFailure::Mesh)?;
         let atlas = chunks.atlas_png().map_err(MeshFailure::Mesh)?;
@@ -119,11 +119,6 @@ impl<'a> NQLMeshStream<'a> {
             self.pending = generated;
         }
         let mut output = self.pending.remove(0);
-        output.greedy_materials.sort_by(|left, right| {
-            left.texture_path
-                .cmp(&right.texture_path)
-                .then_with(|| left.texture_png.cmp(&right.texture_png))
-        });
         self.ensure_current()?;
         let bytes = encode_batch(
             self.next_batch,
@@ -202,7 +197,29 @@ fn encode_batch(
         })
         .ok_or_else(|| MeshFailure::Mesh("This schematic has too many indices.".into()))?;
     let triangle_count = index_count / 3;
-    let mut bytes = Vec::with_capacity(BATCH_HEADER_BYTES + part_count * PART_HEADER_BYTES);
+    // Size the payload before writing it: positions (12), normals (12), uvs
+    // (8), and colors (16) make 48 bytes per vertex, indices are 4 bytes each,
+    // and only first-use greedy textures add more, padded to four. A Vec that
+    // grows into place would copy a multi-megabyte batch while it doubles.
+    let mut seen: HashSet<&str> = HashSet::new();
+    let mut texture_bytes = 0usize;
+    for material in &materials {
+        let path = material.texture_path.as_str();
+        if texture_indices.contains_key(path) || !seen.insert(path) {
+            continue;
+        }
+        let length = material.texture_png.len();
+        u32::try_from(length).map_err(|_| MeshFailure::Mesh("Texture is too large.".into()))?;
+        texture_bytes = texture_bytes
+            .checked_add(length + ((4 - (length & 3)) & 3))
+            .ok_or_else(|| MeshFailure::Mesh("Mesh batch is too large.".into()))?;
+    }
+    let payload_length = BATCH_HEADER_BYTES
+        + part_count * PART_HEADER_BYTES
+        + vertex_count * 48
+        + index_count * 4
+        + texture_bytes;
+    let mut bytes = Vec::with_capacity(payload_length);
     bytes.extend_from_slice(BATCH_MAGIC);
     push_u16(&mut bytes, BATCH_VERSION);
     push_u16(&mut bytes, BATCH_HEADER_BYTES as u16);

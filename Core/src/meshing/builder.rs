@@ -1,9 +1,7 @@
 //! Bounded geometry emission through schematic-mesher's public API.
 
 use schematic_mesher::mesh_output::GreedyMaterialOutput;
-use schematic_mesher::mesher::{
-    element::MeshBuilder, face_culler::FaceCuller, liquid, AnimatedTextureExport, Mesh,
-};
+use schematic_mesher::mesher::{element::MeshBuilder, face_culler::FaceCuller, liquid, Mesh};
 use schematic_mesher::resolver::{resolve_block, ModelResolver};
 use schematic_mesher::{
     BlockPosition, BoundingBox, InputBlock, MeshLayer, MeshOutput, MesherConfig, ResourcePack,
@@ -61,7 +59,7 @@ pub(super) fn mesh(
         opaque: MeshLayer::new(),
         cutout: MeshLayer::new(),
         transparent: MeshLayer::new(),
-        atlas: shared_atlas.clone(),
+        atlas: atlas_metadata(shared_atlas),
         greedy_materials: Vec::new(),
         animated_textures: Vec::new(),
         bounds,
@@ -99,26 +97,15 @@ pub(super) fn mesh(
                 .add_block(position, block)
                 .map_err(|error| error.to_string())?;
         }
-        collect_pack_animations(
-            pack,
-            shared_atlas,
-            builder.texture_refs(),
-            &mut output.animated_textures,
-        )?;
-        let supplied = std::mem::replace(
-            &mut output.atlas,
-            TextureAtlas {
-                width: 0,
-                height: 0,
-                pixels: Vec::new(),
-                regions: Default::default(),
-            },
-        );
-        let pixel_storage = supplied.pixels.as_ptr();
-        let (opaque, cutout, transparent, atlas, materials, animated) = builder
+        validate_pack_animations(pack, shared_atlas, builder.texture_refs())?;
+        // Hand the mesher a pixel-free atlas copy: it only reads atlas regions
+        // to place UVs, and the pixel storage already reached the host as the
+        // shared PNG, so a batch never holds a second copy of the atlas.
+        let supplied = std::mem::replace(&mut output.atlas, atlas_metadata(shared_atlas));
+        let (opaque, cutout, transparent, atlas, materials, _animated) = builder
             .build(Some(supplied))
             .map_err(|error| error.to_string())?;
-        validate_atlas(shared_atlas, &atlas, pixel_storage)?;
+        validate_atlas(shared_atlas, &atlas)?;
         output.atlas = atlas;
         append_layer(&mut output.opaque, opaque)?;
         append_layer(&mut output.cutout, cutout)?;
@@ -137,13 +124,13 @@ pub(super) fn mesh(
                 texture_png: material.texture_png,
             });
         }
-        for animation in animated {
-            if !output.animated_textures.iter().any(|existing| {
-                existing.atlas_x == animation.atlas_x && existing.atlas_y == animation.atlas_y
-            }) {
-                output.animated_textures.push(animation);
-            }
-        }
+    }
+    tighten_layer(&mut output.opaque);
+    tighten_layer(&mut output.cutout);
+    tighten_layer(&mut output.transparent);
+    for material in &mut output.greedy_materials {
+        tighten_layer(&mut material.opaque);
+        tighten_layer(&mut material.transparent);
     }
     Ok(output)
 }
@@ -180,66 +167,58 @@ fn validate_culler_grid(context: &[(BlockPosition, &InputBlock)]) -> Result<(), 
     Ok(())
 }
 
-fn collect_pack_animations(
+/// Animated textures must already sit in the shared atlas: the renderer draws
+/// them from it, so a missing one means texture discovery missed a face.
+fn validate_pack_animations(
     pack: &ResourcePack,
     atlas: &TextureAtlas,
     references: &HashSet<String>,
-    output: &mut Vec<AnimatedTextureExport>,
 ) -> Result<(), String> {
     let mut references: Vec<_> = references.iter().collect();
     references.sort_unstable();
     for path in references {
-        let Some(texture) = pack
+        let animated = pack
             .get_texture(path)
-            .filter(|t| t.is_animated && t.frame_count > 1)
-        else {
-            continue;
-        };
-        let Some(region) = atlas.get_region(path) else {
+            .is_some_and(|texture| texture.is_animated && texture.frame_count > 1);
+        if animated && atlas.get_region(path).is_none() {
             return Err(format!(
                 "Animated texture {path} is absent from the shared atlas."
             ));
-        };
-        let atlas_x = (region.u_min * atlas.width as f32).round() as u32;
-        let atlas_y = (region.v_min * atlas.height as f32).round() as u32;
-        if output
-            .iter()
-            .any(|existing| existing.atlas_x == atlas_x && existing.atlas_y == atlas_y)
-        {
-            continue;
         }
-        let animation = texture.animation.as_ref();
-        let frame_width = animation
-            .and_then(|a| a.frame_width)
-            .unwrap_or(texture.width);
-        output.push(AnimatedTextureExport {
-            sprite_sheet_png: texture.to_png().map_err(|error| error.to_string())?,
-            frame_count: texture.frame_count,
-            frametime: animation.map_or(1, |a| a.frametime),
-            interpolate: animation.is_some_and(|a| a.interpolate),
-            frames: animation
-                .and_then(|a| a.frames.as_ref())
-                .map(|frames| frames.iter().map(|frame| frame.index).collect()),
-            frame_width,
-            frame_height: animation
-                .and_then(|a| a.frame_height)
-                .unwrap_or(frame_width),
-            atlas_x,
-            atlas_y,
-        });
     }
     Ok(())
 }
 
-fn validate_atlas(
-    shared: &TextureAtlas,
-    actual: &TextureAtlas,
-    pixel_storage: *const u8,
-) -> Result<(), String> {
-    if actual.pixels.as_ptr() != pixel_storage
+/// A pixel-free atlas copy. The mesher only reads atlas regions to place UVs;
+/// pixels are delivered to the host once, as the shared atlas PNG.
+fn atlas_metadata(shared: &TextureAtlas) -> TextureAtlas {
+    TextureAtlas {
+        width: shared.width,
+        height: shared.height,
+        pixels: Vec::new(),
+        regions: shared.regions.clone(),
+    }
+}
+
+/// Release capacity a layer does not use, so a queued batch holds its geometry
+/// once instead of the mesher's geometric-growth slack.
+fn tighten_layer(layer: &mut MeshLayer) {
+    fn tighten<T>(vector: &mut Vec<T>) {
+        if vector.capacity() > vector.len() {
+            vector.shrink_to_fit();
+        }
+    }
+    tighten(&mut layer.positions);
+    tighten(&mut layer.normals);
+    tighten(&mut layer.uvs);
+    tighten(&mut layer.colors);
+    tighten(&mut layer.indices);
+}
+
+fn validate_atlas(shared: &TextureAtlas, actual: &TextureAtlas) -> Result<(), String> {
+    if !actual.pixels.is_empty()
         || actual.width != shared.width
         || actual.height != shared.height
-        || actual.pixels.len() != shared.pixels.len()
         || actual.regions.len() != shared.regions.len()
         || shared.regions.iter().any(|(path, region)| {
             actual.get_region(path).is_none_or(|actual| {
@@ -269,6 +248,13 @@ fn append_layer(target: &mut MeshLayer, mut source: MeshLayer) -> Result<(), Str
         .checked_add(source.positions.len())
         .ok_or("Too many vertices in a mesh chunk.")?;
     u32::try_from(total).map_err(|_| "Too many vertices in a mesh chunk.")?;
+    // Reserve the second pass exactly: geometric growth would briefly hold a
+    // doubled copy of the merged chunk.
+    target.positions.reserve_exact(source.positions.len());
+    target.normals.reserve_exact(source.normals.len());
+    target.uvs.reserve_exact(source.uvs.len());
+    target.colors.reserve_exact(source.colors.len());
+    target.indices.reserve_exact(source.indices.len());
     target.positions.append(&mut source.positions);
     target.normals.append(&mut source.normals);
     target.uvs.append(&mut source.uvs);

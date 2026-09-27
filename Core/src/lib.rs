@@ -137,8 +137,13 @@ fn mesh_config() -> MeshConfig {
         .with_atlas_max_size(2_048)
 }
 
+/// Meshing concurrency. Each worker meshes one chunk batch and every finished
+/// batch is held whole until the host pulls it, so this cap is also the
+/// preview's peak-geometry window: a deeper window bought no measurable
+/// streaming throughput while holding another full chunk batch live, which
+/// `Core/tests/large_builds.rs` pins.
 fn worker_count() -> usize {
-    std::thread::available_parallelism().map_or(2, |count| count.get().min(4).max(1))
+    std::thread::available_parallelism().map_or(2, |count| count.get().min(2).max(1))
 }
 
 fn decode_worker_count() -> usize {
@@ -196,7 +201,7 @@ pub fn decode_with_warnings(bytes: &[u8]) -> Result<NQLSchematic, DecodeFailure>
     match litematic::read_compact(
         bytes,
         &preview_limits(),
-        Some(CHUNK_SIZE),
+        CHUNK_SIZE,
         Some(decode_worker_count() as u8),
         true,
         &|| Ok(()),
@@ -248,7 +253,7 @@ fn convert_dense(
     schematic: nucleation::UniversalSchematic,
     warnings: Vec<String>,
 ) -> Result<NQLSchematic, DecodeFailure> {
-    let source = meshing::CompactBlocks::from_schematic(schematic, Some(CHUNK_SIZE), &|| Ok(()))
+    let source = meshing::CompactBlocks::from_schematic(schematic, CHUNK_SIZE, &|| Ok(()))
         .map_err(|_| {
             DecodeFailure::Format(
                 "This schematic could not be converted for previewing.".to_string(),

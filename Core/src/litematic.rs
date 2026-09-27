@@ -13,7 +13,7 @@ mod stream;
 pub(super) fn read_compact(
     data: &[u8],
     limits: &DecodeLimits,
-    chunk_size: Option<i32>,
+    chunk_size: i32,
     thread_count: Option<u8>,
     speed_first: bool,
     current: &impl Fn() -> Result<(), String>,
