@@ -4,7 +4,7 @@
   <p><strong>Quick Look preview for Minecraft schematics on macOS</strong></p>
   <!-- README-I18N:START -->
 
-  **English** | [中文](./README.zh.md)
+**English** | [中文](./README.zh.md)
 
   <!-- README-I18N:END -->
 </div>
@@ -46,16 +46,16 @@ This app requires macOS 13 Ventura or later.
 
 ## Supported Formats
 
-| Extension | File format |
-| --- | --- |
-| `.litematic` | Litematica |
-| `.schem` | Sponge schematic |
-| `.schematic` | MCEdit |
-| `.nbt` | Java structure block |
-| `.snbt` | Structure SNBT, brace or bracket block states |
-| `.mcstructure` | Bedrock structure |
-| `.nusn` | Nucleation snapshot |
-| `.mca` | Minecraft Anvil world saves (4 chunks per file) |
+| Extension      | File format                                     |
+| -------------- | ----------------------------------------------- |
+| `.litematic`   | Litematica                                      |
+| `.schem`       | Sponge schematic                                |
+| `.schematic`   | MCEdit                                          |
+| `.nbt`         | Java structure block                            |
+| `.snbt`        | Structure SNBT, brace or bracket block states   |
+| `.mcstructure` | Bedrock structure                               |
+| `.nusn`        | Nucleation snapshot                             |
+| `.mca`         | Minecraft Anvil world saves (4 chunks per file) |
 
 ## Development
 
@@ -102,3 +102,5 @@ xcodebuild \
 ## Acknowledgements
 
 Great thanks to [@Nano112](https://github.com/Nano112)'s project [Nucleation](https://github.com/Schem-at/Nucleation) for powering the whole parsing and meshing pipeline.
+
+Thanks to my generous friend [@johnbean393](https://github.com/johnbean393) for sharing their Apple signature to notarize the app, providing better unboxing experience while saving me $100 in Apple tax! Consider looking into their project [Chiboard](https://www.chiboard.app), an ML-based Pinyin input method that speeds up Chinese typing manifold.
