@@ -291,7 +291,26 @@ fn ordered_batch_delivery_is_deterministic() {
         assert_eq!(left.1.bounds_min, right.1.bounds_min);
         assert_eq!(left.1.bounds_max, right.1.bounds_max);
         assert_valid_batch(&left.0, &left.1);
-        assert_eq!(left.0.geometry(), right.0.geometry());
+        assert_valid_batch(&right.0, &right.1);
+        assert_eq!(left.0.view().origin, right.0.view().origin);
+        assert_eq!(left.0.view().extent, right.0.view().extent);
+        assert_eq!(left.0.geometry().len(), right.0.geometry().len());
+        assert_eq!(left.0.parts().len(), right.0.parts().len());
+        for (lp, rp) in left.0.parts().iter().zip(right.0.parts()) {
+            assert_eq!(lp.vertex_offset, rp.vertex_offset);
+            assert_eq!(lp.index_offset, rp.index_offset);
+            assert_eq!(lp.vertex_count, rp.vertex_count);
+            assert_eq!(lp.index_count, rp.index_count);
+            assert_eq!(lp.index_size, rp.index_size);
+            assert_eq!(lp.alpha_mode, rp.alpha_mode);
+            assert_eq!(lp.texture_index, rp.texture_index);
+            assert_eq!(lp.texture_length, rp.texture_length);
+            if lp.texture_length > 0 {
+                let left_tex = unsafe { std::slice::from_raw_parts(lp.texture_png, lp.texture_length) };
+                let right_tex = unsafe { std::slice::from_raw_parts(rp.texture_png, rp.texture_length) };
+                assert_eq!(left_tex, right_tex);
+            }
+        }
     }
     assert_shared_atlas(&first);
     unsafe {

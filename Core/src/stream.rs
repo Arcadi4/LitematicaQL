@@ -125,7 +125,7 @@ impl<'a> NQLMeshStream<'a> {
 }
 
 fn pack_batch(index: u32, mut output: MeshOutput, textures: &mut HashMap<String, u32>) -> Result<NQLMeshBatch, MeshFailure> {
-    output.greedy_materials.sort_unstable_by(|a, b| a.texture_path.cmp(&b.texture_path));
+    output.greedy_materials.sort_by(|a, b| a.texture_path.cmp(&b.texture_path).then_with(|| a.texture_png.cmp(&b.texture_png)));
     let layers = [&output.opaque, &output.cutout, &output.transparent].into_iter()
         .chain(output.greedy_materials.iter().flat_map(|m| [&m.opaque, &m.transparent]));
     let mut min = [f32::INFINITY; 3];
