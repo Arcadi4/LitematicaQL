@@ -50,18 +50,6 @@ jobs:
           fetch-depth: 0
           persist-credentials: false
 
-      - name: Set up pnpm
-        uses: pnpm/action-setup@v6.1.0
-        with:
-          version: 11.19.0
-
-      - name: Set up Node.js
-        uses: actions/setup-node@v7
-        with:
-          node-version: 24
-          cache: pnpm
-          cache-dependency-path: Renderer/pnpm-lock.yaml
-
       - name: Set up Rust
         uses: dtolnay/rust-toolchain@stable
         with:
@@ -72,16 +60,6 @@ jobs:
         with:
           workspaces: Core
           shared-key: native-bridge
-
-      - name: Install renderer dependencies
-        run: pnpm --dir Renderer install --frozen-lockfile
-
-      - name: Test renderer
-        if: matrix.arch == 'arm64'
-        run: pnpm --dir Renderer run test
-
-      - name: Build renderer
-        run: pnpm --dir Renderer run build
 
       - name: Run native tests
         if: matrix.arch == 'arm64'

@@ -1,0 +1,12 @@
+{
+  "name": "litematicaql-demos",
+  "private": true,
+  "type": "module",
+  "scripts": { "generate": "tsx generate-demos.ts" },
+  "devDependencies": {
+    "fflate": "0.8.3",
+    "nucleation": "0.10.24",
+    "tsx": "4.23.15"
+  },
+  "packageManager": "pnpm@12.6.0"
+}

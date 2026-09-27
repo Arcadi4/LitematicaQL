@@ -85,7 +85,7 @@ pub struct NQLAtlasInfo {
 }
 
 #[repr(C)]
-#[derive(Debug, PartialEq)]
+#[derive(Clone, Debug, PartialEq)]
 pub struct NQLBatchInfo {
     pub batch_index: u32,
     pub part_count: u32,
@@ -469,8 +469,8 @@ pub unsafe extern "C" fn nql_resource_pack_free(pack: *mut NQLResourcePack) {
 pub unsafe extern "C" fn nql_mesh_stream_open(
     schematic: *const NQLSchematic,
     pack: *const NQLResourcePack,
-    atlas_png_out: *mut *mut u8,
-    atlas_png_len: *mut usize,
+    atlas_rgba_out: *mut *mut u8,
+    atlas_rgba_len: *mut usize,
     atlas_info_out: *mut NQLAtlasInfo,
     info_out: *mut NQLMeshInfo,
     stream_out: *mut *mut stream::NQLMeshStream<'_>,
@@ -479,8 +479,8 @@ pub unsafe extern "C" fn nql_mesh_stream_open(
     init_error(err_out);
     if schematic.is_null()
         || pack.is_null()
-        || atlas_png_out.is_null()
-        || atlas_png_len.is_null()
+        || atlas_rgba_out.is_null()
+        || atlas_rgba_len.is_null()
         || stream_out.is_null()
     {
         return fail(
@@ -489,8 +489,8 @@ pub unsafe extern "C" fn nql_mesh_stream_open(
             "The caller passed a null buffer.",
         );
     }
-    *atlas_png_out = std::ptr::null_mut();
-    *atlas_png_len = 0;
+    *atlas_rgba_out = std::ptr::null_mut();
+    *atlas_rgba_len = 0;
     *stream_out = std::ptr::null_mut();
     let outcome = catch_unwind(AssertUnwindSafe(|| {
         let cancelled = (*schematic).cancelled.clone();
@@ -512,8 +512,8 @@ pub unsafe extern "C" fn nql_mesh_stream_open(
         Ok(Err(error)) => mesh_failure(err_out, error),
         Ok(Ok((stream, atlas, atlas_info, info))) => {
             let (data, len) = export_bytes(atlas);
-            *atlas_png_out = data;
-            *atlas_png_len = len;
+            *atlas_rgba_out = data;
+            *atlas_rgba_len = len;
             if !atlas_info_out.is_null() {
                 *atlas_info_out = atlas_info;
             }
@@ -526,56 +526,44 @@ pub unsafe extern "C" fn nql_mesh_stream_open(
     }
 }
 
+/// The stream borrows schematic and pack; both must outlive it. A returned
+/// batch owns its storage independently and remains valid until batch_free.
 #[no_mangle]
 pub unsafe extern "C" fn nql_mesh_stream_next(
     stream: *mut stream::NQLMeshStream<'_>,
     expected_batch: u32,
-    batch_out: *mut *mut u8,
-    batch_len: *mut usize,
+    batch_out: *mut *mut stream::NQLMeshBatch,
     info_out: *mut NQLBatchInfo,
     err_out: *mut NQLError,
 ) -> i32 {
     init_error(err_out);
-    if stream.is_null() || batch_out.is_null() || batch_len.is_null() {
-        return fail(
-            err_out,
-            status::ERR_NULL,
-            "The caller passed a null buffer.",
-        );
+    if stream.is_null() || batch_out.is_null() {
+        return fail(err_out, status::ERR_NULL, "The caller passed a null buffer.");
     }
     *batch_out = std::ptr::null_mut();
-    *batch_len = 0;
-    if !info_out.is_null() {
-        *info_out = NQLBatchInfo {
-            batch_index: 0,
-            part_count: 0,
-            vertex_count: 0,
-            index_count: 0,
-            triangle_count: 0,
-            payload_length: 0,
-            bounds_min: [0.0; 3],
-            bounds_max: [0.0; 3],
-        };
-    }
+    if !info_out.is_null() { std::ptr::write_bytes(info_out, 0, 1); }
     let outcome = catch_unwind(AssertUnwindSafe(|| (*stream).next(expected_batch)));
     match outcome {
-        Err(_) => fail(
-            err_out,
-            status::ERR_MESH,
-            "This schematic has too much visible surface to preview. Its block geometry exceeds what the renderer can build.",
-        ),
+        Err(_) => fail(err_out, status::ERR_MESH, "This schematic is too detailed to preview."),
         Ok(Err(error)) => mesh_failure(err_out, error),
         Ok(Ok(None)) => status::DONE,
-        Ok(Ok(Some(payload))) => {
-            let (data, len) = export_bytes(payload.bytes);
-            *batch_out = data;
-            *batch_len = len;
-            if !info_out.is_null() {
-                *info_out = payload.info;
-            }
+        Ok(Ok(Some(batch))) => {
+            if !info_out.is_null() { *info_out = batch.info.clone(); }
+            *batch_out = Box::into_raw(Box::new(batch));
             status::OK
         }
     }
+}
+
+/// All pointers in this view borrow the batch, and are read-only.
+#[no_mangle]
+pub unsafe extern "C" fn nql_mesh_batch_view(batch: *const stream::NQLMeshBatch) -> stream::NQLBatchView {
+    (*batch).view()
+}
+
+#[no_mangle]
+pub unsafe extern "C" fn nql_mesh_batch_free(batch: *mut stream::NQLMeshBatch) {
+    if !batch.is_null() { drop(Box::from_raw(batch)); }
 }
 
 #[no_mangle]

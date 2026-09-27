@@ -2,12 +2,13 @@
 
 `Demos/` holds the seven schematics the app bundles and shows on its welcome
 screen. Every one is authored block by block in
-`Renderer/scripts/generate-demos.ts` — they contain no third-party builds, no
+`scripts/demos/generate-demos.ts` — they contain no third-party builds, no
 scans of anyone else's world, and no attribution requirement beyond this
 project's own license. Regenerate them with:
 
 ```sh
-pnpm --dir Renderer run demos
+pnpm --dir scripts/demos install --frozen-lockfile
+pnpm --dir scripts/demos run generate
 ```
 
 The generator refuses to write a file it cannot read back, so a file format whose
@@ -27,7 +28,7 @@ same model seven times would say nothing about the formats:
 # Format fixtures
 
 `Formats/` holds one minimal file for each supported file format, used by the
-renderer's format tests. Each is small enough to be read in full, and the tests
+native format tests. Each is small enough to be read in full, and the tests
 assert what it decodes to rather than any upstream content.
 
 - `Structure.nbt` is a gzipped Java structure. Its palette is `minecraft:oak_log` with `axis=y`, `minecraft:chest`, and `minecraft:air`; it places the log at `(0,0,0)`, the chest at `(2,0,0)` with a block entity, and one armor stand. A third entry names palette index 2, which is air, so it must be dropped on import: two blocks and one entity is the correct result.

@@ -39,7 +39,10 @@ Or install manually:
 3. Open the app once so macOS registers its preview extension.
 4. Select a supported file in Finder and press Space.
 
-This app requires macOS 13 Ventura or later.
+This app requires macOS 13 Ventura or later and a Metal-capable GPU.
+
+Previews use native Metal with streamed chunk meshing, compact GPU buffers,
+and on-demand drawing. See [the rendering architecture](docs/rendering.md).
 
 > [!NOTE]
 > If the preview doesn't show up, enable LitematicaQL under **System Settings → General → Login Items & Extensions → Quick Look**.
@@ -59,10 +62,10 @@ This app requires macOS 13 Ventura or later.
 
 ## Development
 
-Run all renderer checks and rebuild the artifact:
+Compile the native core:
 
 ```sh
-pnpm --prefix Renderer run check
+cargo check --manifest-path Core/Cargo.toml
 ```
 
 Run the Swift tests:
@@ -79,16 +82,14 @@ Clean stale LitematicaQL Quick Look registrations while keeping the installed `/
 
 ### Build
 
-- Xcode 26 or later
-- Node.js and pnpm
+- Xcode 26 or later, including the Metal Toolchain component
+- Rust (rustup)
 - [XcodeGen](https://github.com/yonaskolb/XcodeGen)
 
 ```sh
 git clone https://github.com/Arcadi4/LitematicaQL.git
 cd LitematicaQL
 
-pnpm --prefix Renderer ci
-pnpm --prefix Renderer run build
 xcodegen generate
 
 xcodebuild \

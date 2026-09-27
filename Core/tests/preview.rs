@@ -2,7 +2,7 @@ use std::fs;
 use std::path::PathBuf;
 
 use litematicaql_native::{
-    nql_buffer_free, nql_mesh_stream_free, nql_mesh_stream_next, nql_mesh_stream_open,
+    nql_buffer_free, nql_mesh_batch_free, nql_mesh_stream_free, nql_mesh_stream_next, nql_mesh_stream_open,
     nql_resource_pack_free, nql_resource_pack_open, nql_schematic_cancel, nql_schematic_free,
     nql_schematic_info, nql_schematic_open, nql_schematic_warnings, status, NQLAtlasInfo,
     NQLBatchInfo, NQLError, NQLMeshInfo, NQLSchematicInfo,
@@ -13,7 +13,7 @@ fn repo_root() -> PathBuf {
 }
 
 fn pack_bytes() -> Vec<u8> {
-    fs::read(repo_root().join("Renderer/vendor/pack.zip")).expect("bundled resource pack")
+    fs::read(repo_root().join("Resources/pack.zip")).expect("bundled resource pack")
 }
 
 fn fixture_paths(directory: &str) -> Vec<PathBuf> {
@@ -113,11 +113,27 @@ fn defer_free(buffer: *mut u8, length: usize) {
     }
 }
 
+struct OwnedBatch(*mut litematicaql_native::stream::NQLMeshBatch);
+impl Drop for OwnedBatch {
+    fn drop(&mut self) { unsafe { nql_mesh_batch_free(self.0) }; }
+}
+impl OwnedBatch {
+    fn view(&self) -> litematicaql_native::stream::NQLBatchView { unsafe { (*self.0).view() } }
+    fn geometry(&self) -> &[u8] {
+        let view = self.view();
+        unsafe { std::slice::from_raw_parts(view.geometry, view.geometry_length) }
+    }
+    fn parts(&self) -> &[litematicaql_native::stream::NQLMeshPart] {
+        let view = self.view();
+        unsafe { std::slice::from_raw_parts(view.parts, view.part_count) }
+    }
+}
+
 struct MeshResult {
     atlas: Vec<u8>,
     atlas_info: NQLAtlasInfo,
     info: NQLMeshInfo,
-    batches: Vec<(Vec<u8>, NQLBatchInfo)>,
+    batches: Vec<(OwnedBatch, NQLBatchInfo)>,
 }
 
 fn mesh(
@@ -159,7 +175,6 @@ fn mesh(
     let mut batches = Vec::new();
     for expected in 0..mesh_info.batch_count {
         let mut bytes = std::ptr::null_mut();
-        let mut length = 0;
         let mut batch_info = NQLBatchInfo {
             batch_index: 0,
             part_count: 0,
@@ -176,7 +191,6 @@ fn mesh(
                 stream,
                 expected,
                 &mut bytes,
-                &mut length,
                 &mut batch_info,
                 &mut failure,
             )
@@ -184,14 +198,9 @@ fn mesh(
         let message = take_error(&mut failure);
         assert_eq!(result, status::OK, "batch {expected}: {message}");
         assert!(!bytes.is_null());
-        let payload = unsafe { std::slice::from_raw_parts(bytes, length) }.to_vec();
-        unsafe {
-            nql_buffer_free(bytes, length);
-        }
-        batches.push((payload, batch_info));
+        batches.push((OwnedBatch(bytes), batch_info));
     }
     let mut bytes = std::ptr::null_mut();
-    let mut length = 1;
     let mut batch_info = NQLBatchInfo {
         batch_index: 0,
         part_count: 0,
@@ -208,14 +217,12 @@ fn mesh(
             stream,
             mesh_info.batch_count,
             &mut bytes,
-            &mut length,
             &mut batch_info,
             &mut failure,
         )
     };
     assert_eq!(result, status::DONE);
     assert!(bytes.is_null());
-    assert_eq!(length, 0);
     take_error(&mut failure);
     unsafe { nql_mesh_stream_free(stream) };
     MeshResult {
@@ -226,43 +233,31 @@ fn mesh(
     }
 }
 
-fn assert_valid_batch(bytes: &[u8], info: &NQLBatchInfo) {
-    assert_eq!(&bytes[..4], b"LQMB");
-    assert_eq!(u16::from_le_bytes(bytes[4..6].try_into().unwrap()), 1);
-    assert_eq!(
-        u32::from_le_bytes(bytes[8..12].try_into().unwrap()),
-        info.batch_index
-    );
-    assert_eq!(
-        u32::from_le_bytes(bytes[12..16].try_into().unwrap()),
-        info.part_count
-    );
-    assert_eq!(bytes.len(), info.payload_length as usize);
+fn assert_valid_batch(batch: &OwnedBatch, info: &NQLBatchInfo) {
+    let parts = batch.parts();
+    assert_eq!(parts.len(), info.part_count as usize);
+    let geometry = batch.geometry();
+    let mut texture_bytes = 0;
+    for part in parts {
+        assert!(part.vertex_offset + part.vertex_count as usize * 24 <= geometry.len());
+        assert!(matches!(part.index_size, 2 | 4));
+        let end = part.index_offset + part.index_count as usize * part.index_size as usize;
+        assert!(end <= geometry.len());
+        for index in geometry[part.index_offset..end].chunks_exact(part.index_size as usize) {
+            let index = if part.index_size == 2 { u16::from_le_bytes(index.try_into().unwrap()) as u32 }
+                else { u32::from_le_bytes(index.try_into().unwrap()) };
+            assert!(index < part.vertex_count);
+        }
+        assert!(part.texture_index != 0 || part.texture_length == 0, "atlas embedded in batch");
+        texture_bytes += part.texture_length;
+    }
+    assert_eq!(geometry.len() + texture_bytes, info.payload_length as usize);
 }
 
 fn assert_shared_atlas(result: &MeshResult) {
-    assert_eq!(&result.atlas[..8], b"\x89PNG\r\n\x1a\n");
     assert!(result.atlas_info.width > 0 && result.atlas_info.height > 0);
-    for (payload, info) in &result.batches {
-        assert_valid_batch(payload, info);
-        let mut offset = 64usize;
-        for _ in 0..info.part_count {
-            let texture_index = u32::from_le_bytes(payload[offset..offset + 4].try_into().unwrap());
-            let texture_length =
-                u32::from_le_bytes(payload[offset + 16..offset + 20].try_into().unwrap());
-            assert!(
-                texture_index != 0 || texture_length == 0,
-                "atlas was embedded in a batch"
-            );
-            let vertices =
-                u32::from_le_bytes(payload[offset + 8..offset + 12].try_into().unwrap()) as usize;
-            let indices =
-                u32::from_le_bytes(payload[offset + 12..offset + 16].try_into().unwrap()) as usize;
-            offset += 24 + vertices * 48 + indices * 4 + texture_length as usize;
-            offset = (offset + 3) & !3;
-        }
-        assert_eq!(offset, payload.len());
-    }
+    assert_eq!(result.atlas.len(), result.atlas_info.width as usize * result.atlas_info.height as usize * 4);
+    for (batch, info) in &result.batches { assert_valid_batch(batch, info); }
 }
 
 fn deterministic_fixture() -> Vec<u8> {
@@ -293,6 +288,7 @@ fn ordered_batch_delivery_is_deterministic() {
         assert_eq!(left.1.bounds_min, right.1.bounds_min);
         assert_eq!(left.1.bounds_max, right.1.bounds_max);
         assert_valid_batch(&left.0, &left.1);
+        assert_eq!(left.0.geometry(), right.0.geometry());
     }
     assert_shared_atlas(&first);
     unsafe {
@@ -335,7 +331,6 @@ fn cancellation_returns_no_geometry_through_the_c_abi() {
     unsafe { nql_buffer_free(atlas, atlas_len) };
     assert_eq!(unsafe { nql_schematic_cancel(handle) }, status::OK);
     let mut batch = std::ptr::null_mut();
-    let mut length = 1;
     let mut batch_info = NQLBatchInfo {
         batch_index: 0,
         part_count: 0,
@@ -352,14 +347,12 @@ fn cancellation_returns_no_geometry_through_the_c_abi() {
             stream,
             0,
             &mut batch,
-            &mut length,
             &mut batch_info,
             &mut failure,
         )
     };
     assert_eq!(result, status::ERR_CANCELLED);
     assert!(batch.is_null());
-    assert_eq!(length, 0);
     assert_eq!(batch_info.triangle_count, 0);
     take_error(&mut failure);
     unsafe {

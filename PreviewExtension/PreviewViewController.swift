@@ -3,7 +3,7 @@ import Quartz
 
 @MainActor
 final class PreviewViewController: NSViewController, QLPreviewingController {
-    private let rendererController = SchematicWebViewController()
+    private let rendererController = SchematicMetalViewController()
 
 
     override func loadView() {
@@ -27,6 +27,6 @@ final class PreviewViewController: NSViewController, QLPreviewingController {
 
     func preparePreviewOfFile(at url: URL) async throws {
         _ = view
-        try await rendererController.preparePreview(of: url)
+        try rendererController.preparePreview(of: url)
     }
 }

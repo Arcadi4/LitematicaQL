@@ -24,6 +24,30 @@ typedef enum {
     NQL_DONE = 9
 } NQLStatus;
 typedef struct NQLMeshStream NQLMeshStream;
+typedef struct NQLMeshBatch NQLMeshBatch;
+
+// Vertices are 24 bytes: UNORM16x4 position, float2 UV, SNORM8x4 normal,
+// UNORM8x4 color. Indices are uint16 or uint32, local to each part.
+typedef struct {
+    size_t vertex_offset;
+    size_t index_offset;
+    uint32_t vertex_count;
+    uint32_t index_count;
+    uint32_t index_size;
+    uint32_t alpha_mode;
+    uint32_t texture_index;
+    const uint8_t *texture_png;
+    size_t texture_length;
+} NQLMeshPart;
+
+typedef struct {
+    const uint8_t *geometry;
+    size_t geometry_length;
+    const NQLMeshPart *parts;
+    size_t part_count;
+    float origin[3];
+    float extent[3];
+} NQLBatchView;
 
 typedef struct {
     int64_t block_count;
@@ -68,12 +92,16 @@ NQLStatus nql_resource_pack_open(const uint8_t *data, size_t len, NQLResourcePac
 void nql_resource_pack_free(NQLResourcePack *pack);
 NQLStatus nql_mesh_stream_open(const NQLSchematic *schematic,
                                const NQLResourcePack *pack,
-                               uint8_t **atlas_png_out, size_t *atlas_png_len,
+                               uint8_t **atlas_rgba_out, size_t *atlas_rgba_len,
                                NQLAtlasInfo *atlas_info_out, NQLMeshInfo *info_out,
                                NQLMeshStream **stream_out, NQLError *err);
 NQLStatus nql_mesh_stream_next(NQLMeshStream *stream, uint32_t expected_batch,
-                               uint8_t **batch_out, size_t *batch_len,
+                               NQLMeshBatch **batch_out,
                                NQLBatchInfo *info_out, NQLError *err);
+// Schematic and resource pack must outlive the stream. Returned batch views
+// are valid until batch_free and may be released before requesting the next.
+NQLBatchView nql_mesh_batch_view(const NQLMeshBatch *batch);
+void nql_mesh_batch_free(NQLMeshBatch *batch);
 void nql_mesh_stream_free(NQLMeshStream *stream);
 void nql_buffer_free(uint8_t *buffer, size_t len);
 

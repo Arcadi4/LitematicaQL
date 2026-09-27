@@ -2,11 +2,10 @@ import Foundation
 import LitematicaQLNative
 
 /// A content-level preview failure with panel-ready user-facing text.
-struct NativeSchematicRefusal: Error, Sendable {
+struct NativeSchematicRefusal: LocalizedError, Sendable {
     let message: String
+    var errorDescription: String? { message }
 }
-
-struct NativeSchematicCancelled: Error, Sendable {}
 
 /// Decoded build metadata exposed before meshing begins.
 struct NativeSchematicFacts: Sendable {
@@ -26,23 +25,33 @@ struct NativeMeshStart: Sendable {
     let atlasHeight: Int
 }
 
-struct NativeMeshBatch: Sendable {
-    let index: Int
-    let triangles: Int
-    let vertices: Int
-    let indices: Int
-    let bytes: Int
-    let payload: Data
-    /// Served totals including this batch, so progress readers can report the
-    /// stream as a whole without keeping their own counters.
-    let totalBytes: Int
-    let totalTriangles: Int
+/// Owns one native allocation until Metal has copied the compact geometry.
+final class NativeMeshBatch: @unchecked Sendable {
+    let handle: OpaquePointer
+    let info: NQLBatchInfo
+
+    init(handle: OpaquePointer, info: NQLBatchInfo) {
+        self.handle = handle
+        self.info = info
+    }
+
+    var view: NQLBatchView { nql_mesh_batch_view(handle) }
+    deinit { nql_mesh_batch_free(handle) }
 }
 
 /// Owns a parsed immutable resource pack. One instance may be reused by any
 /// number of previews; the native pack is immutable after this call returns.
 final class NativeResourcePack: @unchecked Sendable {
     private let handle: OpaquePointer
+
+    // Parsing is expensive and the resource pack is immutable. Swift's static
+    // initialization serializes the first access across preview workers.
+    static let bundled: Result<NativeResourcePack, Error> = Result {
+        guard let url = Bundle.main.url(forResource: "pack", withExtension: "zip") else {
+            throw NativeSchematicRefusal(message: "The bundled block resources are missing.")
+        }
+        return try NativeResourcePack(Data(contentsOf: url, options: .mappedIfSafe))
+    }
 
     init(_ data: Data) throws {
         var handle: OpaquePointer?
@@ -77,7 +86,7 @@ final class NativeResourcePack: @unchecked Sendable {
             if !text.isEmpty { return text }
         }
         return status == NQL_ERR_PACK
-            ? "The bundled block resources are invalid. Rebuild the renderer assets and the app."
+            ? "The bundled block resources are invalid. Rebuild the app."
             : "Something went wrong while reading the bundled block resources."
     }
 }
@@ -90,9 +99,9 @@ final class NativeResourcePack: @unchecked Sendable {
 final class NativeSchematicSession: @unchecked Sendable {
     private var handle: OpaquePointer?
     private var meshStream: OpaquePointer?
-    private var meshServedBytes = 0
-    private var meshServedTriangles = 0
-    private let meshLock = NSLock()
+    private var resourcePack: NativeResourcePack?
+    private let cancellationLock = NSLock()
+    private var cancelled = false
 
     deinit {
         endMesh()
@@ -114,7 +123,12 @@ final class NativeSchematicSession: @unchecked Sendable {
         guard status == NQL_OK, let handle else {
             throw Self.refusal(status, failure)
         }
+        cancellationLock.lock()
         self.handle = handle
+        let wasCancelled = cancelled
+        if wasCancelled { nql_schematic_cancel(handle) }
+        cancellationLock.unlock()
+        if wasCancelled { throw CancellationError() }
 
         var info = NQLSchematicInfo(
             block_count: 0,
@@ -137,7 +151,10 @@ final class NativeSchematicSession: @unchecked Sendable {
     }
 
     func cancel() {
+        cancellationLock.lock()
+        cancelled = true
         if let handle { nql_schematic_cancel(handle) }
+        cancellationLock.unlock()
     }
 
     func readWarnings() -> [String] {
@@ -158,8 +175,6 @@ final class NativeSchematicSession: @unchecked Sendable {
         guard let handle else {
             throw NativeSchematicRefusal(message: "Something went wrong while reading this schematic.")
         }
-        meshLock.lock()
-        defer { meshLock.unlock() }
         guard meshStream == nil else {
             throw NativeSchematicRefusal(message: "A mesh stream is already active.")
         }
@@ -182,16 +197,16 @@ final class NativeSchematicSession: @unchecked Sendable {
             )
             if status == NQL_ERR_CANCELLED {
                 if let message = failure.message { nql_buffer_free(message, failure.message_len) }
-                throw NativeSchematicCancelled()
+                throw CancellationError()
             }
             guard status == NQL_OK, let atlas, let stream, atlasLength > 0 else {
                 throw Self.refusal(status, failure)
             }
-            defer { nql_buffer_free(atlas, atlasLength) }
-            let data = Data(bytes: atlas, count: atlasLength)
+            let data = Data(bytesNoCopy: atlas, count: atlasLength, deallocator: .custom { pointer, _ in
+                nql_buffer_free(pointer.assumingMemoryBound(to: UInt8.self), atlasLength)
+            })
             meshStream = stream
-            meshServedBytes = 0
-            meshServedTriangles = 0
+            resourcePack = pack
             return NativeMeshStart(
                 batchCount: Int(meshInfo.batch_count),
                 atlas: data,
@@ -202,68 +217,28 @@ final class NativeSchematicSession: @unchecked Sendable {
     }
 
     func nextBatch(index: Int) throws -> NativeMeshBatch? {
-        meshLock.lock()
-        defer { meshLock.unlock() }
         guard let meshStream else {
             throw NativeSchematicRefusal(message: "The native mesh stream is not available.")
         }
-        var bytes: UnsafeMutablePointer<UInt8>?
-        var length = 0
-        var info = NQLBatchInfo(
-            batch_index: 0,
-            part_count: 0,
-            vertex_count: 0,
-            index_count: 0,
-            triangle_count: 0,
-            payload_length: 0,
-            bounds_min: (0, 0, 0),
-            bounds_max: (0, 0, 0)
-        )
+        var batch: OpaquePointer?
+        var info = NQLBatchInfo()
         var failure = NQLError(message: nil, message_len: 0)
-        let status = nql_mesh_stream_next(
-            meshStream,
-            UInt32(index),
-            &bytes,
-            &length,
-            &info,
-            &failure
-        )
-        if status == NQL_DONE {
-            return nil
-        }
+        let status = nql_mesh_stream_next(meshStream, UInt32(index), &batch, &info, &failure)
+        if status == NQL_DONE { return nil }
         if status == NQL_ERR_CANCELLED {
             if let message = failure.message { nql_buffer_free(message, failure.message_len) }
-            throw NativeSchematicCancelled()
+            throw CancellationError()
         }
-        guard status == NQL_OK, let bytes, length > 0 else {
-            throw Self.refusal(status, failure)
-        }
-        // Adopt the Rust buffer instead of copying it: the copy doubled every
-        // payload's large-allocator traffic in the app process, and freed
-        // blocks that size stay mapped long after a preview is done.
-        let payload = Data(bytesNoCopy: bytes, count: length, deallocator: .custom { pointer, _ in
-            nql_buffer_free(pointer.assumingMemoryBound(to: UInt8.self), length)
-        })
-        meshServedBytes += length
-        meshServedTriangles += Int(info.triangle_count)
-        return NativeMeshBatch(
-            index: Int(info.batch_index),
-            triangles: Int(info.triangle_count),
-            vertices: Int(info.vertex_count),
-            indices: Int(info.index_count),
-            bytes: length,
-            payload: payload,
-            totalBytes: meshServedBytes,
-            totalTriangles: meshServedTriangles
-        )
+        guard status == NQL_OK, let batch else { throw Self.refusal(status, failure) }
+        return NativeMeshBatch(handle: batch, info: info)
     }
 
+    // Only the producer uses or releases the stream; cancellation touches just
+    // the schematic's atomic flag and never frees memory under a mesh call.
     func endMesh() {
-        meshLock.lock()
-        let stream = meshStream
+        if let meshStream { nql_mesh_stream_free(meshStream) }
         meshStream = nil
-        meshLock.unlock()
-        if let stream { nql_mesh_stream_free(stream) }
+        resourcePack = nil
     }
 
     private static func refusal(_ status: NQLStatus, _ failure: NQLError) -> NativeSchematicRefusal {
@@ -287,7 +262,7 @@ final class NativeSchematicSession: @unchecked Sendable {
             )
         case NQL_ERR_PACK:
             return NativeSchematicRefusal(
-                message: "The bundled block resources are invalid. Rebuild the renderer assets and the app."
+                message: "The bundled block resources are invalid. Rebuild the app."
             )
         default:
             return NativeSchematicRefusal(

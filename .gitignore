@@ -72,11 +72,10 @@ DerivedData-x86/
 build/
 *.xcuserstate
 
-# renderer
-Renderer/node_modules/
+# Dependencies and old generated web artifacts
+**/node_modules/
 Renderer/coverage/
-Resources/Renderer/index.html
-Resources/Renderer/pack.zip
+Resources/Renderer/
 
 # rust
 target

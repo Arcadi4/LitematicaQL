@@ -12,8 +12,7 @@ ThirdParty/schematic-mesher-LICENSE.txt.
 Third-party Minecraft resource pack
 ------------------------------------
 
-The file `Renderer/vendor/pack.zip`, including its generated copy at
-`Resources/Renderer/pack.zip`, is a separate third-party Minecraft resource
+The file `Resources/pack.zip` is a separate third-party Minecraft resource
 pack. Its `pack.mcmeta` identifies it as Minecraft's default textures for pack
 and mod creators (`pack_format` 71). Its Minecraft assets are copyrighted by
 Mojang AB and/or its licensors. They are not original LitematicaQL material
