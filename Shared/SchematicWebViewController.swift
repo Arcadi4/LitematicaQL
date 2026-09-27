@@ -217,12 +217,15 @@ final class SchematicWebViewController: NSViewController {
                 batchCount: mesh.batchCount
             ) { [weak self] (batch: NativeMeshBatch) in
                 Task { @MainActor [weak self] in
-                    await self?.presentProgress(
+                    // Batch serving outlives loads; only the active load's
+                    // progress may reach the page.
+                    guard let self, self.loadGeneration == generation else { return }
+                    await self.presentProgress(
                         phase: "mesh",
                         completed: batch.index + 1,
                         total: mesh.batchCount,
-                        bytes: batch.bytes,
-                        triangles: batch.triangles
+                        bytes: batch.totalBytes,
+                        triangles: batch.totalTriangles
                     )
                 }
             }

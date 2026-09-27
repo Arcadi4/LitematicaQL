@@ -1,5 +1,6 @@
 import { postNativeMessage } from "./bridge";
 import { SchematicViewer } from "./viewer";
+import { StatusModel, formatBytes, type ProgressInfo } from "./status";
 import type { BatchProgress } from "./stream";
 import "./style.css";
 
@@ -18,14 +19,6 @@ interface MeshStartInfo {
   atlasWidth: number;
   atlasHeight: number;
   batchCount: number;
-}
-
-interface ProgressInfo {
-  phase: "decode" | "mesh" | "upload";
-  completed: number;
-  total: number;
-  bytes: number;
-  triangles: number;
 }
 
 declare global {
@@ -57,12 +50,29 @@ const viewer = new SchematicViewer(canvas);
 let activeGeneration = 0;
 let streamAbort: AbortController | undefined;
 
-const largeRenderStatusTitle = "Building preview";
+const statusModel = new StatusModel();
+
+function renderStatus(): void {
+  const view = statusModel.current;
+  status.hidden = view.kind === "hidden";
+  status.classList.toggle("status--error", view.kind === "error");
+  if (view.kind === "progress") {
+    statusTitle.textContent = "Building preview";
+    statusDetail.textContent = view.notice;
+    statusDetail.hidden = view.notice === "";
+  } else if (view.kind === "error" || view.kind === "idle") {
+    statusTitle.textContent = view.title;
+    statusDetail.textContent = view.message;
+    statusDetail.hidden = false;
+  }
+}
+
 const largeRenderStatusDetail = "This schematic is large — rendering it will take a while.";
 
 window.addEventListener("resize", () => viewer.resize());
 
-setStatus("Ready", "Waiting for a schematic file…");
+statusModel.idle("Ready", "Waiting for a schematic file…");
+renderStatus();
 postNativeMessage({ type: "ready", detail: "" });
 
 window.litematicaQL = {
@@ -79,26 +89,13 @@ window.litematicaQL = {
       info.blockEntityCount,
       info.warnings ?? [],
     );
-    setStatus(
-      largeRenderStatusTitle,
-      info.large ? largeRenderStatusDetail : "Preparing block geometry…",
-    );
+    statusModel.loadStarted(info.large ? largeRenderStatusDetail : "");
+    renderStatus();
   },
 
   async progress(info: ProgressInfo): Promise<void> {
-    if (info.phase === "decode") {
-      setStatus("Reading schematic", `${formatBytes(info.bytes)} · ${info.completed}/${info.total}`);
-    } else if (info.phase === "mesh") {
-      setStatus(
-        "Building geometry",
-        `${info.completed}/${info.total} batches · ${Math.round((info.completed / Math.max(1, info.total)) * 100)}% · ${formatBytes(info.bytes)} · ${info.triangles.toLocaleString()} triangles`,
-      );
-    } else {
-      setStatus(
-        "Uploading preview",
-        `${Math.max(0, info.completed - 1)}/${Math.max(0, info.total - 1)} batches · ${formatBytes(info.bytes)} uploaded`,
-      );
-    }
+    statusModel.loadProgress(info.completed, info.total);
+    renderStatus();
   },
 
   async meshStart(info: MeshStartInfo): Promise<void> {
@@ -106,7 +103,8 @@ window.litematicaQL = {
     streamAbort?.abort();
     const abort = new AbortController();
     streamAbort = abort;
-    setStatus("Uploading shared atlas", `0/${info.batchCount + 1} · preparing textures`);
+    statusModel.loadProgress(0, info.batchCount + 1);
+    renderStatus();
     try {
       const result = await viewer.loadStream({
         atlasURL: info.atlasUrl,
@@ -114,17 +112,12 @@ window.litematicaQL = {
         atlasHeight: info.atlasHeight,
         batchCount: info.batchCount,
         signal: abort.signal,
-        fetchBatch: (index) => fetch(`lql-mesh://preview/batch/${index}`, { signal: abort.signal, cache: "no-store" }),
+        fetchBatch: (index) =>
+          fetch(`lql-mesh://preview/batch/${index}`, { signal: abort.signal, cache: "no-store" }),
         onProgress: (progress: BatchProgress) => {
           if (generation !== activeGeneration || abort.signal.aborted) return;
-          if (progress.phase === "atlas") {
-            setStatus("Uploading shared atlas", `${formatBytes(progress.bytes)} · texture atlas uploaded once`);
-          } else {
-            setStatus(
-              "Uploading geometry",
-              `${progress.completed - 1}/${info.batchCount} batches · ${Math.round((progress.completed / progress.total) * 100)}% · ${formatBytes(progress.bytes)} transferred`,
-            );
-          }
+          statusModel.loadProgress(progress.completed, progress.total);
+          renderStatus();
         },
       });
       if (generation !== activeGeneration || abort.signal.aborted) {
@@ -136,9 +129,12 @@ window.litematicaQL = {
       }
       fileModelStats.textContent = `${result.triangles.toLocaleString()} triangles · ${formatBytes(result.bytes)} total model data`;
       const memory = (performance as Performance & { memory?: { usedJSHeapSize: number } }).memory;
-      fileMemory.textContent = memory ? `Renderer memory ${formatBytes(memory.usedJSHeapSize)}` : "";
+      fileMemory.textContent = memory
+        ? `Renderer memory ${formatBytes(memory.usedJSHeapSize)}`
+        : "";
       fileMemory.hidden = !memory;
-      status.hidden = true;
+      statusModel.loadSettled();
+      renderStatus();
       postNativeMessage({ type: "loaded", detail: info.name });
     } catch (error) {
       if (error instanceof DOMException && error.name === "AbortError") return;
@@ -178,25 +174,10 @@ function showPreviewMetadata(
 }
 
 function showLoadError(message: string): void {
-  status.hidden = false;
-  status.classList.add("status--error");
-  statusTitle.textContent = "Preview unavailable";
-  statusDetail.textContent = message;
+  statusModel.loadFailed("Preview unavailable", message);
+  renderStatus();
   fileInfo.hidden = true;
   controlsHint.hidden = true;
-}
-
-function setStatus(title: string, detail: string): void {
-  status.hidden = false;
-  status.classList.remove("status--error");
-  statusTitle.textContent = title;
-  statusDetail.textContent = detail;
-}
-
-function formatBytes(bytes: number): string {
-  if (bytes < 1024) return `${bytes} B`;
-  if (bytes < 1024 * 1024) return `${(bytes / 1024).toFixed(1)} KB`;
-  return `${(bytes / (1024 * 1024)).toFixed(1)} MB`;
 }
 
 function requiredElement<ElementType extends HTMLElement>(id: string): ElementType {

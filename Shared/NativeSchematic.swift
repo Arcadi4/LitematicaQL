@@ -33,6 +33,10 @@ struct NativeMeshBatch: Sendable {
     let indices: Int
     let bytes: Int
     let payload: Data
+    /// Served totals including this batch, so progress readers can report the
+    /// stream as a whole without keeping their own counters.
+    let totalBytes: Int
+    let totalTriangles: Int
 }
 
 /// Owns a parsed immutable resource pack. One instance may be reused by any
@@ -86,6 +90,8 @@ final class NativeResourcePack: @unchecked Sendable {
 final class NativeSchematicSession: @unchecked Sendable {
     private var handle: OpaquePointer?
     private var meshStream: OpaquePointer?
+    private var meshServedBytes = 0
+    private var meshServedTriangles = 0
     private let meshLock = NSLock()
 
     deinit {
@@ -184,6 +190,8 @@ final class NativeSchematicSession: @unchecked Sendable {
             defer { nql_buffer_free(atlas, atlasLength) }
             let data = Data(bytes: atlas, count: atlasLength)
             meshStream = stream
+            meshServedBytes = 0
+            meshServedTriangles = 0
             return NativeMeshStart(
                 batchCount: Int(meshInfo.batch_count),
                 atlas: data,
@@ -231,13 +239,17 @@ final class NativeSchematicSession: @unchecked Sendable {
             throw Self.refusal(status, failure)
         }
         defer { nql_buffer_free(bytes, length) }
+        meshServedBytes += length
+        meshServedTriangles += Int(info.triangle_count)
         return NativeMeshBatch(
             index: Int(info.batch_index),
             triangles: Int(info.triangle_count),
             vertices: Int(info.vertex_count),
             indices: Int(info.index_count),
             bytes: length,
-            payload: Data(bytes: bytes, count: length)
+            payload: Data(bytes: bytes, count: length),
+            totalBytes: meshServedBytes,
+            totalTriangles: meshServedTriangles
         )
     }
 
