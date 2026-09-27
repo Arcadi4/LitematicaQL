@@ -476,6 +476,60 @@ fn mca_notices_and_custom_lz4_survive_the_c_abi() {
     }
 }
 
+/// The renderer frames the schematic from the occupied-block bounds reported
+/// before meshing, then only widens that frame to admit streamed geometry. If
+/// geometry reached outside the padded block box, each batch would nudge the
+/// camera and the preview would jitter while it loads.
+#[test]
+fn streamed_geometry_stays_within_the_camera_frame() {
+    // A negative content origin exercises the padding on the low side too.
+    let fixtures = ["Cottage.litematic", "Watchtower.schematic", "Garden.nusn"];
+    let pack = open_pack(&pack_bytes());
+    for fixture in fixtures {
+        let Ok(bytes) = fs::read(repo_root().join("Fixtures/Demos").join(fixture)) else {
+            continue;
+        };
+        let (handle, _) = open(&bytes);
+        let facts = info(handle);
+        assert!(facts.content_x > 0 && facts.content_y > 0 && facts.content_z > 0);
+
+        // A block at `p` is meshed around its center, spanning [p - 0.5, p + 0.5].
+        let frame_min = [
+            facts.content_min_x as f32 - 0.5,
+            facts.content_min_y as f32 - 0.5,
+            facts.content_min_z as f32 - 0.5,
+        ];
+        let frame_max = [
+            (facts.content_min_x + facts.content_x) as f32 - 0.5,
+            (facts.content_min_y + facts.content_y) as f32 - 0.5,
+            (facts.content_min_z + facts.content_z) as f32 - 0.5,
+        ];
+
+        let result = mesh(handle, pack);
+        assert!(!result.batches.is_empty(), "{fixture} produced no geometry");
+        for (batch, _) in &result.batches {
+            let view = batch.view();
+            for axis in 0..3 {
+                let end = view.origin[axis] + view.extent[axis];
+                assert!(
+                    view.origin[axis] >= frame_min[axis] - 0.001
+                        && end <= frame_max[axis] + 0.001,
+                    "{fixture} axis {axis}: geometry {:.3}..{:.3} leaves the camera \
+                     frame {:.3}..{:.3}, which would move the camera mid-load",
+                    view.origin[axis],
+                    end,
+                    frame_min[axis],
+                    frame_max[axis]
+                );
+            }
+        }
+        unsafe {
+            nql_schematic_free(handle);
+        }
+    }
+    unsafe { nql_resource_pack_free(pack) };
+}
+
 #[test]
 fn pack_failures_keep_stable_status_codes() {
     let bad_pack = b"not a zip";
