@@ -11,6 +11,8 @@
 
 LitematicaQL 为 Minecraft 原理图与结构提供了 macOS 快速查看预览扩展，支持 `.litematic`、`.schem`、`.schematic`、`.nbt`、`.snbt`、`.mcstructure`、`.nusn` 与 `.mca` 格式。
 
+如果你使用的是 Windows，欢迎体验姐妹项目 [LitematicaPreview](https://github.com/Arcadi4/LitematicaPreview)，享受与 LitematicaQL 一样飞速的渲染体验！
+
 <table>
 <tr>
 <th>预览投影</th>
@@ -44,16 +46,16 @@ brew install --cask arcadi4/tap/litematicaql
 
 ## 支持格式
 
-| 扩展名 | 文件格式 |
-| --- | --- |
-| `.litematic` | Litematica |
-| `.schem` | Sponge 原理图 |
-| `.schematic` | MCEdit |
-| `.nbt` | Java 结构方块 |
-| `.snbt` | 结构 SNBT，花括号或方括号方块状态 |
-| `.mcstructure` | 基岩版结构 |
-| `.nusn` | Nucleation 快照 |
-| `.mca` | Minecraft Anvil 世界存档（每个文件 4 区块） |
+| 扩展名         | 文件格式                                        |
+| -------------- | ----------------------------------------------- |
+| `.litematic`   | Litematica                                      |
+| `.schem`       | Sponge 原理图                                   |
+| `.schematic`   | MCEdit                                          |
+| `.nbt`         | Java 结构方块                                   |
+| `.snbt`        | 结构 SNBT，花括号或方括号方块状态               |
+| `.mcstructure` | 基岩版结构                                      |
+| `.nusn`        | Nucleation 快照                                 |
+| `.mca`         | Minecraft Anvil 世界存档（每个文件 4 区块）     |
 
 ## 开发
 
@@ -99,4 +101,6 @@ xcodebuild \
 
 ## 致谢
 
-特别感谢 @Nano112 的项目 [Nucleation](https://github.com/Schem-at/Nucleation) 为原理图解析与渲染提供支持。
+特别感谢 [@Nano112](https://github.com/Nano112) 的项目 [Nucleation](https://github.com/Schem-at/Nucleation) 为整个解析与网格生成管线提供支持。
+
+感谢我的慷慨好友 [@johnbean393](https://github.com/johnbean393) 分享其 Apple 开发者签名来为应用公证，在免去我 100 美元「苹果税」的同时带来了更好的开箱即用体验！也欢迎了解他们的项目 [Chiboard](https://www.chiboard.app)——一款基于机器学习的高效拼音输入法，能成倍提升中文打字速度。
