@@ -69,8 +69,13 @@ run: build
     open {{ app_bundle }}
 
 # Run every test suite: Swift file validation and the Rust bridge.
-test: swift-test native rust-test
+[parallel]
+test: swift-test _native-test
     @echo "all test suites passed"
+
+# Keep Cargo invocations sequential so they reuse one target directory without
+# competing for its lock. SwiftPM has independent outputs and can overlap them.
+_native-test: native rust-test
 
 # Run the Swift file-validation tests.
 swift-test:
