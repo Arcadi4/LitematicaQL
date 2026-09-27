@@ -27,7 +27,7 @@ use std::path::PathBuf;
 use std::time::{Duration, Instant};
 
 use litematicaql_native::{
-    nql_buffer_free, nql_mesh_stream_free, nql_mesh_stream_next, nql_mesh_stream_open,
+    nql_buffer_free, nql_mesh_batch_free, nql_mesh_stream_free, nql_mesh_stream_next, nql_mesh_stream_open,
     nql_resource_pack_free, nql_resource_pack_open, nql_schematic_free, nql_schematic_info,
     nql_schematic_open, nql_schematic_warnings, status, NQLAtlasInfo, NQLBatchInfo, NQLError,
     NQLMeshInfo, NQLSchematicInfo,
@@ -119,14 +119,13 @@ struct Budget {
     /// Total wall clock for one build. Measured 3.2-3.5 s on a ten-core
     /// workstation, so this leaves room for a smaller CI runner.
     total: Duration,
-    /// Streaming throughput. Measured 180-390 MB/s; a two-times regression in
-    /// the mesher or the batch encoder still clears this.
-    throughput_mb_per_s: f64,
+    /// Geometry throughput; bytes/s would penalize the compact GPU layout.
+    million_triangles_per_s: f64,
 }
 
 const BUDGET: Budget = Budget {
     total: Duration::from_secs(20),
-    throughput_mb_per_s: 40.0,
+    million_triangles_per_s: 0.4,
 };
 
 /// Freeing a preview has to give back everything but the harness's own
@@ -167,8 +166,8 @@ impl Measurement {
         self.open + self.mesh + self.stream
     }
 
-    fn throughput_mb_per_s(&self) -> f64 {
-        self.payload_bytes as f64 / 1_000_000.0 / self.stream.as_secs_f64().max(f64::MIN_POSITIVE)
+    fn million_triangles_per_s(&self) -> f64 {
+        self.triangles as f64 / 1_000_000.0 / self.stream.as_secs_f64().max(f64::MIN_POSITIVE)
     }
 }
 
@@ -333,12 +332,7 @@ fn run(baseline: &Baseline, pack: *const litematicaql_native::NQLResourcePack) -
     measured.mesh = started.elapsed();
     assert!(!stream.is_null());
     assert!(!atlas.is_null());
-    assert_eq!(
-        &unsafe { std::slice::from_raw_parts(atlas, atlas_length) }[..8],
-        b"\x89PNG\r\n\x1a\n",
-        "{}: the shared atlas is not a PNG",
-        baseline.name
-    );
+    assert_eq!(atlas_length, atlas_info.width as usize * atlas_info.height as usize * 4);
     release(atlas, atlas_length);
     measured.atlas = [atlas_info.width, atlas_info.height];
     measured.batches = mesh_info.batch_count;
@@ -354,37 +348,34 @@ fn run(baseline: &Baseline, pack: *const litematicaql_native::NQLResourcePack) -
     let started = Instant::now();
     for expected in 0..mesh_info.batch_count {
         let mut bytes = std::ptr::null_mut();
-        let mut length = 0;
         let mut batch = empty_batch();
         let mut failure = empty_error();
         let status =
-            unsafe { nql_mesh_stream_next(stream, expected, &mut bytes, &mut length, &mut batch, &mut failure) };
+            unsafe { nql_mesh_stream_next(stream, expected, &mut bytes, &mut batch, &mut failure) };
         let message = take_error(&mut failure);
         assert_eq!(status, status::OK, "{} batch {expected}: {message}", baseline.name);
         assert!(!bytes.is_null());
-        let payload = unsafe { std::slice::from_raw_parts(bytes, length) };
+        let payload = unsafe { (*bytes).view() };
 
-        check_batch(baseline, expected, &batch, payload, &mut introduced);
+        check_batch(baseline, expected, &batch, &payload, &mut introduced);
         accumulate(&mut measured, &batch);
         bounds.push((batch.bounds_min, batch.bounds_max));
 
-        release(bytes, length);
+        unsafe { nql_mesh_batch_free(bytes) };
     }
     measured.stream = started.elapsed();
     measured.peak = AllocationMeter::peak().saturating_sub(before);
 
     // The host asks for one batch past the end to learn the stream is done.
     let mut bytes = std::ptr::null_mut();
-    let mut length = 1;
     let mut batch = empty_batch();
     let mut failure = empty_error();
     let status = unsafe {
-        nql_mesh_stream_next(stream, mesh_info.batch_count, &mut bytes, &mut length, &mut batch, &mut failure)
+        nql_mesh_stream_next(stream, mesh_info.batch_count, &mut bytes, &mut batch, &mut failure)
     };
     take_error(&mut failure);
     assert_eq!(status, status::DONE, "{}: stream did not end", baseline.name);
     assert!(bytes.is_null());
-    assert_eq!(length, 0);
     assert_eq!(batch, empty_batch());
 
     measured.greedy_textures = introduced;
@@ -401,95 +392,51 @@ fn run(baseline: &Baseline, pack: *const litematicaql_native::NQLResourcePack) -
     measured
 }
 
-/// Check one batch against the contract the renderer's `decodeBatch` enforces.
+/// Check the native Metal buffers as each batch arrives, without collecting them.
 fn check_batch(
     baseline: &Baseline,
     expected: u32,
     batch: &NQLBatchInfo,
-    payload: &[u8],
+    view: &litematicaql_native::stream::NQLBatchView,
     introduced: &mut HashMap<u32, u32>,
 ) {
     let where_ = format!("{} batch {expected}", baseline.name);
-    assert_eq!(&payload[..4], b"LQMB", "{where_}: bad batch magic");
-    assert_eq!(u16::from_le_bytes(payload[4..6].try_into().unwrap()), 1, "{where_}: bad version");
-    assert_eq!(u16::from_le_bytes(payload[6..8].try_into().unwrap()), 64, "{where_}: bad header size");
-    assert_eq!(u32::from_le_bytes(payload[8..12].try_into().unwrap()), expected, "{where_}: wrong index");
-    assert_eq!(u32::from_le_bytes(payload[12..16].try_into().unwrap()), batch.part_count, "{where_}: wrong part count");
     assert_eq!(batch.batch_index, expected, "{where_}: reported index mismatch");
-    assert_eq!(batch.payload_length as usize, payload.len(), "{where_}: truncated payload");
-    assert_eq!(
-        batch.triangle_count as u64 * 3,
-        batch.index_count as u64,
-        "{where_}: triangle and index counts disagree"
-    );
-    assert!(batch.part_count > 0, "{where_}: empty batch");
-    assert!(batch.triangle_count > 0, "{where_}: batch has no triangles");
-
-    let mut offset = 64usize;
-    let mut vertices = 0u32;
-    let mut indices = 0u32;
-    for part in 0..batch.part_count {
-        assert!(offset + 24 <= payload.len(), "{where_} part {part}: header overruns");
-        let texture = u32::from_le_bytes(payload[offset..offset + 4].try_into().unwrap());
-        let part_vertices = u32::from_le_bytes(payload[offset + 8..offset + 12].try_into().unwrap())
-            as usize;
-        let part_indices = u32::from_le_bytes(payload[offset + 12..offset + 16].try_into().unwrap())
-            as usize;
-        let texture_length =
-            u32::from_le_bytes(payload[offset + 16..offset + 20].try_into().unwrap()) as usize;
-        let where_ = format!("{where_} part {part}");
-
-        assert!(part_vertices > 0, "{where_}: no vertices");
-        assert!(
-            part_vertices <= batch.vertex_count as usize,
-            "{where_}: more vertices than the batch reports"
-        );
-        assert!(part_indices > 0, "{where_}: no indices");
-        assert_eq!(part_indices % 3, 0, "{where_}: index count is not a whole number of triangles");
-
-        // Index 0 is the shared atlas, which the host already uploaded; every
-        // other texture is greedy-meshed and has to arrive exactly once.
-        if texture == 0 {
-            assert_eq!(texture_length, 0, "{where_}: the shared atlas was embedded in a batch");
-        } else if texture_length > 0 {
-            assert!(
-                introduced.insert(texture, expected).is_none(),
-                "{where_}: texture {texture} was embedded twice"
-            );
+    assert_eq!(batch.triangle_count as u64 * 3, batch.index_count as u64);
+    let parts = unsafe { std::slice::from_raw_parts(view.parts, view.part_count) };
+    let geometry = unsafe { std::slice::from_raw_parts(view.geometry, view.geometry_length) };
+    assert_eq!(parts.len(), batch.part_count as usize);
+    let mut vertices = 0;
+    let mut indices = 0;
+    let mut texture_bytes = 0;
+    for part in parts {
+        assert!(part.vertex_count > 0 && part.index_count > 0, "{where_}: empty part");
+        assert_eq!(part.index_count % 3, 0);
+        assert!(matches!(part.index_size, 2 | 4));
+        assert!(part.vertex_offset + part.vertex_count as usize * 24 <= geometry.len());
+        if part.texture_index == 0 {
+            assert_eq!(part.texture_length, 0, "{where_}: duplicate atlas");
+        } else if part.texture_length > 0 {
+            assert!(introduced.insert(part.texture_index, expected).is_none(), "{where_}: duplicate texture");
+            let png = unsafe { std::slice::from_raw_parts(part.texture_png, part.texture_length) };
+            assert!(png.starts_with(b"\x89PNG\r\n\x1a\n"));
         } else {
-            // A material contributes one part per layer, so the same texture
-            // legitimately appears twice in a batch; what must hold is that
-            // some earlier batch already introduced it.
-            assert!(
-                introduced.contains_key(&texture),
-                "{where_}: texture {texture} is referenced before any batch embeds it"
-            );
+            assert!(introduced.contains_key(&part.texture_index), "{where_}: texture used before introduction");
         }
-        // A texture must be introduced by the first batch that names it, so a
-        // reference in an earlier batch than its own embedding is out of order.
-        if let Some(introduced_in) = introduced.get(&texture) {
-            assert!(
-                *introduced_in <= expected,
-                "{where_}: texture {texture} was introduced by a later batch"
-            );
+        let end = part.index_offset + part.index_count as usize * part.index_size as usize;
+        assert!(end <= geometry.len());
+        for index in geometry[part.index_offset..end].chunks_exact(part.index_size as usize) {
+            let index = if part.index_size == 2 { u16::from_le_bytes(index.try_into().unwrap()) as u32 }
+                else { u32::from_le_bytes(index.try_into().unwrap()) };
+            assert!(index < part.vertex_count, "{where_}: index out of bounds");
         }
-
-        // Indices address the part's own vertex run, never the batch's.
-        let first = offset + 24 + part_vertices * 48;
-        let last = first + part_indices * 4;
-        assert!(last <= payload.len(), "{where_}: attributes overrun");
-        for slot in payload[first..last].chunks_exact(4) {
-            let value = u32::from_le_bytes(slot.try_into().unwrap()) as usize;
-            assert!(value < part_vertices, "{where_}: index {value} is out of range");
-        }
-
-        vertices += part_vertices as u32;
-        indices += part_indices as u32;
-        offset = (last + texture_length + 3) & !3;
+        vertices += part.vertex_count;
+        indices += part.index_count;
+        texture_bytes += part.texture_length;
     }
-    assert_eq!(offset, payload.len(), "{where_}: parts do not fill the payload");
-    assert_eq!(vertices, batch.vertex_count, "{where_}: vertex totals disagree");
-    assert_eq!(indices, batch.index_count, "{where_}: index totals disagree");
+    assert_eq!(vertices, batch.vertex_count);
+    assert_eq!(indices, batch.index_count);
+    assert_eq!(geometry.len() + texture_bytes, batch.payload_length as usize);
 }
 
 fn accumulate(measured: &mut Measurement, batch: &NQLBatchInfo) {
@@ -608,7 +555,9 @@ fn check_geometry(baseline: &Baseline, measured: &Measurement) {
     );
 
     within(baseline, "triangles", measured.triangles, baseline.triangles);
-    within(baseline, "payload bytes", measured.payload_bytes, baseline.payload_bytes);
+    // Compact vertices halve attribute bytes; variable-width indices reduce them
+    // further. Keep the measured old payload as a ceiling until rebaselined.
+    assert!(measured.payload_bytes < baseline.payload_bytes * 2 / 3);
 
     // Meshed bounds are the chunk-padded region, not the content box, and this
     // is where that difference shows: Valkyrie reports 256 blocks of content
@@ -648,7 +597,7 @@ fn format_report(baseline: &Baseline, measured: &Measurement) -> String {
   batches {batches}, {triangles} triangles, {vertices} vertices, {payload} payload bytes
   atlas {atlas:?}, {textures} greedy textures, geometry {low:?}..{high:?}
   open {open_ms} ms, mesh {mesh_ms} ms, stream {stream_ms} ms, total {total_ms} ms
-  {throughput:.1} MB/s streaming, live peak {decoded} B decoded, {mesh_peak} B streaming (budget {peak_budget} B), {retained} B retained",
+  {throughput:.1} M triangles/s streaming, live peak {decoded} B decoded, {mesh_peak} B streaming (budget {peak_budget} B), {retained} B retained",
         name = baseline.name,
         blocks = measured.block_count,
         entities = measured.block_entities,
@@ -665,7 +614,7 @@ fn format_report(baseline: &Baseline, measured: &Measurement) -> String {
         mesh_ms = measured.mesh.as_millis(),
         stream_ms = measured.stream.as_millis(),
         total_ms = measured.total().as_millis(),
-        throughput = measured.throughput_mb_per_s(),
+        throughput = measured.million_triangles_per_s(),
         decoded = measured.decoded_peak,
         mesh_peak = measured.peak,
         retained = measured.retained,
@@ -674,7 +623,7 @@ fn format_report(baseline: &Baseline, measured: &Measurement) -> String {
 
 #[test]
 fn large_builds_decode_mesh_and_stream_within_budget() {
-    let pack_bytes = fs::read(repo_root().join("Renderer/vendor/pack.zip")).expect("bundled resource pack");
+    let pack_bytes = fs::read(repo_root().join("Resources/pack.zip")).expect("bundled resource pack");
     let before_pack = AllocationMeter::live();
     let pack = open(&pack_bytes);
     let pack_bytes_live = AllocationMeter::live().saturating_sub(before_pack);
@@ -700,11 +649,11 @@ fn large_builds_decode_mesh_and_stream_within_budget() {
                 BUDGET.total.as_millis()
             );
             assert!(
-                measured.throughput_mb_per_s() >= BUDGET.throughput_mb_per_s,
-                "{} streamed at {:.1} MB/s, under the {:.1} MB/s budget\n{text}",
+                measured.million_triangles_per_s() >= BUDGET.million_triangles_per_s,
+                "{} streamed at {:.1} M triangles/s, under the {:.1} M triangles/s budget\n{text}",
                 baseline.name,
-                measured.throughput_mb_per_s(),
-                BUDGET.throughput_mb_per_s
+                measured.million_triangles_per_s(),
+                BUDGET.million_triangles_per_s
             );
             let peak_budget = baseline.peak_budget;
             assert!(

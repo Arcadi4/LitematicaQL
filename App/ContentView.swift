@@ -97,7 +97,7 @@ struct ContentView: View {
     }
 
     private func preview(for url: URL) -> some View {
-        SchematicWebView(fileURL: url, errorMessage: $errorMessage)
+        SchematicMetalPreview(fileURL: url, errorMessage: $errorMessage)
             .id(url)
         .navigationTitle(url.lastPathComponent)
     }

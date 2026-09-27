@@ -11,6 +11,10 @@ let package = Package(
         .target(
             name: "LitematicaQLCore",
             path: "Shared",
+            exclude: [
+                "NativeSchematic.swift", "MetalMesh.swift", "SchematicMetalRenderer.swift",
+                "SchematicMetalViewController.swift", "SchematicShaders.metal",
+            ],
             sources: ["LitematicFile.swift"]
         ),
         .testTarget(

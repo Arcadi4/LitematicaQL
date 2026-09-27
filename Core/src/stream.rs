@@ -1,42 +1,67 @@
-//! Bounded native mesh streaming.
+//! Bounded mesh production in Metal's final vertex/index layout.
 //!
-//! A stream owns the mesher's shared atlas and emits one geometry payload at a
-//! time. The atlas is returned by `open`; batch payloads contain only typed
-//! vertex/index data and first-use textures for greedy materials. Batch
-//! generation uses a small ordered worker window before payloads are encoded.
-use std::collections::{HashMap, HashSet};
-use std::sync::{
-    atomic::{AtomicBool, Ordering},
-    Arc,
-};
+//! Each returned batch owns one compact geometry allocation and first-use
+//! greedy texture PNGs. No serialization or whole-model geometry is retained.
+use std::collections::{HashMap, VecDeque};
+use std::sync::{atomic::{AtomicBool, Ordering}, Arc};
 
-use schematic_mesher::mesh_output::GreedyMaterialOutput;
 use schematic_mesher::{MeshLayer, MeshOutput};
-
 use crate::meshing::ChunkMeshes;
 use crate::{MeshFailure, NQLAtlasInfo, NQLBatchInfo, NQLMeshInfo};
 
-const BATCH_MAGIC: &[u8; 4] = b"LQMB";
-const BATCH_VERSION: u16 = 1;
-const BATCH_HEADER_BYTES: usize = 64;
-const PART_HEADER_BYTES: usize = 24;
-const ALPHA_OPAQUE: u32 = 0;
-const ALPHA_MASK: u32 = 1;
-const ALPHA_BLEND: u32 = 2;
-const REPEAT_TEXTURE: u32 = 0x100;
+pub const VERTEX_STRIDE: usize = 24;
+
+#[repr(C)]
+#[derive(Clone, Copy, Debug)]
+pub struct NQLMeshPart {
+    pub vertex_offset: usize,
+    pub index_offset: usize,
+    pub vertex_count: u32,
+    pub index_count: u32,
+    pub index_size: u32,
+    /// 0 = opaque, 1 = alpha test, 2 = blend. Nonzero textures repeat.
+    pub alpha_mode: u32,
+    pub texture_index: u32,
+    pub texture_png: *const u8,
+    pub texture_length: usize,
+}
+
+#[repr(C)]
+pub struct NQLBatchView {
+    pub geometry: *const u8,
+    pub geometry_length: usize,
+    pub parts: *const NQLMeshPart,
+    pub part_count: usize,
+    /// Decode UNORM16 positions in the vertex shader using these actual bounds.
+    pub origin: [f32; 3],
+    pub extent: [f32; 3],
+}
+
+pub struct NQLMeshBatch {
+    geometry: Vec<u8>,
+    parts: Vec<NQLMeshPart>,
+    _textures: Vec<Vec<u8>>,
+    origin: [f32; 3],
+    extent: [f32; 3],
+    pub(crate) info: NQLBatchInfo,
+}
+
+impl NQLMeshBatch {
+    pub fn view(&self) -> NQLBatchView {
+        NQLBatchView {
+            geometry: self.geometry.as_ptr(), geometry_length: self.geometry.len(),
+            parts: self.parts.as_ptr(), part_count: self.parts.len(),
+            origin: self.origin, extent: self.extent,
+        }
+    }
+}
 
 pub struct NQLMeshStream<'a> {
     chunks: ChunkMeshes<'a>,
     next_batch: u32,
-    pending: Vec<MeshOutput>,
+    pending: VecDeque<MeshOutput>,
     textures: HashMap<String, u32>,
-    next_texture: u32,
     cancelled: Arc<AtomicBool>,
-}
-
-pub(crate) struct BatchPayload {
-    pub bytes: Vec<u8>,
-    pub info: NQLBatchInfo,
 }
 
 impl<'a> NQLMeshStream<'a> {
@@ -47,374 +72,152 @@ impl<'a> NQLMeshStream<'a> {
     ) -> Result<(Self, Vec<u8>, NQLAtlasInfo, NQLMeshInfo), MeshFailure> {
         let block_count = source.source.block_count();
         if block_count > crate::MAX_MESH_BLOCKS {
-            return Err(MeshFailure::Mesh(format!(
-                "This schematic renders {block_count} blocks, beyond the {}-block preview limit.",
-                crate::MAX_MESH_BLOCKS
-            )));
+            return Err(MeshFailure::Mesh(format!("This schematic renders {block_count} blocks, beyond the preview limit.")));
         }
-        let mut chunks =
-            ChunkMeshes::from_source(&source.source, &pack.0, &crate::mesh_config(), current)
-                .map_err(MeshFailure::Mesh)?;
-        let atlas = chunks.atlas_png().map_err(MeshFailure::Mesh)?;
-        let atlas_info = NQLAtlasInfo {
-            width: chunks.atlas_width(),
-            height: chunks.atlas_height(),
-        };
-        let batch_count = chunks.batch_count();
+        let mut chunks = ChunkMeshes::from_source(&source.source, &pack.0, &crate::mesh_config(), current)
+            .map_err(MeshFailure::Mesh)?;
+        let atlas_info = NQLAtlasInfo { width: chunks.atlas_width(), height: chunks.atlas_height() };
+        // Transfer the existing pixels. Metal uploads them once; PNG encoding
+        // and immediately decoding a generated atlas would be wasted work.
+        let atlas = chunks.take_atlas_pixels();
+        let batch_count = u32::try_from(chunks.batch_count())
+            .map_err(|_| MeshFailure::Mesh("Too many mesh batches.".into()))?;
         current().map_err(|_| MeshFailure::Cancelled)?;
-        let stream = Self {
-            chunks,
-            next_batch: 0,
-            pending: Vec::new(),
-            textures: HashMap::new(),
-            next_texture: 1,
-            cancelled: source.cancelled.clone(),
-        };
-        let info = NQLMeshInfo {
-            batch_count: u32::try_from(batch_count).map_err(|_| {
-                MeshFailure::Mesh("This schematic has too many mesh batches.".into())
-            })?,
-            triangle_count: 0,
-        };
-        Ok((stream, atlas, atlas_info, info))
+        Ok((Self {
+            chunks, next_batch: 0, pending: VecDeque::new(),
+            textures: HashMap::new(), cancelled: source.cancelled.clone(),
+        }, atlas, atlas_info, NQLMeshInfo { batch_count, triangle_count: 0 }))
     }
 
-    pub(crate) fn next(
-        &mut self,
-        expected_batch: u32,
-    ) -> Result<Option<BatchPayload>, MeshFailure> {
+    pub(crate) fn next(&mut self, expected_batch: u32) -> Result<Option<NQLMeshBatch>, MeshFailure> {
         self.ensure_current()?;
         if expected_batch != self.next_batch {
-            return Err(MeshFailure::Mesh(
-                "Mesh batches arrived out of order.".into(),
-            ));
+            return Err(MeshFailure::Mesh("Mesh batches arrived out of order.".into()));
         }
-        if usize::try_from(self.next_batch).unwrap_or(usize::MAX) >= self.chunks.batch_count() {
-            return Ok(None);
-        }
+        if self.next_batch as usize >= self.chunks.batch_count() { return Ok(None); }
         if self.pending.is_empty() {
-            let start = self.next_batch;
-            let end = start
-                .saturating_add(crate::worker_count() as u32)
+            let end = self.next_batch.saturating_add(crate::worker_count() as u32)
                 .min(self.chunks.batch_count() as u32);
-            if start >= end {
-                return Ok(None);
-            }
-            let mut generated = Vec::new();
+            let mut generated = VecDeque::new();
             crate::parallel::ordered(
-                (start..end).map(Ok),
-                crate::worker_count(),
-                true,
+                (self.next_batch..end).map(Ok), crate::worker_count(), true,
                 |index, cancelled| {
                     crate::parallel::check_cancelled(cancelled)?;
+                    if self.cancelled.load(Ordering::Relaxed) { return Err("Preview cancelled.".into()); }
                     self.chunks.mesh_at(index as usize)
                 },
-                |output| {
-                    generated.push(output);
-                    Ok(())
-                },
-                &|| Ok(()),
-            )
-            .map_err(MeshFailure::Mesh)?;
+                |output| { generated.push_back(output); Ok(()) },
+                &|| if self.cancelled.load(Ordering::Relaxed) { Err("Preview cancelled.".into()) } else { Ok(()) },
+            ).map_err(|error| if self.cancelled.load(Ordering::Relaxed) { MeshFailure::Cancelled } else { MeshFailure::Mesh(error) })?;
             self.pending = generated;
         }
-        let mut output = self.pending.remove(0);
+        let output = self.pending.pop_front().expect("nonempty mesh window");
         self.ensure_current()?;
-        let bytes = encode_batch(
-            self.next_batch,
-            &output,
-            &mut self.textures,
-            &mut self.next_texture,
-        )?;
+        let batch = pack_batch(self.next_batch, output, &mut self.textures)?;
         self.ensure_current()?;
-        let info = batch_info(self.next_batch, &bytes, &output)?;
-        self.next_batch = self
-            .next_batch
-            .checked_add(1)
-            .ok_or_else(|| MeshFailure::Mesh("This schematic has too many mesh batches.".into()))?;
-        Ok(Some(BatchPayload { bytes, info }))
+        self.next_batch += 1;
+        Ok(Some(batch))
     }
 
     fn ensure_current(&self) -> Result<(), MeshFailure> {
-        if self.cancelled.load(Ordering::Relaxed) {
-            Err(MeshFailure::Cancelled)
-        } else {
-            Ok(())
+        if self.cancelled.load(Ordering::Relaxed) { Err(MeshFailure::Cancelled) } else { Ok(()) }
+    }
+}
+
+fn pack_batch(index: u32, mut output: MeshOutput, textures: &mut HashMap<String, u32>) -> Result<NQLMeshBatch, MeshFailure> {
+    output.greedy_materials.sort_unstable_by(|a, b| a.texture_path.cmp(&b.texture_path));
+    let layers = [&output.opaque, &output.cutout, &output.transparent].into_iter()
+        .chain(output.greedy_materials.iter().flat_map(|m| [&m.opaque, &m.transparent]));
+    let mut min = [f32::INFINITY; 3];
+    let mut max = [f32::NEG_INFINITY; 3];
+    let mut geometry_length = 0;
+    let mut vertex_count = 0;
+    let mut index_count = 0;
+    for layer in layers.filter(|l| !l.is_empty()) {
+        for position in &layer.positions {
+            for axis in 0..3 {
+                if !position[axis].is_finite() { return Err(MeshFailure::Mesh("Nonfinite mesh position.".into())); }
+                min[axis] = min[axis].min(position[axis]);
+                max[axis] = max[axis].max(position[axis]);
+            }
         }
+        vertex_count += layer.vertex_count();
+        index_count += layer.indices.len();
+        geometry_length += layer.vertex_count() * VERTEX_STRIDE + layer.indices.len() * index_size(layer);
+        geometry_length = (geometry_length + 3) & !3;
     }
-}
-
-fn encode_batch(
-    batch_index: u32,
-    output: &MeshOutput,
-    texture_indices: &mut HashMap<String, u32>,
-    next_texture: &mut u32,
-) -> Result<Vec<u8>, MeshFailure> {
-    let mut materials: Vec<_> = output
-        .greedy_materials
-        .iter()
-        .filter(|material| !material.opaque.is_empty() || !material.transparent.is_empty())
-        .collect();
-    materials.sort_by(|left, right| {
-        left.texture_path
-            .cmp(&right.texture_path)
-            .then_with(|| left.texture_png.cmp(&right.texture_png))
-    });
-    let part_count = layer_part_count(&output.opaque)
-        + layer_part_count(&output.cutout)
-        + layer_part_count(&output.transparent)
-        + materials
-            .iter()
-            .map(|material| {
-                layer_part_count(&material.opaque) + layer_part_count(&material.transparent)
-            })
-            .sum::<usize>();
-    let vertex_count = output
-        .opaque
-        .vertex_count()
-        .checked_add(output.cutout.vertex_count())
-        .and_then(|count| count.checked_add(output.transparent.vertex_count()))
-        .and_then(|count| {
-            materials.iter().try_fold(count, |count, material| {
-                count
-                    .checked_add(material.opaque.vertex_count())
-                    .and_then(|count| count.checked_add(material.transparent.vertex_count()))
-            })
-        })
-        .ok_or_else(|| MeshFailure::Mesh("This schematic has too many vertices.".into()))?;
-    let index_count = output
-        .opaque
-        .indices
-        .len()
-        .checked_add(output.cutout.indices.len())
-        .and_then(|count| count.checked_add(output.transparent.indices.len()))
-        .and_then(|count| {
-            materials.iter().try_fold(count, |count, material| {
-                count
-                    .checked_add(material.opaque.indices.len())
-                    .and_then(|count| count.checked_add(material.transparent.indices.len()))
-            })
-        })
-        .ok_or_else(|| MeshFailure::Mesh("This schematic has too many indices.".into()))?;
-    let triangle_count = index_count / 3;
-    // Size the payload before writing it: positions (12), normals (12), uvs
-    // (8), and colors (16) make 48 bytes per vertex, indices are 4 bytes each,
-    // and only first-use greedy textures add more, padded to four. A Vec that
-    // grows into place would copy a multi-megabyte batch while it doubles.
-    let mut seen: HashSet<&str> = HashSet::new();
-    let mut texture_bytes = 0usize;
-    for material in &materials {
-        let path = material.texture_path.as_str();
-        if texture_indices.contains_key(path) || !seen.insert(path) {
-            continue;
-        }
-        let length = material.texture_png.len();
-        u32::try_from(length).map_err(|_| MeshFailure::Mesh("Texture is too large.".into()))?;
-        texture_bytes = texture_bytes
-            .checked_add(length + ((4 - (length & 3)) & 3))
-            .ok_or_else(|| MeshFailure::Mesh("Mesh batch is too large.".into()))?;
-    }
-    let payload_length = BATCH_HEADER_BYTES
-        + part_count * PART_HEADER_BYTES
-        + vertex_count * 48
-        + index_count * 4
-        + texture_bytes;
-    let mut bytes = Vec::with_capacity(payload_length);
-    bytes.extend_from_slice(BATCH_MAGIC);
-    push_u16(&mut bytes, BATCH_VERSION);
-    push_u16(&mut bytes, BATCH_HEADER_BYTES as u16);
-    push_u32(&mut bytes, batch_index);
-    push_u32(
-        &mut bytes,
-        u32::try_from(part_count).map_err(|_| MeshFailure::Mesh("Too many mesh parts.".into()))?,
-    );
-    push_u32(
-        &mut bytes,
-        u32::try_from(vertex_count).map_err(|_| MeshFailure::Mesh("Too many vertices.".into()))?,
-    );
-    push_u32(
-        &mut bytes,
-        u32::try_from(index_count).map_err(|_| MeshFailure::Mesh("Too many indices.".into()))?,
-    );
-    push_u32(
-        &mut bytes,
-        u32::try_from(triangle_count)
-            .map_err(|_| MeshFailure::Mesh("Too many triangles.".into()))?,
-    );
-    for value in output.bounds.min {
-        push_f32(&mut bytes, value);
-    }
-    for value in output.bounds.max {
-        push_f32(&mut bytes, value);
-    }
-    push_u32(&mut bytes, *next_texture);
-    push_u32(&mut bytes, 0);
-    push_u32(&mut bytes, 0);
-
-    append_layer(&mut bytes, &output.opaque, 0, ALPHA_OPAQUE, None)?;
-    append_layer(&mut bytes, &output.cutout, 0, ALPHA_MASK, None)?;
-    append_layer(&mut bytes, &output.transparent, 0, ALPHA_BLEND, None)?;
-    for material in materials {
-        let (texture_index, first_use) = texture_index(material, texture_indices, next_texture);
-        let png = first_use.then_some(material.texture_png.as_slice());
-        append_layer(
-            &mut bytes,
-            &material.opaque,
-            texture_index,
-            ALPHA_OPAQUE,
-            if material.opaque.is_empty() {
-                None
-            } else {
-                png
-            },
-        )?;
-        append_layer(
-            &mut bytes,
-            &material.transparent,
-            texture_index,
-            ALPHA_BLEND,
-            if material.transparent.is_empty() || !material.opaque.is_empty() {
-                None
-            } else {
-                png
-            },
-        )?;
-    }
-    Ok(bytes)
-}
-
-fn layer_part_count(layer: &MeshLayer) -> usize {
-    usize::from(!layer.is_empty())
-}
-
-fn append_layer(
-    bytes: &mut Vec<u8>,
-    layer: &MeshLayer,
-    texture_index: u32,
-    alpha_mode: u32,
-    texture_png: Option<&[u8]>,
-) -> Result<(), MeshFailure> {
-    if layer.is_empty() {
-        return Ok(());
-    }
-    let repeat = if texture_index == 0 {
-        0
-    } else {
-        REPEAT_TEXTURE
+    if vertex_count == 0 { min = [0.0; 3]; max = [0.0; 3]; }
+    let extent = std::array::from_fn(|axis| max[axis] - min[axis]);
+    let mut batch = NQLMeshBatch {
+        geometry: Vec::with_capacity(geometry_length), parts: Vec::new(), _textures: Vec::new(),
+        origin: min, extent,
+        info: NQLBatchInfo {
+            batch_index: index, part_count: 0,
+            vertex_count: count(vertex_count)?, index_count: count(index_count)?,
+            triangle_count: count(index_count / 3)?, payload_length: 0,
+            bounds_min: output.bounds.min, bounds_max: output.bounds.max,
+        },
     };
-    let texture_len = texture_png.map_or(0, |png| u32::try_from(png.len()).unwrap_or(u32::MAX));
-    push_u32(bytes, texture_index);
-    push_u32(bytes, alpha_mode | repeat);
-    push_u32(
-        bytes,
-        u32::try_from(layer.vertex_count())
-            .map_err(|_| MeshFailure::Mesh("Too many vertices.".into()))?,
-    );
-    push_u32(
-        bytes,
-        u32::try_from(layer.indices.len())
-            .map_err(|_| MeshFailure::Mesh("Too many indices.".into()))?,
-    );
-    push_u32(bytes, texture_len);
-    push_u32(bytes, 0);
-    bytes.extend_from_slice(layer.positions_bytes());
-    bytes.extend_from_slice(layer.normals_bytes());
-    bytes.extend_from_slice(layer.uvs_bytes());
-    bytes.extend_from_slice(layer.colors_bytes());
-    bytes.extend_from_slice(layer.indices_bytes());
-    if let Some(png) = texture_png {
-        if texture_len != png.len() as u32 {
-            return Err(MeshFailure::Mesh("Texture is too large.".into()));
+    append_layer(&mut batch, output.opaque, 0, 0, None)?;
+    append_layer(&mut batch, output.cutout, 0, 1, None)?;
+    append_layer(&mut batch, output.transparent, 0, 2, None)?;
+    for material in output.greedy_materials {
+        if material.opaque.is_empty() && material.transparent.is_empty() { continue; }
+        let next = count(textures.len() + 1)?;
+        let first_use = !textures.contains_key(&material.texture_path);
+        let texture = *textures.entry(material.texture_path).or_insert(next);
+        let png = first_use.then_some(material.texture_png);
+        if material.opaque.is_empty() {
+            append_layer(&mut batch, material.transparent, texture, 2, png)?;
+        } else {
+            append_layer(&mut batch, material.opaque, texture, 0, png)?;
+            append_layer(&mut batch, material.transparent, texture, 2, None)?;
         }
-        bytes.extend_from_slice(png);
-        bytes.resize((bytes.len() + 3) & !3, 0);
     }
+    batch.info.part_count = count(batch.parts.len())?;
+    batch.info.payload_length = count(batch.geometry.len() + batch._textures.iter().map(Vec::len).sum::<usize>())?;
+    Ok(batch)
+}
+
+fn count(value: usize) -> Result<u32, MeshFailure> {
+    u32::try_from(value).map_err(|_| MeshFailure::Mesh("Mesh batch is too large.".into()))
+}
+
+fn index_size(layer: &MeshLayer) -> usize { if layer.vertex_count() <= 65536 { 2 } else { 4 } }
+
+fn append_layer(batch: &mut NQLMeshBatch, layer: MeshLayer, texture: u32, alpha: u32, png: Option<Vec<u8>>) -> Result<(), MeshFailure> {
+    if layer.is_empty() { return Ok(()); }
+    let vertex_offset = batch.geometry.len();
+    // 24-byte interleaved vertices: UNORM16x4 position, float2 UV,
+    // SNORM8x4 normal, UNORM8x4 color. Position precision is relative to this
+    // chunk's actual geometry, including models extending past block bounds.
+    for i in 0..layer.vertex_count() {
+        for axis in 0..3 {
+            let extent = batch.extent[axis];
+            let value = if extent > 0.0 { (layer.positions[i][axis] - batch.origin[axis]) / extent } else { 0.0 };
+            batch.geometry.extend_from_slice(&((value.clamp(0.0, 1.0) * 65535.0).round() as u16).to_le_bytes());
+        }
+        batch.geometry.extend_from_slice(&0u16.to_le_bytes());
+        for uv in layer.uvs[i] { batch.geometry.extend_from_slice(&uv.to_le_bytes()); }
+        for normal in layer.normals[i] { batch.geometry.push((normal.clamp(-1.0, 1.0) * 127.0).round() as i8 as u8); }
+        batch.geometry.push(0);
+        for color in layer.colors[i] { batch.geometry.push((color.clamp(0.0, 1.0) * 255.0).round() as u8); }
+    }
+    let index_offset = batch.geometry.len();
+    let index_size = index_size(&layer);
+    for &index in &layer.indices {
+        if index_size == 2 { batch.geometry.extend_from_slice(&(index as u16).to_le_bytes()); }
+        else { batch.geometry.extend_from_slice(&index.to_le_bytes()); }
+    }
+    batch.geometry.resize((batch.geometry.len() + 3) & !3, 0);
+    let (texture_png, texture_length) = if let Some(png) = png {
+        let result = (png.as_ptr(), png.len());
+        batch._textures.push(png);
+        result
+    } else { (std::ptr::null(), 0) };
+    batch.parts.push(NQLMeshPart {
+        vertex_offset, index_offset, vertex_count: count(layer.vertex_count())?, index_count: count(layer.indices.len())?,
+        index_size: index_size as u32, alpha_mode: alpha, texture_index: texture, texture_png, texture_length,
+    });
     Ok(())
-}
-
-fn texture_index(
-    material: &GreedyMaterialOutput,
-    texture_indices: &mut HashMap<String, u32>,
-    next_texture: &mut u32,
-) -> (u32, bool) {
-    if let Some(index) = texture_indices.get(&material.texture_path).copied() {
-        return (index, false);
-    }
-    let index = *next_texture;
-    *next_texture = next_texture.saturating_add(1);
-    texture_indices.insert(material.texture_path.clone(), index);
-    (index, true)
-}
-
-fn batch_info(index: u32, bytes: &[u8], output: &MeshOutput) -> Result<NQLBatchInfo, MeshFailure> {
-    let part_count = layer_part_count(&output.opaque)
-        + layer_part_count(&output.cutout)
-        + layer_part_count(&output.transparent)
-        + output
-            .greedy_materials
-            .iter()
-            .map(|material| {
-                layer_part_count(&material.opaque) + layer_part_count(&material.transparent)
-            })
-            .sum::<usize>();
-    let vertex_count = output
-        .opaque
-        .vertex_count()
-        .checked_add(output.cutout.vertex_count())
-        .and_then(|count| count.checked_add(output.transparent.vertex_count()))
-        .and_then(|count| {
-            output
-                .greedy_materials
-                .iter()
-                .try_fold(count, |count, material| {
-                    count
-                        .checked_add(material.opaque.vertex_count())
-                        .and_then(|count| count.checked_add(material.transparent.vertex_count()))
-                })
-        })
-        .ok_or_else(|| MeshFailure::Mesh("This schematic has too many vertices.".into()))?;
-    let index_count = output
-        .opaque
-        .indices
-        .len()
-        .checked_add(output.cutout.indices.len())
-        .and_then(|count| count.checked_add(output.transparent.indices.len()))
-        .and_then(|count| {
-            output
-                .greedy_materials
-                .iter()
-                .try_fold(count, |count, material| {
-                    count
-                        .checked_add(material.opaque.indices.len())
-                        .and_then(|count| count.checked_add(material.transparent.indices.len()))
-                })
-        })
-        .ok_or_else(|| MeshFailure::Mesh("This schematic has too many indices.".into()))?;
-    Ok(NQLBatchInfo {
-        batch_index: index,
-        part_count: u32::try_from(part_count)
-            .map_err(|_| MeshFailure::Mesh("Too many mesh parts.".into()))?,
-        vertex_count: u32::try_from(vertex_count)
-            .map_err(|_| MeshFailure::Mesh("Too many vertices.".into()))?,
-        index_count: u32::try_from(index_count)
-            .map_err(|_| MeshFailure::Mesh("Too many indices.".into()))?,
-        triangle_count: u32::try_from(index_count / 3)
-            .map_err(|_| MeshFailure::Mesh("Too many triangles.".into()))?,
-        payload_length: u32::try_from(bytes.len())
-            .map_err(|_| MeshFailure::Mesh("Mesh batch is too large.".into()))?,
-        bounds_min: output.bounds.min,
-        bounds_max: output.bounds.max,
-    })
-}
-
-fn push_u16(bytes: &mut Vec<u8>, value: u16) {
-    bytes.extend_from_slice(&value.to_le_bytes());
-}
-
-fn push_u32(bytes: &mut Vec<u8>, value: u32) {
-    bytes.extend_from_slice(&value.to_le_bytes());
-}
-
-fn push_f32(bytes: &mut Vec<u8>, value: f32) {
-    bytes.extend_from_slice(&value.to_le_bytes());
 }

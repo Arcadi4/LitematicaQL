@@ -39,7 +39,10 @@ brew install --cask arcadi4/tap/litematicaql
 3. 打开一次应用，让 macOS 注册其预览扩展。
 4. 在访达中选中受支持的文件，按下空格键。
 
-需要 macOS 13 Ventura 或更高版本。
+需要 macOS 13 Ventura 或更高版本，以及支持 Metal 的 GPU。
+
+预览采用原生 Metal、分块流式网格生成、压缩顶点缓冲区和按需绘制。
+详见[渲染架构](docs/rendering.md)。
 
 > [!NOTE]
 > 如果预览没有出现，请在 **系统设置 → 通用 → 登录项与扩展 → 快速查看** 中启用 LitematicaQL。
@@ -59,10 +62,10 @@ brew install --cask arcadi4/tap/litematicaql
 
 ## 开发
 
-运行渲染器的全部检查并重新构建产物：
+编译原生核心：
 
 ```sh
-pnpm --prefix Renderer run check
+cargo check --manifest-path Core/Cargo.toml
 ```
 
 运行 Swift 测试：
@@ -79,16 +82,14 @@ swift test
 
 ### 构建
 
-- Xcode 26 或更高
-- Node.js 和 pnpm
+- Xcode 26 或更高，包含 Metal Toolchain 组件
+- Rust（rustup）
 - [XcodeGen](https://github.com/yonaskolb/XcodeGen)
 
 ```sh
 git clone https://github.com/Arcadi4/LitematicaQL.git
 cd LitematicaQL
 
-pnpm --prefix Renderer ci
-pnpm --prefix Renderer run build
 xcodegen generate
 
 xcodebuild \

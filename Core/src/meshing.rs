@@ -496,13 +496,9 @@ impl<'a> ChunkMeshes<'a> {
         self.atlas.height
     }
 
-    /// Encode the shared atlas and release its pixel storage. The host uploads
-    /// the PNG; later batches validate against the atlas metadata only, so a
-    /// preview does not keep a second pixel copy alive for its whole life.
-    pub(super) fn atlas_png(&mut self) -> Result<Vec<u8>, String> {
-        let png = self.atlas.to_png().map_err(|error| error.to_string())?;
-        self.atlas.pixels = Vec::new();
-        Ok(png)
+    /// Move pixels to the host, keeping only UV metadata for chunk meshing.
+    pub(super) fn take_atlas_pixels(&mut self) -> Vec<u8> {
+        std::mem::take(&mut self.atlas.pixels)
     }
 
     pub(super) fn mesh_at(&self, index: usize) -> Result<MeshOutput, String> {

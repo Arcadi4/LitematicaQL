@@ -100,7 +100,7 @@ pub(super) fn mesh(
         validate_pack_animations(pack, shared_atlas, builder.texture_refs())?;
         // Hand the mesher a pixel-free atlas copy: it only reads atlas regions
         // to place UVs, and the pixel storage already reached the host as the
-        // shared PNG, so a batch never holds a second copy of the atlas.
+        // shared RGBA pixels, so a batch never holds a second copy of the atlas.
         let supplied = std::mem::replace(&mut output.atlas, atlas_metadata(shared_atlas));
         let (opaque, cutout, transparent, atlas, materials, _animated) = builder
             .build(Some(supplied))
@@ -190,7 +190,7 @@ fn validate_pack_animations(
 }
 
 /// A pixel-free atlas copy. The mesher only reads atlas regions to place UVs;
-/// pixels are delivered to the host once, as the shared atlas PNG.
+/// pixels are delivered to the host once, as the shared atlas pixels.
 fn atlas_metadata(shared: &TextureAtlas) -> TextureAtlas {
     TextureAtlas {
         width: shared.width,
