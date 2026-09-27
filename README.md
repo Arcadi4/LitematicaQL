@@ -11,6 +11,8 @@
 
 LitematicaQL adds a macOS Quick Look preview extension for Minecraft schematics and structures. It previews `.litematic`, `.schem`, `.schematic`, `.nbt`, `.snbt`, `.mcstructure`, `.nusn`, and `.mca`.
 
+If you are on Windows, check out the sister project [LitematicaPreview](https://github.com/Arcadi4/LitematicaPreview) for rendering speed as fast as LitematicaQL!
+
 <table>
 <tr>
 <th>Previewing Schematics</th>
@@ -99,4 +101,4 @@ xcodebuild \
 
 ## Acknowledgements
 
-Great thanks to @Nano112 's project [Nucleation](https://github.com/Schem-at/Nucleation) for powering the whole parsing and meshing pipeline.
+Great thanks to [@Nano112](https://github.com/Nano112)'s project [Nucleation](https://github.com/Schem-at/Nucleation) for powering the whole parsing and meshing pipeline.
