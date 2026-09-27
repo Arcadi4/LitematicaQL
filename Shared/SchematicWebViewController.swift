@@ -216,16 +216,23 @@ final class SchematicWebViewController: NSViewController {
                 atlas: mesh.atlas,
                 batchCount: mesh.batchCount
             ) { [weak self] (batch: NativeMeshBatch) in
+                // Pull scalars out before hopping: the Task below runs long
+                // after the batch is served, and capturing the batch would
+                // hold its multi-megabyte payload alive across suspended
+                // MainActor hops.
+                let completed = batch.index + 1
+                let totalBytes = batch.totalBytes
+                let totalTriangles = batch.totalTriangles
                 Task { @MainActor [weak self] in
                     // Batch serving outlives loads; only the active load's
                     // progress may reach the page.
                     guard let self, self.loadGeneration == generation else { return }
                     await self.presentProgress(
                         phase: "mesh",
-                        completed: batch.index + 1,
+                        completed: completed,
                         total: mesh.batchCount,
-                        bytes: batch.totalBytes,
-                        triangles: batch.totalTriangles
+                        bytes: totalBytes,
+                        triangles: totalTriangles
                     )
                 }
             }
@@ -538,6 +545,11 @@ extension SchematicWebViewController: WKScriptMessageHandler {
 
         if type == "ready" {
             markPageReady()
+        } else if type == "loaded" {
+            // A preview has streamed hundreds of megabytes of batch payloads
+            // through the app process by now; hand the freed pages back
+            // instead of leaving them mapped in the allocator's free lists.
+            _ = malloc_zone_pressure_relief(nil, 0)
         } else if type == "fatalError" {
             failPage(with: PreviewInfrastructureError.javaScript(detail))
         }

@@ -238,7 +238,12 @@ final class NativeSchematicSession: @unchecked Sendable {
         guard status == NQL_OK, let bytes, length > 0 else {
             throw Self.refusal(status, failure)
         }
-        defer { nql_buffer_free(bytes, length) }
+        // Adopt the Rust buffer instead of copying it: the copy doubled every
+        // payload's large-allocator traffic in the app process, and freed
+        // blocks that size stay mapped long after a preview is done.
+        let payload = Data(bytesNoCopy: bytes, count: length, deallocator: .custom { pointer, _ in
+            nql_buffer_free(pointer.assumingMemoryBound(to: UInt8.self), length)
+        })
         meshServedBytes += length
         meshServedTriangles += Int(info.triangle_count)
         return NativeMeshBatch(
@@ -247,7 +252,7 @@ final class NativeSchematicSession: @unchecked Sendable {
             vertices: Int(info.vertex_count),
             indices: Int(info.index_count),
             bytes: length,
-            payload: Data(bytes: bytes, count: length),
+            payload: payload,
             totalBytes: meshServedBytes,
             totalTriangles: meshServedTriangles
         )
