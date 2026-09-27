@@ -38,10 +38,10 @@ jobs:
     env:
       APP_NAME: LitematicaQL
       CI: true
-      CONFIGURATION: Release
-      XCODE_PROJECT: LitematicaQL.xcodeproj
-      XCODE_SCHEME: LitematicaQL
       ARCH: ${{ matrix.arch }}
+      # Drives `just native` and the Xcode pre-build phase to the matrix
+      # architecture instead of building both.
+      ARCHS: ${{ matrix.arch }}
 
     steps:
       - name: Check out source
@@ -61,68 +61,18 @@ jobs:
           workspaces: Core
           shared-key: native-bridge
 
-      - name: Run native tests
+      - name: Install the toolchain entry point
+        run: brew install just xcodegen
+
+      - name: Test
         if: matrix.arch == 'arm64'
-        run: swift test --parallel
+        run: just test
 
-      - name: Test native bridge
-        if: matrix.arch == 'arm64'
-        run: cargo test --release --manifest-path Core/Cargo.toml --target aarch64-apple-darwin
-      - name: Install XcodeGen
-        run: brew install xcodegen
-
-      - name: Generate Xcode project
-        run: xcodegen generate
-
-      - name: Build ad-hoc signed archive
+      - name: Archive and package
         env:
           VERSION: ${{ github.ref_name }}
-          GITHUB_RUN_NUMBER: ${{ github.run_number }}
-        shell: bash
-        run: |
-          set -euo pipefail
-
-          version="${VERSION#v}"
-          archive_path="$GITHUB_WORKSPACE/build/LitematicaQL-$ARCH.xcarchive"
-
-          xcodebuild \
-            -project "$XCODE_PROJECT" \
-            -scheme "$XCODE_SCHEME" \
-            -configuration "$CONFIGURATION" \
-            -destination "generic/platform=macOS" \
-            -archivePath "$archive_path" \
-            MARKETING_VERSION="$version" \
-            CURRENT_PROJECT_VERSION="$GITHUB_RUN_NUMBER" \
-            CODE_SIGN_STYLE=Manual \
-            CODE_SIGN_IDENTITY=- \
-            CODE_SIGNING_REQUIRED=YES \
-            CODE_SIGNING_ALLOWED=YES \
-            DEVELOPMENT_TEAM= \
-            ARCHS="$ARCH" \
-            ONLY_ACTIVE_ARCH=NO \
-            archive
-
-          app_path="$archive_path/Products/Applications/$APP_NAME.app"
-          test -d "$app_path"
-
-          actual_version=$(/usr/libexec/PlistBuddy -c "Print :CFBundleShortVersionString" "$app_path/Contents/Info.plist")
-          test "$actual_version" = "$version"
-
-          codesign --verify --deep --strict --verbose=2 "$app_path"
-          codesign --display --verbose=4 "$app_path" 2>&1 | sed -n '1,24p'
-
-          release_dir="$GITHUB_WORKSPACE/build/release"
-          mkdir -p "$release_dir"
-          zip_path="$release_dir/$APP_NAME-$VERSION-$ARCH.zip"
-          ditto -c -k --keepParent "$app_path" "$zip_path"
-          (cd "$release_dir" && shasum -a 256 "$(basename "$zip_path")" > "$(basename "$zip_path").sha256")
-
-      - name: Check linked bridge architecture
-        shell: bash
-        run: |
-          set -euo pipefail
-          app_path="$GITHUB_WORKSPACE/build/LitematicaQL-$ARCH.xcarchive/Products/Applications/$APP_NAME.app"
-          lipo -info "$app_path/Contents/MacOS/$APP_NAME" | grep -q "$ARCH"
+          CURRENT_PROJECT_VERSION: ${{ github.run_number }}
+        run: just release "$VERSION" "$ARCH"
 
       - name: Upload per-arch artifact
         uses: actions/upload-artifact@v7

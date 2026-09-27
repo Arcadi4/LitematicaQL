@@ -18,11 +18,7 @@ jobs:
     name: Build and test macOS app
     runs-on: xcode-27
     env:
-      APP_NAME: LitematicaQL
       CI: true
-      CONFIGURATION: Debug
-      XCODE_PROJECT: LitematicaQL.xcodeproj
-      XCODE_SCHEME: LitematicaQL
 
     steps:
       - name: Check out source
@@ -41,46 +37,11 @@ jobs:
           workspaces: Core
           shared-key: native-bridge
 
-      - name: Run native tests
-        run: swift test --parallel
-
-      - name: Test native bridge
-        run: cargo test --release --manifest-path Core/Cargo.toml
-
-      - name: Build native bridge libraries
-        run: Core/build.sh arm64 x86_64
-
-      - name: Install XcodeGen
-        run: brew install xcodegen
+      - name: Install the toolchain entry point
+        run: brew install just xcodegen
 
       - name: Install Metal toolchain
         run: xcodebuild -downloadComponent MetalToolchain
 
-      - name: Generate Xcode project
-        run: xcodegen generate
-
-      - name: Build ad-hoc signed app
-        shell: bash
-        run: |
-          set -euo pipefail
-
-          derived_data_path="$GITHUB_WORKSPACE/build/DerivedData"
-
-          xcodebuild \
-            -project "$XCODE_PROJECT" \
-            -scheme "$XCODE_SCHEME" \
-            -configuration "$CONFIGURATION" \
-            -destination "generic/platform=macOS" \
-            -derivedDataPath "$derived_data_path" \
-            CODE_SIGN_STYLE=Manual \
-            CODE_SIGN_IDENTITY=- \
-            CODE_SIGNING_REQUIRED=YES \
-            CODE_SIGNING_ALLOWED=YES \
-            DEVELOPMENT_TEAM= \
-            ARCHS="arm64 x86_64" \
-            ONLY_ACTIVE_ARCH=NO \
-            build
-
-          app_path=$(find "$derived_data_path/Build/Products/$CONFIGURATION" -maxdepth 1 -name "$APP_NAME.app" -print -quit)
-          test -n "$app_path"
-          codesign --verify --deep --strict "$app_path"
+      - name: Test and build
+        run: just ci
