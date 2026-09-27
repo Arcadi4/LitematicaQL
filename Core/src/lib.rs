@@ -68,6 +68,9 @@ pub struct NQLSchematicInfo {
     pub content_x: i32,
     pub content_y: i32,
     pub content_z: i32,
+    pub content_min_x: i32,
+    pub content_min_y: i32,
+    pub content_min_z: i32,
 }
 
 #[repr(C)]
@@ -408,12 +411,16 @@ pub unsafe extern "C" fn nql_schematic_info(
     }
     let source = &(*schematic).source;
     let content = source.content_dimensions();
+    let origin = source.content_origin();
     *out = NQLSchematicInfo {
         block_count: source.block_count(),
         block_entity_count: source.block_entity_count(),
         content_x: content.0,
         content_y: content.1,
         content_z: content.2,
+        content_min_x: origin.0,
+        content_min_y: origin.1,
+        content_min_z: origin.2,
     };
     status::OK
 }

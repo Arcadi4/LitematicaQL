@@ -55,6 +55,12 @@ typedef struct {
     int32_t content_x;
     int32_t content_y;
     int32_t content_z;
+    // Lower corner of the occupied-block box. Blocks span [min, min + size),
+    // so max is not tight_max + 1 until geometry is meshed. Zero when the
+    // schematic has no blocks.
+    int32_t content_min_x;
+    int32_t content_min_y;
+    int32_t content_min_z;
 } NQLSchematicInfo;
 
 typedef struct {

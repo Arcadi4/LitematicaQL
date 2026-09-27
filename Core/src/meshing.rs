@@ -342,6 +342,16 @@ impl CompactBlocks {
         }
     }
 
+    /// Lower corner of the occupied-block box, for framing the camera before
+    /// any geometry exists. Zero when the schematic has no blocks.
+    pub(crate) fn content_origin(&self) -> (i32, i32, i32) {
+        if self.has_blocks {
+            (self.tight_min[0], self.tight_min[1], self.tight_min[2])
+        } else {
+            (0, 0, 0)
+        }
+    }
+
     fn atlas(
         &self,
         pack: &ResourcePackSource,
