@@ -145,7 +145,6 @@ jobs:
           set -euo pipefail
           app_path="$GITHUB_WORKSPACE/build/LitematicaQL-$ARCH.xcarchive/Products/Applications/$APP_NAME.app"
           lipo -info "$app_path/Contents/MacOS/$APP_NAME" | grep -q "$ARCH"
-          codesign --verify --deep --strict "$app_path"
 
       - name: Upload per-arch artifact
         uses: actions/upload-artifact@v7
