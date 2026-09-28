@@ -108,12 +108,15 @@ jobs:
           set -euo pipefail
 
           ls -la build/release
+          # `just release` strips the leading v from the version it packages,
+          # so the artifacts are named 1.3.0 while the tag is still v1.3.0.
+          package_version="${VERSION#v}"
 
-          gh release create "$GITHUB_REF_NAME" \
-            "$GITHUB_WORKSPACE/build/release/$APP_NAME-$VERSION-arm64.zip" \
-            "$GITHUB_WORKSPACE/build/release/$APP_NAME-$VERSION-arm64.zip.sha256" \
-            "$GITHUB_WORKSPACE/build/release/$APP_NAME-$VERSION-x86_64.zip" \
-            "$GITHUB_WORKSPACE/build/release/$APP_NAME-$VERSION-x86_64.zip.sha256" \
+          gh release create "$VERSION" \
+            "$GITHUB_WORKSPACE/build/release/$APP_NAME-$package_version-arm64.zip" \
+            "$GITHUB_WORKSPACE/build/release/$APP_NAME-$package_version-arm64.zip.sha256" \
+            "$GITHUB_WORKSPACE/build/release/$APP_NAME-$package_version-x86_64.zip" \
+            "$GITHUB_WORKSPACE/build/release/$APP_NAME-$package_version-x86_64.zip.sha256" \
             --repo "$GITHUB_REPOSITORY" \
             --verify-tag \
             --title "$APP_NAME $VERSION" \
