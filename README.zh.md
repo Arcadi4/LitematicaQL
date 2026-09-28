@@ -4,7 +4,7 @@
   <p><strong>在 macOS 上快速预览 Minecraft 原理图</strong></p>
   <!-- README-I18N:START -->
 
-  [English](./README.md) | **中文**
+[English](./README.md) | **中文**
 
   <!-- README-I18N:END -->
 </div>
@@ -19,7 +19,7 @@ LitematicaQL 为 Minecraft 原理图与结构提供了 macOS 快速查看预览�
 <th>预览世界存档</th>
 </tr>
 <tr>
-<td>https://github.com/user-attachments/assets/3e70e28a-bba3-42e2-b3ca-256369c46f4c</td>
+<td>https://github.com/user-attachments/assets/d2268ef1-2fcd-4232-af3f-1d29fd32ccb6</td>
 <td>https://github.com/user-attachments/assets/d8b034f7-44b6-4940-8fc5-be5c5af25cb4</td>
 </tr>
 </table>
@@ -49,16 +49,16 @@ brew install --cask arcadi4/tap/litematicaql
 
 ## 支持格式
 
-| 扩展名         | 文件格式                                        |
-| -------------- | ----------------------------------------------- |
-| `.litematic`   | Litematica                                      |
-| `.schem`       | Sponge 原理图                                   |
-| `.schematic`   | MCEdit                                          |
-| `.nbt`         | Java 结构方块                                   |
-| `.snbt`        | 结构 SNBT，花括号或方括号方块状态               |
-| `.mcstructure` | 基岩版结构                                      |
-| `.nusn`        | Nucleation 快照                                 |
-| `.mca`         | Minecraft Anvil 世界存档（每个文件 4 区块）     |
+| 扩展名         | 文件格式                                    |
+| -------------- | ------------------------------------------- |
+| `.litematic`   | Litematica                                  |
+| `.schem`       | Sponge 原理图                               |
+| `.schematic`   | MCEdit                                      |
+| `.nbt`         | Java 结构方块                               |
+| `.snbt`        | 结构 SNBT，花括号或方括号方块状态           |
+| `.mcstructure` | 基岩版结构                                  |
+| `.nusn`        | Nucleation 快照                             |
+| `.mca`         | Minecraft Anvil 世界存档（每个文件 4 区块） |
 
 ## 开发
 
@@ -68,19 +68,19 @@ brew install --cask arcadi4/tap/litematicaql
 just
 ```
 
-| 命令 | 作用 |
-| --- | --- |
-| `just doctor` | 检查工具链依赖是否已安装 |
-| `just build` | 构建临时签名（ad-hoc）的 Apple 芯片与 Intel 版本 |
-| `just run` | 构建并打开应用 |
-| `just test` | 运行 Swift 文件校验测试与 Rust 桥接测试 |
-| `just check` | 对 Rust 桥接层做类型检查 |
-| `just clean` | 删除全部构建产物 |
-| `just ci` | 在本地复现 CI 流程 |
-| `just unregister` | 清理 LitematicaQL 的旧 Quick Look 注册记录，同时保留 `/Applications` 中的已安装版本 |
-| `just bump patch` | 在 `main` 上提升版本号（默认 `patch`，也可选 `minor`、`major`），提交并打标签 |
-| `just release 1.2.6 arm64` | 归档、校验并打包单一架构 |
-| `just demos` | 重新生成内置演示原理图 |
+| 命令                       | 作用                                                                                |
+| -------------------------- | ----------------------------------------------------------------------------------- |
+| `just doctor`              | 检查工具链依赖是否已安装                                                            |
+| `just build`               | 构建临时签名（ad-hoc）的 Apple 芯片与 Intel 版本                                    |
+| `just run`                 | 构建并打开应用                                                                      |
+| `just test`                | 运行 Swift 文件校验测试与 Rust 桥接测试                                             |
+| `just check`               | 对 Rust 桥接层做类型检查                                                            |
+| `just clean`               | 删除全部构建产物                                                                    |
+| `just ci`                  | 在本地复现 CI 流程                                                                  |
+| `just unregister`          | 清理 LitematicaQL 的旧 Quick Look 注册记录，同时保留 `/Applications` 中的已安装版本 |
+| `just bump patch`          | 在 `main` 上提升版本号（默认 `patch`，也可选 `minor`、`major`），提交并打标签       |
+| `just release 1.2.6 arm64` | 归档、校验并打包单一架构                                                            |
+| `just demos`               | 重新生成内置演示原理图                                                              |
 
 `just` 会读取环境变量 `CONFIGURATION`、`ARCHS` 与 `CURRENT_PROJECT_VERSION`，
 CI 与发布矩阵正是通过它们驱动同一批配方。
