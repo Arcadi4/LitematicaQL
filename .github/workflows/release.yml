@@ -64,6 +64,9 @@ jobs:
       - name: Install the toolchain entry point
         run: brew install just xcodegen
 
+      - name: Install Metal toolchain
+        run: xcodebuild -downloadComponent MetalToolchain
+
       - name: Test
         if: matrix.arch == 'arm64'
         run: just test
