@@ -40,8 +40,10 @@ signing := "CODE_SIGN_STYLE=Manual CODE_SIGN_IDENTITY=- CODE_SIGNING_REQUIRED=YE
 
 # Recipes
 #
-# Recipe bodies are flat shell. The two that need nested control flow are
-# written as shebang scripts instead, which keeps their indentation intact.
+# A `[script]` recipe runs as a plain file, so `set shell` does not apply to
+# it and every one of these bodies turns on `set -euo pipefail` itself. A
+# recipe that keeps going after a failed xcodebuild is how a release job once
+# published a tag with no builds attached.
 #
 # `just --list` prints the last line of each recipe's doc comment, so every
 # doc comment is exactly one line and the longer notes sit above it as
@@ -118,6 +120,8 @@ native:
 # Archive, verify, and package a release build.
 [script("bash")]
 release version arch="arm64": generate
+    set -euo pipefail
+
     version="{{ version }}"
     version="${version#v}"
     if [[ ! "$version" =~ ^[0-9]+\.[0-9]+\.[0-9]+$ ]]; then
