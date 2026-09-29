@@ -84,12 +84,18 @@ swift-test:
     swift test --parallel
 
 # Run the Rust bridge tests.
+#
+# The tests are built for the host triple on purpose. `native` builds that same
+# triple into the same target directory, so one release compilation of the
+# whole dependency tree serves both instead of being repeated under
+# `target/release`. When the two invocations resolve different toolchains they
+# simply do not share, because cargo rebuilds rather than reuses.
 rust-test:
-    cargo test --release --manifest-path Core/Cargo.toml
+    cargo test --release --target "$(rustc -vV | sed -n 's/^host: //p')" --manifest-path Core/Cargo.toml
 
 # Report throughput and peak memory for the two third-party large builds.
 test-large:
-    cargo test --release --manifest-path Core/Cargo.toml --test large_builds -- --nocapture
+    cargo test --release --target "$(rustc -vV | sed -n 's/^host: //p')" --manifest-path Core/Cargo.toml --test large_builds -- --nocapture
 
 # Type-check the Rust bridge, tests included.
 check:

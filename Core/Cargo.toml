@@ -10,6 +10,15 @@ name = "litematicaql_native"
 # integration tests.
 crate-type = ["staticlib", "rlib"]
 
+# Debug info is the most expensive part of an unoptimized build. Line tables
+# keep a panic's source line readable; dependency debug info is never read, so
+# none of it is generated. The release profile below is unaffected.
+[profile.dev]
+debug = "line-tables-only"
+
+[profile.dev.package."*"]
+debug = false
+
 # The release profile keeps unwinding because the fallible C entry points use
 # `catch_unwind`; aborting would let panics terminate the host process.
 # Fat LTO and one codegen unit reduce the machine code embedded by each host.
