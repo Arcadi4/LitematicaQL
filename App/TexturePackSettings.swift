@@ -4,89 +4,64 @@ import UniformTypeIdentifiers
 struct TexturePackSettings: View {
     @EnvironmentObject private var texturePacks: TexturePackStore
     @State private var isImporterPresented = false
-    @State private var highlightedPackID: UUID?
-    @State private var packToRemove: TexturePackLibrary.Pack?
+    @State private var isManagerPresented = false
+
+    private var currentPack: TexturePackLibrary.Pack? {
+        let id = texturePacks.loadingID ?? texturePacks.selectedID
+        return texturePacks.packs.first(where: { $0.id == id })
+    }
 
     var body: some View {
         Form {
             Section {
-                Picker("Texture pack", selection: Binding(
-                    get: { texturePacks.loadingID ?? texturePacks.selectedID },
-                    set: { texturePacks.selectPack($0) }
-                )) {
-                    Text("Vanilla").tag(nil as UUID?)
-                    ForEach(texturePacks.packs) { pack in
-                        Text(pack.name).tag(Optional(pack.id))
+                LabeledContent("Texture pack") {
+                    HStack {
+                        if texturePacks.isImporting || texturePacks.loadingID != nil {
+                            ProgressView()
+                                .controlSize(.small)
+                                .accessibilityLabel(texturePacks.isImporting ? "Adding packs" : "Loading textures")
+                        }
+
+                        Menu {
+                            Picker("Texture pack", selection: Binding(
+                                get: { texturePacks.loadingID ?? texturePacks.selectedID },
+                                set: { texturePacks.selectPack($0) }
+                            )) {
+                                Text("Vanilla").tag(nil as UUID?)
+                                ForEach(texturePacks.packs) { pack in
+                                    Text(pack.name).tag(Optional(pack.id))
+                                }
+                            }
+                            .pickerStyle(.inline)
+
+                            Divider()
+
+                            Button("Add Texture Packs…") { isImporterPresented = true }
+                                .disabled(texturePacks.isImporting)
+                            Button("Manage Texture Packs…") {
+                                isManagerPresented = true
+                            }
+                        } label: {
+                            Text(currentPack?.name ?? "Vanilla")
+                                .lineLimit(1)
+                        }
+                        .menuStyle(.borderlessButton)
+                        .menuIndicator(.visible)
+                        .fixedSize(horizontal: false, vertical: true)
+                        .accessibilityLabel("Texture pack")
+                        .accessibilityValue(currentPack?.name ?? "Vanilla")
+                        .help(currentPack?.name ?? "Vanilla")
+                        .disabled(!texturePacks.isAvailable)
                     }
                 }
-                .pickerStyle(.menu)
-                .disabled(!texturePacks.isAvailable)
             } header: {
                 Text("Appearance")
             } footer: {
-                Text("Applies to all previews in this app. Finder Quick Look uses vanilla textures.")
-            }
-
-            Section {
-                List(selection: $highlightedPackID) {
-                    if texturePacks.packs.isEmpty {
-                        Text("No added texture packs")
-                            .foregroundStyle(.secondary)
-                    }
-                    ForEach(texturePacks.packs) { pack in
-                        HStack {
-                            Text(pack.name)
-                                .lineLimit(1)
-                            Spacer()
-                            if texturePacks.loadingID == pack.id {
-                                ProgressView()
-                                    .controlSize(.small)
-                                    .accessibilityLabel("Loading \(pack.name)")
-                            } else if texturePacks.selectedID == pack.id {
-                                Image(systemName: "checkmark")
-                                    .accessibilityLabel("Active texture pack")
-                            }
-                        }
-                        .tag(pack.id)
-                        .help(pack.name)
-                        .contextMenu {
-                            Button("Use Texture Pack") { texturePacks.selectPack(pack.id) }
-                            Button("Remove…", role: .destructive) { packToRemove = pack }
-                        }
-                    }
-                }
-                .listStyle(.bordered)
-                .frame(height: 180)
-                .accessibilityLabel("Saved texture packs")
-                .onDeleteCommand(perform: requestRemoval)
-
-                HStack {
-                    Button("Add…", systemImage: "plus") { isImporterPresented = true }
-                        .disabled(texturePacks.isImporting || !texturePacks.isAvailable)
-                        .help("Add Minecraft Java resource-pack ZIPs")
-
-                    Button("Remove…", systemImage: "minus", action: requestRemoval)
-                        .disabled(!texturePacks.packs.contains(where: { $0.id == highlightedPackID }))
-                        .help("Remove the selected saved texture pack")
-
-                    Spacer()
-
-                    if texturePacks.isImporting || texturePacks.loadingID != nil {
-                        ProgressView()
-                            .controlSize(.small)
-                        Text(texturePacks.isImporting ? "Adding packs…" : "Loading textures…")
-                            .font(.callout)
-                            .foregroundStyle(.secondary)
-                    }
-                }
-            } header: {
-                Text("Saved Texture Packs")
-            } footer: {
-                Text("Add Minecraft Java resource-pack ZIPs. Copies are saved on your Mac. Missing assets use vanilla resources.")
+                Text("Add Minecraft Java resource-pack ZIPs. Packs are saved on your Mac; missing assets use vanilla resources.\n\nApplies to previews in this app. Finder Quick Look uses vanilla textures.")
             }
         }
         .formStyle(.grouped)
-        .frame(width: 520, height: 460)
+        .frame(width: 520, height: 220)
         .navigationTitle("LitematicaQL Settings")
         .fileImporter(isPresented: $isImporterPresented, allowedContentTypes: [.zip],
                       allowsMultipleSelection: true) { result in
@@ -97,15 +72,114 @@ struct TexturePackSettings: View {
                 texturePacks.errorMessage = error.localizedDescription
             }
         }
+        .sheet(isPresented: $isManagerPresented) {
+            TexturePackManager()
+                .environmentObject(texturePacks)
+        }
+        .alert("Unable to Use Texture Pack", isPresented: Binding(
+            get: { texturePacks.errorMessage != nil && !isManagerPresented },
+            set: { if !$0 { texturePacks.errorMessage = nil } }
+        )) {
+            Button("OK", role: .cancel) { texturePacks.errorMessage = nil }
+        } message: {
+            Text(texturePacks.errorMessage ?? "")
+        }
+    }
+}
+
+private struct TexturePackManager: View {
+    @EnvironmentObject private var texturePacks: TexturePackStore
+    @Environment(\.dismiss) private var dismiss
+    @State private var packToRemove: TexturePackLibrary.Pack?
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 20) {
+            VStack(alignment: .leading, spacing: 6) {
+                Text("Manage Texture Packs")
+                    .font(.title3.weight(.semibold))
+                Text("Removing a saved pack keeps the original ZIP.")
+                    .font(.callout)
+                    .foregroundStyle(.secondary)
+            }
+
+            Group {
+                if texturePacks.packs.isEmpty {
+                    VStack(spacing: 6) {
+                        Text("No saved texture packs")
+                            .fontWeight(.medium)
+                        Text("Add a pack from the Texture pack menu.")
+                            .font(.callout)
+                            .multilineTextAlignment(.center)
+                            .foregroundStyle(.secondary)
+                    }
+                    .frame(maxWidth: .infinity)
+                    .padding(24)
+                } else {
+                    ScrollView {
+                        LazyVStack(spacing: 0) {
+                            ForEach(texturePacks.packs) { pack in
+                                HStack(spacing: 16) {
+                                    VStack(alignment: .leading, spacing: 4) {
+                                        Text(pack.name)
+                                            .lineLimit(2)
+                                            .help(pack.name)
+                                        if texturePacks.selectedID == pack.id {
+                                            Text("Active")
+                                                .font(.caption)
+                                                .foregroundStyle(.secondary)
+                                        }
+                                    }
+                                    .frame(maxWidth: .infinity, alignment: .leading)
+
+                                    if texturePacks.loadingID == pack.id {
+                                        ProgressView()
+                                            .controlSize(.small)
+                                            .accessibilityLabel("Loading \(pack.name)")
+                                    }
+
+                                    Button("Remove…", role: .destructive) {
+                                        packToRemove = pack
+                                    }
+                                    .buttonStyle(.bordered)
+                                    .controlSize(.small)
+                                    .accessibilityLabel("Remove \(pack.name)")
+                                }
+                                .frame(minHeight: 40)
+                                .padding(12)
+
+                                if pack.id != texturePacks.packs.last?.id {
+                                    Divider()
+                                        .padding(.horizontal, 12)
+                                }
+                            }
+                        }
+                    }
+                    .frame(height: min(CGFloat(texturePacks.packs.count * 65), 260))
+                    .accessibilityLabel("Saved texture packs")
+                }
+            }
+            .background(.background, in: RoundedRectangle(cornerRadius: 8))
+            .clipShape(RoundedRectangle(cornerRadius: 8))
+            .overlay {
+                RoundedRectangle(cornerRadius: 8)
+                    .strokeBorder(.primary.opacity(0.1))
+            }
+
+            HStack {
+                Spacer()
+                Button("Done") { dismiss() }
+                    .keyboardShortcut(.defaultAction)
+            }
+        }
+        .padding(24)
+        .frame(width: 480)
+        .onExitCommand { dismiss() }
         .confirmationDialog("Remove “\(packToRemove?.name ?? "")”?", isPresented: Binding(
             get: { packToRemove != nil },
             set: { if !$0 { packToRemove = nil } }
         ), titleVisibility: .visible, presenting: packToRemove) { pack in
             Button("Remove", role: .destructive) {
                 texturePacks.removePack(pack.id)
-                if !texturePacks.packs.contains(where: { $0.id == pack.id }) {
-                    highlightedPackID = nil
-                }
             }
             Button("Cancel", role: .cancel) {}
         } message: { pack in
@@ -121,9 +195,5 @@ struct TexturePackSettings: View {
         } message: {
             Text(texturePacks.errorMessage ?? "")
         }
-    }
-
-    private func requestRemoval() {
-        packToRemove = texturePacks.packs.first(where: { $0.id == highlightedPackID })
     }
 }
