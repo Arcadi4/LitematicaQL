@@ -313,6 +313,10 @@ pub fn resource_pack_overlay(base: &NQLResourcePack, bytes: &[u8]) -> Result<NQL
     if bytes.len() > 256 * 1024 * 1024 {
         return Err(invalid("Choose a resource pack smaller than 256 MB."));
     }
+    // Upstream parses without enforcing total unpacked size, so bound the
+    // expansion up front from header sizes before handing bytes over. Header
+    // sizes are declarations, not measurements, but they still cap honest
+    // packs and naive bombs; true enforcement would need upstream support.
     let mut archive = zip::ZipArchive::new(std::io::Cursor::new(bytes))
         .map_err(|_| invalid("Choose a Minecraft Java resource-pack ZIP."))?;
     if archive.len() > 100_000 {
