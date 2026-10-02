@@ -7,8 +7,7 @@ final class TexturePackStore: ObservableObject {
     @Published private var loaded: (id: UUID?, pack: NativeResourcePack)?
     @Published private(set) var loadingID: UUID?
     @Published private(set) var isImporting = false
-    /// One presentation surface for every pack failure, so each alert can name
-    /// the action that actually failed.
+    /// One presentation surface for every pack failure.
     struct Alert: Equatable {
         let title: String
         let message: String
@@ -20,8 +19,7 @@ final class TexturePackStore: ObservableObject {
     var resourcePack: NativeResourcePack? { loaded?.pack }
     var activeID: UUID? { loadingID ?? loaded?.id }
 
-    /// Identifies the newest user intent. Loads and imports that started under an
-    /// older intent are dropped instead of overwriting a later choice.
+    /// Loads started under an older intent are dropped rather than applied late.
     private var revision = UUID()
     private var packLoadTask: Task<Void, Never>?
 
@@ -39,12 +37,10 @@ final class TexturePackStore: ObservableObject {
         }
     }
 
-    /// Cancelling the open panel is not a failure the user needs to hear about.
+    /// Cancelling the panel is not a failure worth an alert.
     func reportImportFailure(_ error: any Error) {
         let failure = error as NSError
-        guard !(failure.domain == NSCocoaErrorDomain && failure.code == NSUserCancelledError) else {
-            return
-        }
+        guard failure.domain != NSCocoaErrorDomain || failure.code != NSUserCancelledError else { return }
         alert = Alert(title: "Unable to Add Texture Packs", message: error.localizedDescription)
     }
 
@@ -71,8 +67,7 @@ final class TexturePackStore: ObservableObject {
         packLoadTask = Task { [weak self] in await self?.load(id, revision: revision) }
     }
 
-    /// Parses one saved archive off-thread and publishes it only while it is still
-    /// the newest choice.
+    /// Parses one saved archive off-thread while it is still the newest choice.
     private func load(_ id: UUID, revision: UUID) async {
         guard let entry = library?.packs.first(where: { $0.id == id }),
               let url = library?.fileURL(for: id) else { return }
@@ -86,7 +81,7 @@ final class TexturePackStore: ObservableObject {
             loaded = (id, pack)
             loadingID = nil
         } catch is CancellationError {
-            // A newer choice already owns the selection and its progress state.
+            // A newer choice owns the selection and its progress state.
         } catch {
             guard revision == self.revision else { return }
             loadingID = nil
