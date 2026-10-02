@@ -7,9 +7,10 @@ struct TexturePackSettings: View {
     @State private var isManagerPresented = false
 
     private var currentPack: TexturePackLibrary.Pack? {
-        let id = texturePacks.loadingID ?? texturePacks.selectedID
-        return texturePacks.packs.first(where: { $0.id == id })
+        texturePacks.packs.first { $0.id == texturePacks.activeID }
     }
+
+    private var activeName: String { currentPack?.name ?? "Vanilla" }
 
     var body: some View {
         Form {
@@ -24,7 +25,7 @@ struct TexturePackSettings: View {
 
                         Menu {
                             Picker("Texture pack", selection: Binding(
-                                get: { texturePacks.loadingID ?? texturePacks.selectedID },
+                                get: { texturePacks.activeID },
                                 set: { texturePacks.selectPack($0) }
                             )) {
                                 Text("Vanilla").tag(nil as UUID?)
@@ -49,8 +50,8 @@ struct TexturePackSettings: View {
                         .menuIndicator(.visible)
                         .fixedSize(horizontal: false, vertical: true)
                         .accessibilityLabel("Texture pack")
-                        .accessibilityValue(currentPack?.name ?? "Vanilla")
-                        .help(currentPack?.name ?? "Vanilla")
+                        .accessibilityValue(activeName)
+                        .help(activeName)
                         .disabled(!texturePacks.isAvailable)
                     }
                 }
@@ -61,7 +62,7 @@ struct TexturePackSettings: View {
             }
         }
         .formStyle(.grouped)
-        .frame(width: 520, height: 220)
+        .frame(width: 520)
         .navigationTitle("LitematicaQL Settings")
         .fileImporter(isPresented: $isImporterPresented, allowedContentTypes: [.zip],
                       allowsMultipleSelection: true) { result in
@@ -86,7 +87,7 @@ private struct TexturePackErrorAlert: ViewModifier {
     @EnvironmentObject private var texturePacks: TexturePackStore
 
     func body(content: Content) -> some View {
-        content.alert(texturePacks.alert?.title ?? "", isPresented: Binding(
+        content.alert(texturePacks.alert?.title ?? "", isPresented: .init(
             get: { texturePacks.alert != nil },
             set: { if !$0 { texturePacks.dismissAlert() } }
         )) {
@@ -112,67 +113,15 @@ private struct TexturePackManager: View {
                     .foregroundStyle(.secondary)
             }
 
-            Group {
-                if texturePacks.packs.isEmpty {
-                    VStack(spacing: 6) {
-                        Text("No saved texture packs")
-                            .fontWeight(.medium)
-                        Text("Add a pack from the Texture pack menu.")
-                            .font(.callout)
-                            .multilineTextAlignment(.center)
-                            .foregroundStyle(.secondary)
-                    }
-                    .frame(maxWidth: .infinity)
-                    .padding(24)
-                } else {
-                    ScrollView {
-                        LazyVStack(spacing: 0) {
-                            ForEach(texturePacks.packs) { pack in
-                                HStack(spacing: 16) {
-                                    VStack(alignment: .leading, spacing: 4) {
-                                        Text(pack.name)
-                                            .lineLimit(2)
-                                            .help(pack.name)
-                                        if texturePacks.selectedID == pack.id {
-                                            Text("Active")
-                                                .font(.caption)
-                                                .foregroundStyle(.secondary)
-                                        }
-                                    }
-                                    .frame(maxWidth: .infinity, alignment: .leading)
-
-                                    if texturePacks.loadingID == pack.id {
-                                        ProgressView()
-                                            .controlSize(.small)
-                                            .accessibilityLabel("Loading \(pack.name)")
-                                    }
-
-                                    Button("Remove…", role: .destructive) {
-                                        packToRemove = pack
-                                    }
-                                    .buttonStyle(.bordered)
-                                    .controlSize(.small)
-                                    .accessibilityLabel("Remove \(pack.name)")
-                                }
-                                .frame(minHeight: 40)
-                                .padding(12)
-
-                                if pack.id != texturePacks.packs.last?.id {
-                                    Divider()
-                                        .padding(.horizontal, 12)
-                                }
-                            }
-                        }
-                    }
-                    .frame(height: min(CGFloat(texturePacks.packs.count * 65), 260))
-                    .accessibilityLabel("Saved texture packs")
-                }
-            }
-            .background(.background, in: RoundedRectangle(cornerRadius: 8))
-            .clipShape(RoundedRectangle(cornerRadius: 8))
-            .overlay {
-                RoundedRectangle(cornerRadius: 8)
-                    .strokeBorder(.primary.opacity(0.1))
+            if texturePacks.packs.isEmpty {
+                Text("No saved texture packs. Add one from the Texture pack menu.")
+                    .foregroundStyle(.secondary)
+                    .frame(maxWidth: .infinity, minHeight: 80)
+            } else {
+                // The rows live in their own view so the delete confirmation and the
+                // shared error alert attach to different views in the hierarchy.
+                SavedPackList(packToRemove: $packToRemove)
+                    .frame(minHeight: 80, maxHeight: 320)
             }
 
             HStack {
@@ -184,10 +133,45 @@ private struct TexturePackManager: View {
         .padding(24)
         .frame(width: 480)
         .onExitCommand { dismiss() }
-        .confirmationDialog("Remove “\(packToRemove?.name ?? "")”?", isPresented: Binding(
+        .modifier(TexturePackErrorAlert())
+    }
+}
+
+private struct SavedPackList: View {
+    @EnvironmentObject private var texturePacks: TexturePackStore
+    @Binding var packToRemove: TexturePackLibrary.Pack?
+
+    var body: some View {
+        List {
+            ForEach(texturePacks.packs) { pack in
+                HStack(spacing: 12) {
+                    Text(pack.name)
+                        .lineLimit(2)
+                        .help(pack.name)
+                    if texturePacks.selectedID == pack.id {
+                        Text("Active")
+                            .font(.caption)
+                            .foregroundStyle(.secondary)
+                    }
+                    Spacer(minLength: 8)
+                    if texturePacks.loadingID == pack.id {
+                        ProgressView()
+                            .controlSize(.small)
+                            .accessibilityLabel("Loading \(pack.name)")
+                    }
+                    Button("Remove…", role: .destructive) {
+                        packToRemove = pack
+                    }
+                    .controlSize(.small)
+                }
+                .padding(.vertical, 2)
+            }
+        }
+        .listStyle(.bordered)
+        .alert("Remove “\(packToRemove?.name ?? "")”?", isPresented: Binding(
             get: { packToRemove != nil },
             set: { if !$0 { packToRemove = nil } }
-        ), titleVisibility: .visible, presenting: packToRemove) { pack in
+        ), presenting: packToRemove) { pack in
             Button("Remove", role: .destructive) {
                 texturePacks.removePack(pack.id)
             }
@@ -197,6 +181,5 @@ private struct TexturePackManager: View {
                  ? "The saved copy will be removed and previews will use Vanilla. The original ZIP is kept."
                  : "The saved copy will be removed from LitematicaQL. The original ZIP is kept.")
         }
-        .modifier(TexturePackErrorAlert())
     }
 }
