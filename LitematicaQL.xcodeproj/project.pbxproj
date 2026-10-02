@@ -19,7 +19,6 @@
 		6F5ACFEE7BAF276801CE25C6 /* ThirdParty in Resources */ = {isa = PBXBuildFile; fileRef = A1A0FBB57B49242FA48ABE12 /* ThirdParty */; };
 		6F97171E81390952E5F7E4FE /* pack.zip in Resources */ = {isa = PBXBuildFile; fileRef = 5A892015BA7DC39A148F185F /* pack.zip */; };
 		70B47465CEBA091BC564C754 /* PreviewViewController.swift in Sources */ = {isa = PBXBuildFile; fileRef = 17496F839D28E34831AB119E /* PreviewViewController.swift */; };
-		7396117AF0A93DA4D5903332 /* TexturePackLibrary.swift in Sources */ = {isa = PBXBuildFile; fileRef = 646DD41871FD7ABED867E4DA /* TexturePackLibrary.swift */; };
 		80288D53EF9101EBA4C148B4 /* NativeSchematic.swift in Sources */ = {isa = PBXBuildFile; fileRef = 1731D039E39C96CBA090B26A /* NativeSchematic.swift */; };
 		90618732273EDA23FB0CAAFD /* LitematicFile.swift in Sources */ = {isa = PBXBuildFile; fileRef = B1A1925EDAA8DE5EC973D716 /* LitematicFile.swift */; };
 		9DAE787492510998237A47B8 /* MetalMesh.swift in Sources */ = {isa = PBXBuildFile; fileRef = 8AA7D125B8EC403963BC5661 /* MetalMesh.swift */; };
@@ -330,7 +329,6 @@
 				9E9EE298E19227930760D4A2 /* SchematicMetalRenderer.swift in Sources */,
 				FC20A71E29ED25DD618ED3A4 /* SchematicMetalViewController.swift in Sources */,
 				E378D971632F6512B0054C2B /* SchematicShaders.metal in Sources */,
-				7396117AF0A93DA4D5903332 /* TexturePackLibrary.swift in Sources */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};
