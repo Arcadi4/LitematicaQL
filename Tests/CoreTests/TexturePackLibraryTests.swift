@@ -62,25 +62,6 @@ struct TexturePackLibraryTests {
         #expect(!FileManager.default.fileExists(atPath: library.fileURL(for: first.id).path))
     }
 
-    @Test("Migrates the original saved pack without moving its archive", arguments: [true, false])
-    func migratesSinglePack(wasActive: Bool) throws {
-        let fixture = try LibraryFixture()
-        defer { fixture.cleanUp() }
-        let pack = TexturePackLibrary.Pack(id: UUID(), name: "Existing Pack")
-        let url = fixture.directory.appendingPathComponent(pack.id.uuidString).appendingPathExtension("zip")
-        try Data([4, 5, 6]).write(to: url)
-        fixture.defaults.set(try JSONEncoder().encode(pack), forKey: "texturePackSelection")
-        fixture.defaults.set(wasActive ? "custom" : "vanilla", forKey: "textureRenderingMode")
-
-        let library = try fixture.open()
-
-        #expect(library.packs == [pack])
-        #expect(library.selectedID == (wasActive ? pack.id : nil))
-        #expect(try Data(contentsOf: library.fileURL(for: pack.id)) == Data([4, 5, 6]))
-        #expect(try fixture.open().packs == [pack])
-        #expect(fixture.defaults.data(forKey: "texturePackSelection") == nil)
-    }
-
     @Test("Same-named imports remain distinct and individually removable")
     func distinguishesSameNamedPacks() throws {
         let fixture = try LibraryFixture()

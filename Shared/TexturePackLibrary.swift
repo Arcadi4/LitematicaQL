@@ -31,17 +31,6 @@ struct TexturePackLibrary {
             saved = try JSONDecoder().decode(SavedLibrary.self, from: data)
         } else {
             saved = SavedLibrary()
-            // Keep the app-owned archive from the original single-pack feature.
-            if let data = defaults.data(forKey: "texturePackSelection") {
-                let pack = try JSONDecoder().decode(Pack.self, from: data)
-                saved.packs = [pack]
-                if defaults.string(forKey: "textureRenderingMode") == "custom" {
-                    saved.selectedID = pack.id
-                }
-            }
-            try persist(saved)
-            defaults.removeObject(forKey: "texturePackSelection")
-            defaults.removeObject(forKey: "textureRenderingMode")
         }
     }
 
