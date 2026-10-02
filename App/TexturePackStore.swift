@@ -90,11 +90,8 @@ final class TexturePackStore: ObservableObject {
                 let pack = try await Task.detached(priority: .userInitiated) {
                     let access = url.startAccessingSecurityScopedResource()
                     defer { if access { url.stopAccessingSecurityScopedResource() } }
-                    let values = try url.resourceValues(forKeys: [.fileSizeKey, .isRegularFileKey])
-                    guard values.isRegularFile == true, let size = values.fileSize,
-                          size > 0, size <= 256 * 1024 * 1024 else {
-                        throw NativeSchematicRefusal(message: "Choose a resource-pack ZIP smaller than 256 MB.")
-                    }
+                    // The native loader rejects oversized, empty, and
+                    // non-resource-pack archives with the text the user sees.
                     let data = try Data(contentsOf: url, options: .mappedIfSafe)
                     let pack = try NativeResourcePack(data, overlaying: NativeResourcePack.bundled.get())
                     try FileManager.default.createDirectory(at: destination.deletingLastPathComponent(),
