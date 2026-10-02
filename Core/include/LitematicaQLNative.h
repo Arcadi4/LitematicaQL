@@ -95,6 +95,9 @@ NQLStatus nql_schematic_cancel(const NQLSchematic *schematic);
 NQLStatus nql_schematic_info(const NQLSchematic *schematic, NQLSchematicInfo *out);
 NQLStatus nql_schematic_warnings(const NQLSchematic *schematic, uint8_t **out, size_t *out_len);
 NQLStatus nql_resource_pack_open(const uint8_t *data, size_t len, NQLResourcePack **out, NQLError *err);
+// Creates an immutable custom pack over the base without modifying the base.
+NQLStatus nql_resource_pack_overlay(const NQLResourcePack *base, const uint8_t *data, size_t len,
+                                    NQLResourcePack **out, NQLError *err);
 void nql_resource_pack_free(NQLResourcePack *pack);
 NQLStatus nql_mesh_stream_open(const NQLSchematic *schematic,
                                const NQLResourcePack *pack,

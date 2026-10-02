@@ -47,6 +47,10 @@ brew install --cask arcadi4/tap/litematicaql
 > [!NOTE]
 > 如果预览没有出现，请在 **系统设置 → 通用 → 登录项与扩展 → 快速查看** 中启用 LitematicaQL。
 
+## 材质包
+
+打开 **LitematicaQL → Settings…**（`⌘+,`），选择 **Add Texture Packs…** 即可导入 Minecraft Java 版资源包 ZIP 文件。
+
 ## 支持格式
 
 | 扩展名         | 文件格式                                    |

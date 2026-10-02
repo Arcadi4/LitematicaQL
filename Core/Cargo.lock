@@ -599,6 +599,7 @@ dependencies = [
  "regex",
  "rustc-hash",
  "schematic-mesher",
+ "zip",
 ]
 
 [[package]]

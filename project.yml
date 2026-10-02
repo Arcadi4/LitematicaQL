@@ -139,6 +139,8 @@ targets:
     sources:
       - path: PreviewExtension
       - path: Shared
+        excludes:
+          - TexturePackLibrary.swift
       - path: Resources/pack.zip
         buildPhase: resources
     info:

@@ -2,6 +2,7 @@ import SwiftUI
 
 struct SchematicMetalPreview: NSViewControllerRepresentable {
     let fileURL: URL
+    let resourcePack: NativeResourcePack?
     @Binding var errorMessage: String?
 
     func makeCoordinator() -> Coordinator { Coordinator() }
@@ -11,11 +12,12 @@ struct SchematicMetalPreview: NSViewControllerRepresentable {
     }
 
     func updateNSViewController(_ controller: SchematicMetalViewController, context: Context) {
-        guard context.coordinator.lastURL != fileURL else { return }
+        guard context.coordinator.lastURL != fileURL || context.coordinator.lastPack !== resourcePack else { return }
         context.coordinator.lastURL = fileURL
+        context.coordinator.lastPack = resourcePack
         do {
             errorMessage = nil
-            try controller.preparePreview(of: fileURL)
+            try controller.preparePreview(of: fileURL, resourcePack: resourcePack)
         } catch {
             errorMessage = error.localizedDescription
         }
@@ -27,5 +29,6 @@ struct SchematicMetalPreview: NSViewControllerRepresentable {
 
     final class Coordinator {
         var lastURL: URL?
+        var lastPack: NativeResourcePack?
     }
 }

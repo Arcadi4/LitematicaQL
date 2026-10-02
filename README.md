@@ -47,6 +47,10 @@ and on-demand drawing. See [the rendering architecture](docs/rendering.md).
 > [!NOTE]
 > If the preview doesn't show up, enable LitematicaQL under **System Settings → General → Login Items & Extensions → Quick Look**.
 
+## Texture Packs
+
+Open **LitematicaQL → Settings…** (`⌘+,`) and choose **Add Texture Packs…** to import Minecraft Java resource-pack ZIPs.
+
 ## Supported Formats
 
 | Extension      | File format                                     |
