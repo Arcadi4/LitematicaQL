@@ -146,8 +146,9 @@ final class TexturePackStore: ObservableObject {
 
     func removePack(_ id: UUID) {
         let removesShownPack = selectedID == id
+        guard let url = library?.fileURL(for: id) else { return }
         do {
-            try library?.remove(id)
+            try library?.removeEntry(id)
             revision = UUID()
             if removesShownPack || loadingID == id {
                 packLoadTask?.cancel()
@@ -156,6 +157,12 @@ final class TexturePackStore: ObservableObject {
             if removesShownPack { resourcePack = nil }
         } catch {
             alert = Alert(title: "Unable to Remove Texture Pack", message: error.localizedDescription)
+            return
+        }
+        // Deleting the archive can block; the index is already updated on the
+        // main actor, so the file removal runs detached.
+        Task.detached(priority: .utility) {
+            try? FileManager.default.removeItem(at: url)
         }
     }
 

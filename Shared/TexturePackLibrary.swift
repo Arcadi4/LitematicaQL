@@ -63,21 +63,22 @@ struct TexturePackLibrary {
         saved = next
     }
 
+    /// Drops the index entry and deletes the archive. The store deletes through
+    /// `removeEntry` instead, so this stays only for tests and direct callers.
     mutating func remove(_ id: UUID) throws {
+        let url = fileURL(for: id)
+        try removeEntry(id)
+        try? FileManager.default.removeItem(at: url)
+    }
+
+    /// Drops the index entry without touching the filesystem. The store uses
+    /// this on the main actor and deletes the archive off-thread.
+    mutating func removeEntry(_ id: UUID) throws {
         guard packs.contains(where: { $0.id == id }) else { return }
         var next = saved
         next.packs.removeAll { $0.id == id }
         if next.selectedID == id { next.selectedID = nil }
         try persist(next)
-        do {
-            let url = fileURL(for: id)
-            if FileManager.default.fileExists(atPath: url.path) {
-                try FileManager.default.removeItem(at: url)
-            }
-        } catch {
-            try persist(saved)
-            throw error
-        }
         saved = next
     }
 
