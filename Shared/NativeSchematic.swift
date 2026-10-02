@@ -75,7 +75,7 @@ final class NativeResourcePack: @unchecked Sendable {
             )
         }
         guard status == NQL_OK, let handle else {
-            throw NativeSchematicRefusal(message: Self.packMessage(status, failure))
+            throw NativeSchematicRefusal(message: Self.packMessage(status, failure, overlaying: basePack != nil))
         }
         self.handle = handle
     }
@@ -88,14 +88,16 @@ final class NativeResourcePack: @unchecked Sendable {
         try body(handle)
     }
 
-    private static func packMessage(_ status: NQLStatus, _ failure: NQLError) -> String {
+    private static func packMessage(_ status: NQLStatus, _ failure: NQLError, overlaying: Bool) -> String {
         defer { if let message = failure.message { nql_buffer_free(message, failure.message_len) } }
         if let message = failure.message, failure.message_len > 0 {
             let text = String(decoding: Data(bytes: message, count: failure.message_len), as: UTF8.self)
             if !text.isEmpty { return text }
         }
         return status == NQL_ERR_PACK
-            ? "This texture pack could not be read. Choose a Minecraft Java resource-pack ZIP."
+            ? (overlaying
+                ? "This texture pack could not be read. Choose a Minecraft Java resource-pack ZIP."
+                : "The bundled block resources are invalid. Rebuild the app.")
             : "Something went wrong while reading the block resources."
     }
 }
