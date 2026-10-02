@@ -96,7 +96,7 @@ final class TexturePackStore: ObservableObject {
     }
 
     func importPacks(from urls: [URL]) async {
-        guard !isImporting, let library else { return }
+        guard !isImporting, ensureLibrary(), let library else { return }
         isImporting = true
         alert = nil
         defer { isImporting = false }
@@ -155,6 +155,26 @@ final class TexturePackStore: ObservableObject {
             if removesShownPack { resourcePack = nil }
         } catch {
             alert = Alert(title: "Unable to Remove Texture Pack", message: error.localizedDescription)
+        }
+    }
+
+    /// The Add button stays enabled when saved state is unreadable, so a fresh
+    /// library is the recovery path instead of a dead-end disabled panel.
+    @discardableResult
+    private func ensureLibrary() -> Bool {
+        if library != nil { return true }
+        do {
+            library = try TexturePackLibrary()
+            return true
+        } catch {
+            TexturePackLibrary.discardSavedState()
+            do {
+                library = try TexturePackLibrary()
+                return true
+            } catch {
+                alert = Alert(title: "Unable to Add Texture Packs", message: error.localizedDescription)
+                return false
+            }
         }
     }
 }

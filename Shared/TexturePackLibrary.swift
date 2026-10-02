@@ -84,4 +84,10 @@ struct TexturePackLibrary {
     private func persist(_ value: SavedLibrary) throws {
         defaults.set(try JSONEncoder().encode(value), forKey: Self.libraryKey)
     }
+
+    /// Drops unreadable saved state so the next launch starts from an empty
+    /// library. Archives on disk are left alone; only the index is discarded.
+    static func discardSavedState(defaults: UserDefaults = .standard) {
+        defaults.removeObject(forKey: Self.libraryKey)
+    }
 }
