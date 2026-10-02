@@ -4,7 +4,7 @@ import SwiftUI
 @MainActor
 final class TexturePackStore: ObservableObject {
     @Published private var library: TexturePackLibrary?
-    @Published private var loaded: (id: UUID?, pack: NativeResourcePack)?
+    @Published private(set) var resourcePack: NativeResourcePack?
     @Published private(set) var loadingID: UUID?
     @Published private(set) var isImporting = false
     /// One presentation surface for every pack failure.
@@ -15,9 +15,9 @@ final class TexturePackStore: ObservableObject {
 
     @Published private(set) var alert: Alert?
 
-    /// The pack whose textures are on screen, or the one being parsed.
-    var resourcePack: NativeResourcePack? { loaded?.pack }
-    var activeID: UUID? { loadingID ?? loaded?.id }
+    /// The pack whose textures are on screen, or the one being parsed. Nothing
+    /// loaded means nothing claimed, even while a saved choice is still pending.
+    var activeID: UUID? { loadingID ?? (resourcePack == nil ? nil : selectedID) }
 
     /// Loads started under an older intent are dropped rather than applied late.
     private var revision = UUID()
@@ -56,13 +56,13 @@ final class TexturePackStore: ObservableObject {
 
         guard let id else {
             saveSelection(nil)
-            loaded = nil
+            resourcePack = nil
             return
         }
 
         loadingID = id
-        let revision = revision
-        packLoadTask = Task { [weak self] in await self?.load(id, revision: revision) }
+        let snapshot = revision
+        packLoadTask = Task { [weak self] in await self?.load(id, revision: snapshot) }
     }
 
     /// Parses one saved archive off-thread while it is still the newest choice.
@@ -76,7 +76,7 @@ final class TexturePackStore: ObservableObject {
             }.value
             guard revision == self.revision else { return }
             saveSelection(id)
-            loaded = (id, pack)
+            resourcePack = pack
             loadingID = nil
         } catch is CancellationError {
             // A newer choice owns the selection and its progress state.
@@ -100,7 +100,7 @@ final class TexturePackStore: ObservableObject {
         isImporting = true
         alert = nil
         defer { isImporting = false }
-        let revision = revision
+        let snapshot = revision
         var failures: [String] = []
         var lastImported: (TexturePackLibrary.Pack, NativeResourcePack)?
 
@@ -130,12 +130,12 @@ final class TexturePackStore: ObservableObject {
         }
 
         // Choosing or removing a pack during import takes precedence over auto-selection.
-        if revision == self.revision, let (entry, pack) = lastImported {
+        if snapshot == self.revision, let (entry, pack) = lastImported {
             saveSelection(entry.id)
             packLoadTask?.cancel()
             self.revision = UUID()
             loadingID = nil
-            loaded = (entry.id, pack)
+            resourcePack = pack
         }
         if !failures.isEmpty {
             alert = Alert(title: "Some Texture Packs Could Not Be Added",
@@ -144,7 +144,7 @@ final class TexturePackStore: ObservableObject {
     }
 
     func removePack(_ id: UUID) {
-        let removesShownPack = loaded?.id == id
+        let removesShownPack = selectedID == id
         do {
             try library?.remove(id)
             revision = UUID()
@@ -152,7 +152,7 @@ final class TexturePackStore: ObservableObject {
                 packLoadTask?.cancel()
                 loadingID = nil
             }
-            if removesShownPack { loaded = nil }
+            if removesShownPack { resourcePack = nil }
         } catch {
             alert = Alert(title: "Unable to Remove Texture Pack", message: error.localizedDescription)
         }
