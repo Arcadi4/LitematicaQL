@@ -136,31 +136,16 @@ struct ContentView: View {
 }
 
 private struct AppIconMark: View {
-    private var icon: NSImage? {
-        guard let iconURL = Bundle.main.url(forResource: "LitematicaQL", withExtension: "icns"),
-              let source = NSImage(contentsOf: iconURL),
-              let representation = source.representations
-                  .compactMap({ $0 as? NSBitmapImageRep })
-                  .max(by: { $0.pixelsWide < $1.pixelsWide }) else {
-            return nil
-        }
-
-        let resolved = NSImage(size: representation.size)
-        resolved.addRepresentation(representation)
-        return resolved
-    }
+    // Let macOS compose the icon, including its Icon Composer layers.
+    private let icon = NSWorkspace.shared.icon(forFile: Bundle.main.bundlePath)
 
     var body: some View {
-        Group {
-            if let icon {
-                Image(nsImage: icon)
-                    .resizable()
-                    .scaledToFit()
-                    .shadow(color: .black.opacity(0.22), radius: 18, y: 8)
-            }
-        }
-        .frame(width: 112, height: 112)
-        .accessibilityLabel("LitematicaQL")
+        Image(nsImage: icon)
+            .resizable()
+            .scaledToFit()
+            .shadow(color: .black.opacity(0.22), radius: 18, y: 8)
+            .frame(width: 112, height: 112)
+            .accessibilityLabel("LitematicaQL")
     }
 }
 
