@@ -55,10 +55,8 @@ final class TexturePackStore: ObservableObject {
         packLoadTask?.cancel()
 
         guard let id else {
-            do {
-                try self.library?.select(nil)
-                loaded = nil
-            } catch { alert = Alert(title: "Unable to Load Texture Pack", message: error.localizedDescription) }
+            saveSelection(nil)
+            loaded = nil
             return
         }
 
@@ -77,7 +75,7 @@ final class TexturePackStore: ObservableObject {
                 return try NativeResourcePack(data, overlaying: NativeResourcePack.bundled.get())
             }.value
             guard revision == self.revision else { return }
-            try self.library?.select(id)
+            saveSelection(id)
             loaded = (id, pack)
             loadingID = nil
         } catch is CancellationError {
@@ -87,6 +85,13 @@ final class TexturePackStore: ObservableObject {
             loadingID = nil
             alert = Alert(title: "Unable to Load Texture Pack",
                           message: "\(entry.name) could not be loaded. \(error.localizedDescription)")
+        }
+    }
+
+    /// A failed write still shows the pack, but the choice is not remembered.
+    private func saveSelection(_ id: UUID?) {
+        do { try self.library?.select(id) } catch {
+            alert = Alert(title: "Unable to Change Texture Pack", message: error.localizedDescription)
         }
     }
 
@@ -126,13 +131,11 @@ final class TexturePackStore: ObservableObject {
 
         // Choosing or removing a pack during import takes precedence over auto-selection.
         if revision == self.revision, let (entry, pack) = lastImported {
-            do {
-                try self.library?.select(entry.id)
-                packLoadTask?.cancel()
-                self.revision = UUID()
-                loadingID = nil
-                loaded = (entry.id, pack)
-            } catch { failures.append(error.localizedDescription) }
+            saveSelection(entry.id)
+            packLoadTask?.cancel()
+            self.revision = UUID()
+            loadingID = nil
+            loaded = (entry.id, pack)
         }
         if !failures.isEmpty {
             alert = Alert(title: "Some Texture Packs Could Not Be Added",
