@@ -69,20 +69,30 @@ struct TexturePackSettings: View {
             case let .success(urls):
                 Task { await texturePacks.importPacks(from: urls) }
             case let .failure(error):
-                texturePacks.errorMessage = error.localizedDescription
+                texturePacks.reportImportFailure(error)
             }
         }
         .sheet(isPresented: $isManagerPresented) {
             TexturePackManager()
                 .environmentObject(texturePacks)
         }
-        .alert("Unable to Use Texture Pack", isPresented: Binding(
-            get: { texturePacks.errorMessage != nil && !isManagerPresented },
-            set: { if !$0 { texturePacks.errorMessage = nil } }
+        .modifier(TexturePackErrorAlert())
+    }
+}
+
+/// Presents the store's one pack failure. Settings and the manager sheet each
+/// attach it to a different view so a single alert site covers both surfaces.
+private struct TexturePackErrorAlert: ViewModifier {
+    @EnvironmentObject private var texturePacks: TexturePackStore
+
+    func body(content: Content) -> some View {
+        content.alert(texturePacks.alert?.title ?? "", isPresented: Binding(
+            get: { texturePacks.alert != nil },
+            set: { if !$0 { texturePacks.dismissAlert() } }
         )) {
-            Button("OK", role: .cancel) { texturePacks.errorMessage = nil }
+            Button("OK", role: .cancel) { texturePacks.dismissAlert() }
         } message: {
-            Text(texturePacks.errorMessage ?? "")
+            Text(texturePacks.alert?.message ?? "")
         }
     }
 }
@@ -187,13 +197,6 @@ private struct TexturePackManager: View {
                  ? "The saved copy will be removed and previews will use Vanilla. The original ZIP is kept."
                  : "The saved copy will be removed from LitematicaQL. The original ZIP is kept.")
         }
-        .alert("Unable to Use Texture Pack", isPresented: Binding(
-            get: { texturePacks.errorMessage != nil },
-            set: { if !$0 { texturePacks.errorMessage = nil } }
-        )) {
-            Button("OK", role: .cancel) { texturePacks.errorMessage = nil }
-        } message: {
-            Text(texturePacks.errorMessage ?? "")
-        }
+        .modifier(TexturePackErrorAlert())
     }
 }
