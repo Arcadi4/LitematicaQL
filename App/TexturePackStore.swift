@@ -9,8 +9,9 @@ final class TexturePackStore: ObservableObject {
     @Published private(set) var isImporting = false
     @Published var errorMessage: String?
 
-    private var loadGeneration = UUID()
-    private var selectionRevision = UUID()
+    /// Identifies the newest user intent. Loads and imports that started under an
+    /// older intent are dropped instead of overwriting a later choice.
+    private var revision = UUID()
     private var packLoadTask: Task<Void, Never>?
 
     var packs: [TexturePackLibrary.Pack] { library?.packs ?? [] }
@@ -28,12 +29,13 @@ final class TexturePackStore: ObservableObject {
 
     func selectPack(_ id: UUID?) {
         guard let library, id == nil || library.packs.contains(where: { $0.id == id }) else { return }
-        selectionRevision = UUID()
-        loadGeneration = UUID()
-        loadingID = id
+        // Re-picking the pack already on screen would rebuild identical geometry.
+        guard id != selectedID || loadingID != nil || resourcePack == nil else { return }
+        revision = UUID()
         errorMessage = nil
+        packLoadTask?.cancel()
 
-        guard id != nil else {
+        guard let id else {
             do {
                 try self.library?.select(nil)
                 resourcePack = nil
@@ -41,30 +43,34 @@ final class TexturePackStore: ObservableObject {
             return
         }
 
-        // Coalesce rapid choices so only one saved archive is parsed at a time.
-        guard packLoadTask == nil else { return }
-        packLoadTask = Task {
-            defer { packLoadTask = nil }
-            while let id = loadingID, let entry = self.library?.packs.first(where: { $0.id == id }),
-                  let url = self.library?.fileURL(for: id) {
-                let generation = loadGeneration
-                do {
-                    let pack = try await Task.detached(priority: .userInitiated) {
-                        let data = try Data(contentsOf: url, options: .mappedIfSafe)
-                        return try NativeResourcePack(data, overlaying: NativeResourcePack.bundled.get())
-                    }.value
-                    guard generation == loadGeneration else { continue }
-                    try self.library?.select(id)
-                    resourcePack = pack
-                    loadingID = nil
-                } catch {
-                    guard generation == loadGeneration else { continue }
-                    loadingID = nil
-                    // A failed restore keeps the entry available for removal or retry.
-                    if resourcePack == nil { try? self.library?.select(nil) }
-                    errorMessage = "\(entry.name) could not be loaded. \(error.localizedDescription)"
-                }
-            }
+        loadingID = id
+        let revision = revision
+        packLoadTask = Task { [weak self] in await self?.load(id, revision: revision) }
+    }
+
+    /// Parses one saved archive off-thread and publishes it only while it is still
+    /// the newest choice.
+    private func load(_ id: UUID, revision: UUID) async {
+        guard let entry = library?.packs.first(where: { $0.id == id }),
+              let url = library?.fileURL(for: id) else { return }
+        do {
+            let pack = try await Task.detached(priority: .userInitiated) {
+                let data = try Data(contentsOf: url, options: .mappedIfSafe)
+                return try NativeResourcePack(data, overlaying: NativeResourcePack.bundled.get())
+            }.value
+            guard revision == self.revision else { return }
+            try self.library?.select(id)
+            resourcePack = pack
+            loadingID = nil
+        } catch is CancellationError {
+            // A newer choice already owns the selection and its progress state.
+        } catch {
+            guard revision == self.revision else { return }
+            loadingID = nil
+            // Keep the saved selection so the entry stays available for retry, but
+            // fall back to vanilla so the menu never claims a pack we cannot show.
+            if resourcePack == nil { try? self.library?.select(nil) }
+            errorMessage = "\(entry.name) could not be loaded. \(error.localizedDescription)"
         }
     }
 
@@ -73,7 +79,7 @@ final class TexturePackStore: ObservableObject {
         isImporting = true
         errorMessage = nil
         defer { isImporting = false }
-        let revision = selectionRevision
+        let revision = revision
         var failures: [String] = []
         var lastImported: (TexturePackLibrary.Pack, NativeResourcePack)?
 
@@ -106,10 +112,11 @@ final class TexturePackStore: ObservableObject {
         }
 
         // Choosing or removing a pack during import takes precedence over auto-selection.
-        if revision == selectionRevision, let (entry, pack) = lastImported {
+        if revision == self.revision, let (entry, pack) = lastImported {
             do {
                 try self.library?.select(entry.id)
-                loadGeneration = UUID()
+                packLoadTask?.cancel()
+                self.revision = UUID()
                 loadingID = nil
                 resourcePack = pack
             } catch { failures.append(error.localizedDescription) }
@@ -121,9 +128,9 @@ final class TexturePackStore: ObservableObject {
         let removesActivePack = selectedID == id
         do {
             try library?.remove(id)
-            selectionRevision = UUID()
+            revision = UUID()
             if removesActivePack || loadingID == id {
-                loadGeneration = UUID()
+                packLoadTask?.cancel()
                 loadingID = nil
             }
             if removesActivePack { resourcePack = nil }
