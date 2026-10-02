@@ -308,6 +308,39 @@ pub fn resource_pack(bytes: &[u8]) -> Result<NQLResourcePack, MeshFailure> {
         .map_err(|error| MeshFailure::Pack(error.to_string()))
 }
 
+pub fn resource_pack_overlay(base: &NQLResourcePack, bytes: &[u8]) -> Result<NQLResourcePack, MeshFailure> {
+    let invalid = |message: &str| MeshFailure::Pack(message.to_owned());
+    if bytes.len() > 256 * 1024 * 1024 {
+        return Err(invalid("Choose a resource pack smaller than 256 MB."));
+    }
+    let mut archive = zip::ZipArchive::new(std::io::Cursor::new(bytes))
+        .map_err(|_| invalid("Choose a Minecraft Java resource-pack ZIP."))?;
+    if archive.len() > 100_000 {
+        return Err(invalid("This resource pack contains too many files."));
+    }
+    let mut expanded = 0_u64;
+    let mut metadata = false;
+    for index in 0..archive.len() {
+        let file = archive.by_index(index).map_err(|error| invalid(&error.to_string()))?;
+        expanded = expanded.saturating_add(file.size());
+        if expanded > 512 * 1024 * 1024 || file.size() > 64 * 1024 * 1024 {
+            return Err(invalid("This resource pack exceeds the previewer's expanded-size limit."));
+        }
+        metadata |= file.name() == "pack.mcmeta";
+    }
+    if !metadata {
+        return Err(invalid("The ZIP must contain pack.mcmeta and assets at its top level. Choose a Minecraft Java resource pack."));
+    }
+    let mut custom = ResourcePackSource::from_bytes(bytes)
+        .map_err(|error| invalid(&error.to_string()))?;
+    if custom.pack().texture_count() == 0 && custom.pack().model_count() == 0 && custom.pack().blockstate_count() == 0 {
+        return Err(invalid("This pack has no supported textures or models. Choose a Minecraft Java resource pack."));
+    }
+    let mut merged = base.0.pack().clone();
+    merged.overlay(std::mem::take(custom.pack_mut()));
+    Ok(NQLResourcePack(ResourcePackSource::from_resource_pack(merged)))
+}
+
 pub fn export_bytes(bytes: Vec<u8>) -> (*mut u8, usize) {
     let mut bytes = bytes;
     bytes.shrink_to_fit();
@@ -469,6 +502,29 @@ pub unsafe extern "C" fn nql_resource_pack_open(
 pub unsafe extern "C" fn nql_resource_pack_free(pack: *mut NQLResourcePack) {
     if !pack.is_null() {
         drop(Box::from_raw(pack));
+    }
+}
+
+#[no_mangle]
+pub unsafe extern "C" fn nql_resource_pack_overlay(
+    base: *const NQLResourcePack,
+    data: *const u8,
+    len: usize,
+    out: *mut *mut NQLResourcePack,
+    err_out: *mut NQLError,
+) -> i32 {
+    init_error(err_out);
+    if base.is_null() || data.is_null() || out.is_null() {
+        return fail(err_out, status::ERR_NULL, "The caller passed a null buffer.");
+    }
+    *out = std::ptr::null_mut();
+    match catch_unwind(AssertUnwindSafe(|| resource_pack_overlay(&*base, slice::from_raw_parts(data, len)))) {
+        Ok(Ok(pack)) => {
+            *out = Box::into_raw(Box::new(pack));
+            status::OK
+        }
+        Ok(Err(MeshFailure::Pack(error))) => fail(err_out, status::ERR_PACK, &error),
+        _ => fail(err_out, status::ERR_INTERNAL, "Unable to read this texture pack. Try another Minecraft Java resource pack."),
     }
 }
 

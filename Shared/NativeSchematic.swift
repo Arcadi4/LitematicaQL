@@ -56,11 +56,17 @@ final class NativeResourcePack: @unchecked Sendable {
         return try NativeResourcePack(Data(contentsOf: url, options: .mappedIfSafe))
     }
 
-    init(_ data: Data) throws {
+    init(_ data: Data, overlaying basePack: NativeResourcePack? = nil) throws {
         var handle: OpaquePointer?
         var failure = NQLError(message: nil, message_len: 0)
         let status = data.withUnsafeBytes { raw -> NQLStatus in
             guard let base = raw.baseAddress else { return NQL_ERR_NULL }
+            if let basePack {
+                return basePack.withHandle { pack in
+                    nql_resource_pack_overlay(pack, base.assumingMemoryBound(to: UInt8.self),
+                                              raw.count, &handle, &failure)
+                }
+            }
             return nql_resource_pack_open(
                 base.assumingMemoryBound(to: UInt8.self),
                 raw.count,
@@ -89,8 +95,8 @@ final class NativeResourcePack: @unchecked Sendable {
             if !text.isEmpty { return text }
         }
         return status == NQL_ERR_PACK
-            ? "The bundled block resources are invalid. Rebuild the app."
-            : "Something went wrong while reading the bundled block resources."
+            ? "This texture pack could not be read. Choose a Minecraft Java resource-pack ZIP."
+            : "Something went wrong while reading the block resources."
     }
 }
 

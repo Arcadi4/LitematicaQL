@@ -3,6 +3,7 @@ import SwiftUI
 import UniformTypeIdentifiers
 
 struct ContentView: View {
+    @EnvironmentObject private var texturePacks: TexturePackStore
     @State private var errorMessage: String?
     @State private var isImporterPresented = false
     @State private var selectedURL: URL?
@@ -37,6 +38,8 @@ struct ContentView: View {
         .onOpenURL(perform: open)
         .toolbar {
             ToolbarItemGroup(placement: .primaryAction) {
+                TexturePackSettingsLink()
+
                 if selectedURL != nil {
                     Button("Home", systemImage: "house") {
                         selectedURL = nil
@@ -97,7 +100,8 @@ struct ContentView: View {
     }
 
     private func preview(for url: URL) -> some View {
-        SchematicMetalPreview(fileURL: url, errorMessage: $errorMessage)
+        SchematicMetalPreview(fileURL: url, resourcePack: texturePacks.resourcePack,
+                              errorMessage: $errorMessage)
             .id(url)
         .navigationTitle(url.lastPathComponent)
     }

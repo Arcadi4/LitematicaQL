@@ -105,7 +105,7 @@ final class SchematicMetalViewController: NSViewController {
         nativeLoad = nil
     }
 
-    func preparePreview(of url: URL) throws {
+    func preparePreview(of url: URL, resourcePack: NativeResourcePack? = nil) throws {
         _ = view
         try Task.checkCancellation()
         guard LitematicFile.supports(url) else { throw LitematicFileError.unsupportedExtension }
@@ -135,7 +135,7 @@ final class SchematicMetalViewController: NSViewController {
                     // batches cannot drag the view around while they load.
                     await self?.pinFrame(current, facts: facts)
                     await self?.update(current, message: "Preparing block textures…", fraction: 0)
-                    let pack = try NativeResourcePack.bundled.get()
+                    let pack = try resourcePack ?? NativeResourcePack.bundled.get()
                     let batchCount = try autoreleasepool {
                         let start = try session.beginMesh(pack: pack)
                         try uploader.uploadAtlas(start)

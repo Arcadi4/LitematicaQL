@@ -10,10 +10,12 @@
 		04F49D1217C077504C4F0CC9 /* Quartz.framework in Frameworks */ = {isa = PBXBuildFile; fileRef = C19A1BA9A77D9F6F545EEBA7 /* Quartz.framework */; };
 		148CF4887D755F0579EAF8F8 /* LitematicaType.swift in Sources */ = {isa = PBXBuildFile; fileRef = B11BBAB3A152B48CA2932C43 /* LitematicaType.swift */; };
 		14DEA5793F46839DF279BBB6 /* LitematicFile.swift in Sources */ = {isa = PBXBuildFile; fileRef = B1A1925EDAA8DE5EC973D716 /* LitematicFile.swift */; };
+		1D6F89161BDBEACBC7E0EECF /* TexturePackStore.swift in Sources */ = {isa = PBXBuildFile; fileRef = 492CE10135C50CD7DF982BCA /* TexturePackStore.swift */; };
 		30C3D1AAE7FD8EE28D936E95 /* Demos in Resources */ = {isa = PBXBuildFile; fileRef = D28BABB57DAE08167DFAF8C2 /* Demos */; };
 		4801EB4DD3A2722259E35A20 /* SchematicMetalRenderer.swift in Sources */ = {isa = PBXBuildFile; fileRef = 3249334344F94472F29878AD /* SchematicMetalRenderer.swift */; };
 		4A4CBAD90F2A0642CC5C18D0 /* MetalMesh.swift in Sources */ = {isa = PBXBuildFile; fileRef = 8AA7D125B8EC403963BC5661 /* MetalMesh.swift */; };
 		65D2DA80AB64E89B5C27ED83 /* SchematicMetalViewController.swift in Sources */ = {isa = PBXBuildFile; fileRef = B3EF49CEC2317E2BF0AC874A /* SchematicMetalViewController.swift */; };
+		692E8B90D5C87D9F2D105186 /* TexturePackSettings.swift in Sources */ = {isa = PBXBuildFile; fileRef = FFBDDCF2B2566FC1BBE5E06A /* TexturePackSettings.swift */; };
 		6F5ACFEE7BAF276801CE25C6 /* ThirdParty in Resources */ = {isa = PBXBuildFile; fileRef = A1A0FBB57B49242FA48ABE12 /* ThirdParty */; };
 		6F97171E81390952E5F7E4FE /* pack.zip in Resources */ = {isa = PBXBuildFile; fileRef = 5A892015BA7DC39A148F185F /* pack.zip */; };
 		70B47465CEBA091BC564C754 /* PreviewViewController.swift in Sources */ = {isa = PBXBuildFile; fileRef = 17496F839D28E34831AB119E /* PreviewViewController.swift */; };
@@ -67,6 +69,7 @@
 		3249334344F94472F29878AD /* SchematicMetalRenderer.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SchematicMetalRenderer.swift; sourceTree = "<group>"; };
 		41426C6CB3826011D9D7DBC3 /* ContentView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ContentView.swift; sourceTree = "<group>"; };
 		47F2DA4055F7517863368E23 /* LitematicaQLApp.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = LitematicaQLApp.swift; sourceTree = "<group>"; };
+		492CE10135C50CD7DF982BCA /* TexturePackStore.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = TexturePackStore.swift; sourceTree = "<group>"; };
 		54C62792CD501EF5BEDB2117 /* LitematicaQLPreview.entitlements */ = {isa = PBXFileReference; lastKnownFileType = text.plist.entitlements; path = LitematicaQLPreview.entitlements; sourceTree = "<group>"; };
 		5A892015BA7DC39A148F185F /* pack.zip */ = {isa = PBXFileReference; lastKnownFileType = archive.zip; path = pack.zip; sourceTree = "<group>"; };
 		5F5F39B25C3B118B7DB5A126 /* LitematicaQL.entitlements */ = {isa = PBXFileReference; lastKnownFileType = text.plist.entitlements; path = LitematicaQL.entitlements; sourceTree = "<group>"; };
@@ -82,6 +85,7 @@
 		F11E0E0ADB5F965E8AE67CE6 /* SchematicShaders.metal */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.metal; path = SchematicShaders.metal; sourceTree = "<group>"; };
 		F74465552D8FB63AFA213C81 /* LitematicaQL.icon */ = {isa = PBXFileReference; lastKnownFileType = wrapper.icon; path = LitematicaQL.icon; sourceTree = "<group>"; };
 		F8757780D24E478C1043A705 /* Info.plist */ = {isa = PBXFileReference; lastKnownFileType = text.plist; path = Info.plist; sourceTree = "<group>"; };
+		FFBDDCF2B2566FC1BBE5E06A /* TexturePackSettings.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = TexturePackSettings.swift; sourceTree = "<group>"; };
 /* End PBXFileReference section */
 
 /* Begin PBXFrameworksBuildPhase section */
@@ -170,6 +174,8 @@
 				47F2DA4055F7517863368E23 /* LitematicaQLApp.swift */,
 				B11BBAB3A152B48CA2932C43 /* LitematicaType.swift */,
 				27F2060D9EE2DAD828BF1F66 /* SchematicMetalPreview.swift */,
+				FFBDDCF2B2566FC1BBE5E06A /* TexturePackSettings.swift */,
+				492CE10135C50CD7DF982BCA /* TexturePackStore.swift */,
 			);
 			path = App;
 			sourceTree = "<group>";
@@ -337,6 +343,8 @@
 				4801EB4DD3A2722259E35A20 /* SchematicMetalRenderer.swift in Sources */,
 				65D2DA80AB64E89B5C27ED83 /* SchematicMetalViewController.swift in Sources */,
 				D7B68800837F2583EF63544B /* SchematicShaders.metal in Sources */,
+				692E8B90D5C87D9F2D105186 /* TexturePackSettings.swift in Sources */,
+				1D6F89161BDBEACBC7E0EECF /* TexturePackStore.swift in Sources */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};
