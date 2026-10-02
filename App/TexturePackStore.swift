@@ -4,37 +4,21 @@ import SwiftUI
 @MainActor
 final class TexturePackStore: ObservableObject {
     @Published private var library: TexturePackLibrary?
-    @Published private(set) var resourcePack: NativeResourcePack?
+    @Published private var loaded: (id: UUID?, pack: NativeResourcePack)?
     @Published private(set) var loadingID: UUID?
     @Published private(set) var isImporting = false
     /// One presentation surface for every pack failure, so each alert can name
     /// the action that actually failed.
-    enum Alert: Equatable {
-        case libraryUnavailable(String)
-        case loadFailed(String)
-        case importFailed([String])
-        case importUnavailable(String)
-
-        var title: String {
-            switch self {
-            case .libraryUnavailable: "Unable to Open the Texture Pack Library"
-            case .loadFailed: "Unable to Load Texture Pack"
-            case .importFailed: "Some Texture Packs Could Not Be Added"
-            case .importUnavailable: "Unable to Add Texture Packs"
-            }
-        }
-
-        var message: String {
-            switch self {
-            case let .libraryUnavailable(reason), let .loadFailed(reason),
-                 let .importUnavailable(reason):
-                reason
-            case let .importFailed(failures): failures.joined(separator: "\n")
-            }
-        }
+    struct Alert: Equatable {
+        let title: String
+        let message: String
     }
 
     @Published private(set) var alert: Alert?
+
+    /// The pack whose textures are on screen, or the one being parsed.
+    var resourcePack: NativeResourcePack? { loaded?.pack }
+    var activeID: UUID? { loadingID ?? loaded?.id }
 
     /// Identifies the newest user intent. Loads and imports that started under an
     /// older intent are dropped instead of overwriting a later choice.
@@ -50,8 +34,8 @@ final class TexturePackStore: ObservableObject {
             library = try TexturePackLibrary()
             if let id = selectedID { selectPack(id) }
         } catch {
-            alert = .libraryUnavailable(
-                "The saved texture packs could not be restored. \(error.localizedDescription)")
+            alert = Alert(title: "Unable to Open the Texture Pack Library",
+                          message: "The saved texture packs could not be restored. \(error.localizedDescription)")
         }
     }
 
@@ -61,7 +45,7 @@ final class TexturePackStore: ObservableObject {
         guard !(failure.domain == NSCocoaErrorDomain && failure.code == NSUserCancelledError) else {
             return
         }
-        alert = .importUnavailable(error.localizedDescription)
+        alert = Alert(title: "Unable to Add Texture Packs", message: error.localizedDescription)
     }
 
     func dismissAlert() { alert = nil }
@@ -77,8 +61,8 @@ final class TexturePackStore: ObservableObject {
         guard let id else {
             do {
                 try self.library?.select(nil)
-                resourcePack = nil
-            } catch { alert = .loadFailed(error.localizedDescription) }
+                loaded = nil
+            } catch { alert = Alert(title: "Unable to Load Texture Pack", message: error.localizedDescription) }
             return
         }
 
@@ -99,17 +83,15 @@ final class TexturePackStore: ObservableObject {
             }.value
             guard revision == self.revision else { return }
             try self.library?.select(id)
-            resourcePack = pack
+            loaded = (id, pack)
             loadingID = nil
         } catch is CancellationError {
             // A newer choice already owns the selection and its progress state.
         } catch {
             guard revision == self.revision else { return }
             loadingID = nil
-            // Keep the saved selection so the entry stays available for retry, but
-            // fall back to vanilla so the menu never claims a pack we cannot show.
-            if resourcePack == nil { try? self.library?.select(nil) }
-            alert = .loadFailed("\(entry.name) could not be loaded. \(error.localizedDescription)")
+            alert = Alert(title: "Unable to Load Texture Pack",
+                          message: "\(entry.name) could not be loaded. \(error.localizedDescription)")
         }
     }
 
@@ -154,24 +136,27 @@ final class TexturePackStore: ObservableObject {
                 packLoadTask?.cancel()
                 self.revision = UUID()
                 loadingID = nil
-                resourcePack = pack
+                loaded = (entry.id, pack)
             } catch { failures.append(error.localizedDescription) }
         }
-        if !failures.isEmpty { alert = .importFailed(failures) }
+        if !failures.isEmpty {
+            alert = Alert(title: "Some Texture Packs Could Not Be Added",
+                          message: failures.joined(separator: "\n"))
+        }
     }
 
     func removePack(_ id: UUID) {
-        let removesActivePack = selectedID == id
+        let removesShownPack = loaded?.id == id
         do {
             try library?.remove(id)
             revision = UUID()
-            if removesActivePack || loadingID == id {
+            if removesShownPack || loadingID == id {
                 packLoadTask?.cancel()
                 loadingID = nil
             }
-            if removesActivePack { resourcePack = nil }
+            if removesShownPack { loaded = nil }
         } catch {
-            alert = .loadFailed(error.localizedDescription)
+            alert = Alert(title: "Unable to Remove Texture Pack", message: error.localizedDescription)
         }
     }
 }
