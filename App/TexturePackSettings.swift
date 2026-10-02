@@ -69,10 +69,10 @@ private struct TexturePackErrorAlert: ViewModifier {
         content.alert(texturePacks.alert?.title ?? "", isPresented: .init(
             get: { texturePacks.alert != nil },
             set: { if !$0 { texturePacks.dismissAlert() } }
-        )) {
+        ), presenting: texturePacks.alert) { _ in
             Button("OK", role: .cancel) { texturePacks.dismissAlert() }
-        } message: {
-            Text(texturePacks.alert?.message ?? "")
+        } message: { alert in
+            Text(alert.message)
         }
     }
 }
@@ -146,7 +146,7 @@ private struct SavedPackList: View {
             }
         }
         .listStyle(.bordered)
-        .alert("Remove “\(packToRemove?.name ?? "")”?", isPresented: Binding(
+        .alert(packToRemove.map { "Remove “\($0.name)”?" } ?? "Remove Texture Pack?", isPresented: Binding(
             get: { packToRemove != nil },
             set: { if !$0 { packToRemove = nil } }
         ), presenting: packToRemove) { pack in
