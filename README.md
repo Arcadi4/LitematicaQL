@@ -49,12 +49,12 @@ and on-demand drawing. See [the rendering architecture](docs/rendering.md).
 
 ## Texture Packs
 
-Open **LitematicaQL → Settings…** (⌘,) and choose **Add Texture Packs…** from
-the **Texture pack** menu to import Minecraft Java resource-pack ZIPs. Each
-import adds a saved copy to that menu. Choose a pack or Vanilla to update open
-previews automatically. Choose **Manage Texture Packs…** to remove any saved
-pack without activating it first. Removing the active pack returns previews
-to Vanilla. Finder Quick Look uses vanilla textures.
+Open **LitematicaQL → Settings…** (⌘,) and choose **Add Texture Packs…** to
+import Minecraft Java resource-pack ZIPs. Each import adds a saved copy to the
+**Texture pack** picker. Choose a pack or Vanilla to update open previews
+automatically. Choose **Manage Texture Packs…** to remove any saved pack
+without activating it first. Removing the active pack returns previews to
+Vanilla. Finder Quick Look uses vanilla textures.
 
 ## Supported Formats
 
