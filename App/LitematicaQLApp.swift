@@ -6,7 +6,7 @@ struct LitematicaQLApp: App {
         WindowGroup {
             ContentView()
         }
-        .defaultSize(width: 900, height: 640)
+        .defaultSize(width: 900, height: 720)
         .windowToolbarStyle(.unifiedCompact)
     }
 }
