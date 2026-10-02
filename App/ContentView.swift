@@ -38,8 +38,6 @@ struct ContentView: View {
         .onOpenURL(perform: open)
         .toolbar {
             ToolbarItemGroup(placement: .primaryAction) {
-                TexturePackSettingsLink()
-
                 if selectedURL != nil {
                     Button("Home", systemImage: "house") {
                         selectedURL = nil

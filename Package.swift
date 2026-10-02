@@ -15,7 +15,7 @@ let package = Package(
                 "NativeSchematic.swift", "MetalMesh.swift", "SchematicMetalRenderer.swift",
                 "SchematicMetalViewController.swift", "SchematicShaders.metal",
             ],
-            sources: ["LitematicFile.swift"]
+            sources: ["LitematicFile.swift", "TexturePackLibrary.swift"]
         ),
         .testTarget(
             name: "LitematicaQLCoreTests",

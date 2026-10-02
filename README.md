@@ -47,6 +47,14 @@ and on-demand drawing. See [the rendering architecture](docs/rendering.md).
 > [!NOTE]
 > If the preview doesn't show up, enable LitematicaQL under **System Settings → General → Login Items & Extensions → Quick Look**.
 
+## Texture Packs
+
+Open **LitematicaQL → Settings…** (⌘,) to add Minecraft Java resource-pack
+ZIPs. The app keeps a copy of each pack. Choose a saved pack or Vanilla from
+the Texture Pack menu; open previews update automatically. Select a pack in
+the saved list and choose Remove to delete its app-owned copy. Removing the
+active pack returns previews to Vanilla. Finder Quick Look uses vanilla textures.
+
 ## Supported Formats
 
 | Extension      | File format                                     |
