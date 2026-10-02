@@ -132,11 +132,11 @@ private struct SavedPackList: View {
                             .foregroundStyle(.secondary)
                     }
                     Spacer(minLength: 8)
-                    if texturePacks.loadingID == pack.id {
-                        ProgressView()
-                            .controlSize(.small)
-                            .accessibilityLabel("Loading \(pack.name)")
-                    }
+                    ProgressView()
+                        .controlSize(.small)
+                        .opacity(texturePacks.loadingID == pack.id ? 1 : 0)
+                        .accessibilityHidden(texturePacks.loadingID != pack.id)
+                        .accessibilityLabel("Loading \(pack.name)")
                     Button("Remove…", role: .destructive) {
                         packToRemove = pack
                     }
