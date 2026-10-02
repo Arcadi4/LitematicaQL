@@ -6,53 +6,34 @@ struct TexturePackSettings: View {
     @State private var isImporterPresented = false
     @State private var isManagerPresented = false
 
-    private var currentPack: TexturePackLibrary.Pack? {
-        texturePacks.packs.first { $0.id == texturePacks.activeID }
-    }
-
-    private var activeName: String { currentPack?.name ?? "Vanilla" }
+    private var isBusy: Bool { texturePacks.isImporting || texturePacks.loadingID != nil }
 
     var body: some View {
         Form {
             Section {
-                LabeledContent("Texture pack") {
-                    HStack {
-                        if texturePacks.isImporting || texturePacks.loadingID != nil {
-                            ProgressView()
-                                .controlSize(.small)
-                                .accessibilityLabel(texturePacks.isImporting ? "Adding packs" : "Loading textures")
-                        }
+                Picker("Texture pack", selection: Binding(
+                    get: { texturePacks.activeID },
+                    set: { texturePacks.selectPack($0) }
+                )) {
+                    Text("Vanilla").tag(nil as UUID?)
+                    ForEach(texturePacks.packs) { pack in
+                        Text(pack.name).tag(Optional(pack.id))
+                    }
+                }
+                .pickerStyle(.menu)
+                .disabled(!texturePacks.isAvailable)
 
-                        Menu {
-                            Picker("Texture pack", selection: Binding(
-                                get: { texturePacks.activeID },
-                                set: { texturePacks.selectPack($0) }
-                            )) {
-                                Text("Vanilla").tag(nil as UUID?)
-                                ForEach(texturePacks.packs) { pack in
-                                    Text(pack.name).tag(Optional(pack.id))
-                                }
-                            }
-                            .pickerStyle(.inline)
-
-                            Divider()
-
-                            Button("Add Texture Packs…") { isImporterPresented = true }
-                                .disabled(texturePacks.isImporting)
-                            Button("Manage Texture Packs…") {
-                                isManagerPresented = true
-                            }
-                        } label: {
-                            Text(currentPack?.name ?? "Vanilla")
-                                .lineLimit(1)
-                        }
-                        .menuStyle(.borderlessButton)
-                        .menuIndicator(.visible)
-                        .fixedSize(horizontal: false, vertical: true)
-                        .accessibilityLabel("Texture pack")
-                        .accessibilityValue(activeName)
-                        .help(activeName)
-                        .disabled(!texturePacks.isAvailable)
+                HStack {
+                    Button("Add Texture Packs…") { isImporterPresented = true }
+                        .disabled(texturePacks.isImporting)
+                    Button("Manage Texture Packs…") {
+                        isManagerPresented = true
+                    }
+                    Spacer()
+                    if isBusy {
+                        ProgressView()
+                            .controlSize(.small)
+                            .accessibilityLabel(texturePacks.isImporting ? "Adding packs" : "Loading textures")
                     }
                 }
             } header: {
@@ -63,7 +44,6 @@ struct TexturePackSettings: View {
         }
         .formStyle(.grouped)
         .frame(width: 520)
-        .navigationTitle("LitematicaQL Settings")
         .fileImporter(isPresented: $isImporterPresented, allowedContentTypes: [.zip],
                       allowsMultipleSelection: true) { result in
             switch result {
@@ -75,7 +55,6 @@ struct TexturePackSettings: View {
         }
         .sheet(isPresented: $isManagerPresented) {
             TexturePackManager()
-                .environmentObject(texturePacks)
         }
         .modifier(TexturePackErrorAlert())
     }
@@ -114,7 +93,7 @@ private struct TexturePackManager: View {
             }
 
             if texturePacks.packs.isEmpty {
-                Text("No saved texture packs. Add one from the Texture pack menu.")
+                Text("No saved texture packs. Add one with “Add Texture Packs…”.")
                     .foregroundStyle(.secondary)
                     .frame(maxWidth: .infinity, minHeight: 80)
             } else {
@@ -132,7 +111,6 @@ private struct TexturePackManager: View {
         }
         .padding(24)
         .frame(width: 480)
-        .onExitCommand { dismiss() }
         .modifier(TexturePackErrorAlert())
     }
 }
