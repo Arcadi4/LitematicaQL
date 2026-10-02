@@ -57,6 +57,7 @@ final class TexturePackStore: ObservableObject {
         guard let id else {
             saveSelection(nil)
             resourcePack = nil
+            loadingID = nil
             return
         }
 
