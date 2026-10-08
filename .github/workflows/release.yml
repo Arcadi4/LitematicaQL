@@ -107,7 +107,6 @@ jobs:
     runs-on: macos-26
     timeout-minutes: 60
     # Configure this environment for release tags only, with no reviewers.
-    environment: macos-release
     strategy:
       fail-fast: false
       matrix:
