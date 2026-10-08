@@ -2,8 +2,9 @@
 #
 # `just` is the only command to type. Run it with no arguments for the recipe
 # list. Xcode, SwiftPM, cargo, XcodeGen, codesign and the demo generator are
-# invoked from here and nowhere else, so a laptop build, a CI run and a release
-# archive execute the same commands in the same order.
+# invoked by these recipes, so a laptop build, a CI run and a release archive
+# execute the same commands. Signing CI calls the sign-release script directly
+# so its credential-bearing runner needs only the shell and Apple's tools.
 
 set shell := ["bash", "-euo", "pipefail", "-c"]
 
@@ -33,7 +34,7 @@ configuration := env_var_or_default("CONFIGURATION", "Debug")
 build_archs := env_var_or_default("ARCHS", "arm64 x86_64")
 project_version := env_var_or_default("CURRENT_PROJECT_VERSION", "1")
 
-# The project carries an empty DEVELOPMENT_TEAM and ships ad-hoc signed, so
+# The project carries an empty DEVELOPMENT_TEAM and builds ad-hoc signed, so
 # every invocation signs with "-" rather than depending on a machine's
 # identities. This is what makes an unsigned checkout buildable at all.
 signing := "CODE_SIGN_STYLE=Manual CODE_SIGN_IDENTITY=- CODE_SIGNING_REQUIRED=YES CODE_SIGNING_ALLOWED=YES DEVELOPMENT_TEAM="
@@ -166,6 +167,10 @@ release version arch="arm64": generate
     (cd {{ release_dir }} && shasum -a 256 "$(basename "$zip_path")" > "$(basename "$zip_path").sha256")
 
     echo "packaged $zip_path"
+
+# Sign a packaged candidate; dry_run=true skips notarization for testing.
+sign-release version arch dry_run="false":
+    ./scripts/sign-release.sh "{{ version }}" "{{ arch }}" "{{ dry_run }}"
 
 # Tags a release: bump the version, commit, and tag.
 #

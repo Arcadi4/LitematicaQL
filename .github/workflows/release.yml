@@ -4,9 +4,15 @@ on:
   push:
     tags:
       - "v*.*.*"
+  workflow_dispatch:
+    inputs:
+      dry_run:
+        description: "Sign only: skip notarization, publication, and Homebrew (select a release tag)"
+        type: boolean
+        default: true
 
 permissions:
-  contents: write
+  contents: read
 
 concurrency:
   group: release-${{ github.ref }}
@@ -17,20 +23,29 @@ jobs:
     name: Validate release tag
     runs-on: ubuntu-latest
     steps:
+      - name: Check out source
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
+        with:
+          fetch-depth: 0
+          persist-credentials: false
+
       - name: Validate release tag
         shell: bash
         run: |
           set -euo pipefail
 
-          if [[ ! "$GITHUB_REF_NAME" =~ ^v[0-9]+\.[0-9]+\.[0-9]+([-.][0-9A-Za-z.-]+)?$ ]]; then
+          if [[ "$GITHUB_REF_TYPE" != tag || ! "$GITHUB_REF_NAME" =~ ^v[0-9]+\.[0-9]+\.[0-9]+$ ]]; then
             echo "Release tags must use semantic versioning, for example v0.1.0." >&2
             exit 1
           fi
 
+          # Tags must point to code on main, including manual dry runs.
+          git merge-base --is-ancestor HEAD origin/main
+
   build:
     name: Build ${{ matrix.arch }}
     needs: validate
-    runs-on: xcode-27
+    runs-on: macos-26
     strategy:
       fail-fast: false
       matrix:
@@ -45,18 +60,18 @@ jobs:
 
     steps:
       - name: Check out source
-        uses: actions/checkout@v7
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
         with:
           fetch-depth: 0
           persist-credentials: false
 
       - name: Set up Rust
-        uses: dtolnay/rust-toolchain@stable
+        uses: dtolnay/rust-toolchain@89b12181fb390509a0842a86cc55eeb8eb928c1d # stable
         with:
           targets: aarch64-apple-darwin,x86_64-apple-darwin
 
       - name: Cache Rust build
-        uses: Swatinem/rust-cache@v2
+        uses: Swatinem/rust-cache@6323deb102c322ba6fcbdcafc7e3dddab59af2b6 # v2.9.2
         with:
           workspaces: Core
           shared-key: native-bridge
@@ -78,9 +93,93 @@ jobs:
         run: just release "$VERSION" "$ARCH"
 
       - name: Upload per-arch artifact
-        uses: actions/upload-artifact@v7
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7
         with:
-          name: ${{ env.APP_NAME }}-${{ github.ref_name }}-${{ matrix.arch }}
+          name: candidate-${{ env.APP_NAME }}-${{ github.ref_name }}-${{ matrix.arch }}
+          path: |
+            build/release/*.zip
+            build/release/*.sha256
+          if-no-files-found: error
+
+  sign:
+    name: Sign and notarize ${{ matrix.arch }}
+    needs: build
+    runs-on: macos-26
+    timeout-minutes: 60
+    # Configure this environment for release tags only, with no reviewers.
+    strategy:
+      fail-fast: false
+      matrix:
+        arch: [arm64, x86_64]
+    env:
+      APP_NAME: LitematicaQL
+    steps:
+      - name: Check out signing recipes
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
+        with:
+          persist-credentials: false
+
+      - name: Download candidate
+        uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8
+        with:
+          name: candidate-${{ env.APP_NAME }}-${{ github.ref_name }}-${{ matrix.arch }}
+          path: build/release
+
+      - name: Validate signing credentials
+        env:
+          DISTRIBUTION_CERTIFICATE: ${{ secrets.DISTRIBUTION_CERTIFICATE }}
+          DISTRIBUTION_CERTIFICATE_PASSWORD: ${{ secrets.DISTRIBUTION_CERTIFICATE_PASSWORD }}
+          APPLE_ID: ${{ secrets.APPLE_ID }}
+          APPLE_TEAM_ID: ${{ secrets.APPLE_TEAM_ID }}
+          APPLE_APP_SPECIFIC_PASSWORD: ${{ secrets.APPLE_APP_SPECIFIC_PASSWORD }}
+          DRY_RUN: ${{ github.event_name == 'workflow_dispatch' && inputs.dry_run }}
+        run: |
+          set -euo pipefail
+          for secret in DISTRIBUTION_CERTIFICATE DISTRIBUTION_CERTIFICATE_PASSWORD APPLE_TEAM_ID; do
+            if [[ -z "${!secret}" ]]; then
+              echo "Required secret $secret is missing." >&2
+              exit 1
+            fi
+          done
+          if [[ "$DRY_RUN" != true && ( -z "$APPLE_ID" || -z "$APPLE_APP_SPECIFIC_PASSWORD" ) ]]; then
+            echo "APPLE_ID and APPLE_APP_SPECIFIC_PASSWORD are required for notarization." >&2
+            exit 1
+          fi
+
+      - name: Decode signing certificate
+        env:
+          DISTRIBUTION_CERTIFICATE: ${{ secrets.DISTRIBUTION_CERTIFICATE }}
+        run: |
+          set -euo pipefail
+          umask 077
+          printf '%s' "$DISTRIBUTION_CERTIFICATE" | base64 --decode > "$RUNNER_TEMP/litematicaql-signing.p12"
+
+      - name: Import signing certificate
+        uses: Apple-Actions/import-codesign-certs@5142e029c445c10ffc7149d172e540235a065466 # v7.0.0
+        with:
+          p12-filepath: ${{ runner.temp }}/litematicaql-signing.p12
+          p12-password: ${{ secrets.DISTRIBUTION_CERTIFICATE_PASSWORD }}
+
+      - name: Remove exported private key
+        if: always()
+        run: rm -f "$RUNNER_TEMP/litematicaql-signing.p12"
+
+      - name: Sign, notarize, and package
+        env:
+          VERSION: ${{ github.ref_name }}
+          ARCH: ${{ matrix.arch }}
+          DRY_RUN: ${{ github.event_name == 'workflow_dispatch' && inputs.dry_run }}
+          APPLE_ID: ${{ secrets.APPLE_ID }}
+          APPLE_TEAM_ID: ${{ secrets.APPLE_TEAM_ID }}
+          APPLE_APP_SPECIFIC_PASSWORD: ${{ secrets.APPLE_APP_SPECIFIC_PASSWORD }}
+        # Use only the shell and Apple's tools in the credential-bearing job.
+        # The import action deletes its temporary keychain in its post step.
+        run: bash scripts/sign-release.sh "$VERSION" "$ARCH" "$DRY_RUN"
+
+      - name: Upload signed artifact
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7
+        with:
+          name: signed-${{ env.APP_NAME }}-${{ github.ref_name }}-${{ matrix.arch }}
           path: |
             build/release/*.zip
             build/release/*.sha256
@@ -88,15 +187,19 @@ jobs:
 
   release:
     name: Publish GitHub release
-    needs: build
+    needs: sign
+    if: github.event_name != 'workflow_dispatch' || !inputs.dry_run
     runs-on: ubuntu-latest
+    permissions:
+      contents: write
     env:
       APP_NAME: LitematicaQL
       VERSION: ${{ github.ref_name }}
     steps:
       - name: Download per-arch artifacts
-        uses: actions/download-artifact@v8
+        uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8
         with:
+          pattern: signed-${{ env.APP_NAME }}-${{ github.ref_name }}-*
           path: build/release
           merge-multiple: true
 
@@ -111,6 +214,7 @@ jobs:
           # `just release` strips the leading v from the version it packages,
           # so the artifacts are named 1.3.0 while the tag is still v1.3.0.
           package_version="${VERSION#v}"
+          (cd build/release && sha256sum -c "$APP_NAME-$package_version-arm64.zip.sha256" "$APP_NAME-$package_version-x86_64.zip.sha256")
 
           gh release create "$VERSION" \
             "$GITHUB_WORKSPACE/build/release/$APP_NAME-$package_version-arm64.zip" \
@@ -120,8 +224,7 @@ jobs:
             --repo "$GITHUB_REPOSITORY" \
             --verify-tag \
             --title "$APP_NAME $VERSION" \
-            --generate-notes \
-            --notes $'This release ships separate Apple silicon (arm64) and Intel (x86_64) builds; download the one matching your Mac.\n\nThe build is ad-hoc signed and not notarized, so macOS may require you to approve it in System Settings > Privacy & Security after opening the app.'
+            --generate-notes
 
   update-homebrew-tap:
     name: Update Homebrew tap
