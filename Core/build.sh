@@ -33,7 +33,7 @@ for arch in "${archs[@]}"; do
     rustup target add "$triple"
   fi
 
-  cargo build --release --target "$triple"
+  ./cargo.sh build --release --target "$triple"
 
   mkdir -p build
   # Publish by same-volume rename so readers never see a partial artifact.

@@ -92,15 +92,24 @@ swift-test:
 # `target/release`. When the two invocations resolve different toolchains they
 # simply do not share, because cargo rebuilds rather than reuses.
 rust-test:
-    cargo test --release --target "$(rustc -vV | sed -n 's/^host: //p')" --manifest-path Core/Cargo.toml
+    ./Core/cargo.sh test --release --target "$(rustc -vV | sed -n 's/^host: //p')" --manifest-path Core/Cargo.toml
 
 # Report throughput and peak memory for the two third-party large builds.
 test-large:
-    cargo test --release --target "$(rustc -vV | sed -n 's/^host: //p')" --manifest-path Core/Cargo.toml --test large_builds -- --nocapture
+    ./Core/cargo.sh test --release --target "$(rustc -vV | sed -n 's/^host: //p')" --manifest-path Core/Cargo.toml --test large_builds -- --nocapture
 
 # Type-check the Rust bridge, tests included.
 check:
-    cargo check --manifest-path Core/Cargo.toml --tests --locked
+    ./Core/cargo.sh check --manifest-path Core/Cargo.toml --tests --locked
+
+
+# Resolve the Rust dependency lockfile after a dependency change.
+resolve:
+    ./Core/cargo.sh update --manifest-path Core/Cargo.toml -p litematicaql-native
+
+# Format the Rust bridge and its tests.
+format-rust:
+    ./Core/cargo.sh fmt --manifest-path Core/Cargo.toml
 
 # Reproduce the CI pipeline locally: every test suite, then the app build.
 ci: test build
