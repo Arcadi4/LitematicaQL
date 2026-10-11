@@ -27,10 +27,10 @@ use std::path::PathBuf;
 use std::time::{Duration, Instant};
 
 use litematicaql_native::{
-    nql_buffer_free, nql_mesh_batch_free, nql_mesh_stream_free, nql_mesh_stream_next, nql_mesh_stream_open,
-    nql_resource_pack_free, nql_resource_pack_open, nql_schematic_free, nql_schematic_info,
-    nql_schematic_open, nql_schematic_warnings, status, NQLAtlasInfo, NQLBatchInfo, NQLError,
-    NQLMeshInfo, NQLSchematicInfo,
+    nql_buffer_free, nql_mesh_batch_free, nql_mesh_stream_free, nql_mesh_stream_next,
+    nql_mesh_stream_open, nql_resource_pack_free, nql_resource_pack_open, nql_schematic_free,
+    nql_schematic_info, nql_schematic_open, nql_schematic_warnings, status, NQLAtlasInfo,
+    NQLBatchInfo, NQLError, NQLMeshInfo, NQLSchematicInfo,
 };
 use support::AllocationMeter;
 
@@ -204,7 +204,12 @@ fn open(pack_bytes: &[u8]) -> *mut litematicaql_native::NQLResourcePack {
     let mut pack = std::ptr::null_mut();
     let mut failure = empty_error();
     let status = unsafe {
-        nql_resource_pack_open(pack_bytes.as_ptr(), pack_bytes.len(), &mut pack, &mut failure)
+        nql_resource_pack_open(
+            pack_bytes.as_ptr(),
+            pack_bytes.len(),
+            &mut pack,
+            &mut failure,
+        )
     };
     let message = take_error(&mut failure);
     assert_eq!(status, status::OK, "{message}");
@@ -234,10 +239,7 @@ fn info(handle: *const litematicaql_native::NQLSchematic) -> NQLSchematicInfo {
         content_min_y: 0,
         content_min_z: 0,
     };
-    assert_eq!(
-        unsafe { nql_schematic_info(handle, &mut info) },
-        status::OK
-    );
+    assert_eq!(unsafe { nql_schematic_info(handle, &mut info) }, status::OK);
     info
 }
 
@@ -335,7 +337,10 @@ fn run(baseline: &Baseline, pack: *const litematicaql_native::NQLResourcePack) -
     measured.mesh = started.elapsed();
     assert!(!stream.is_null());
     assert!(!atlas.is_null());
-    assert_eq!(atlas_length, atlas_info.width as usize * atlas_info.height as usize * 4);
+    assert_eq!(
+        atlas_length,
+        atlas_info.width as usize * atlas_info.height as usize * 4
+    );
     release(atlas, atlas_length);
     measured.atlas = [atlas_info.width, atlas_info.height];
     measured.batches = mesh_info.batch_count;
@@ -356,7 +361,12 @@ fn run(baseline: &Baseline, pack: *const litematicaql_native::NQLResourcePack) -
         let status =
             unsafe { nql_mesh_stream_next(stream, expected, &mut bytes, &mut batch, &mut failure) };
         let message = take_error(&mut failure);
-        assert_eq!(status, status::OK, "{} batch {expected}: {message}", baseline.name);
+        assert_eq!(
+            status,
+            status::OK,
+            "{} batch {expected}: {message}",
+            baseline.name
+        );
         assert!(!bytes.is_null());
         let payload = unsafe { (*bytes).view() };
 
@@ -374,10 +384,21 @@ fn run(baseline: &Baseline, pack: *const litematicaql_native::NQLResourcePack) -
     let mut batch = empty_batch();
     let mut failure = empty_error();
     let status = unsafe {
-        nql_mesh_stream_next(stream, mesh_info.batch_count, &mut bytes, &mut batch, &mut failure)
+        nql_mesh_stream_next(
+            stream,
+            mesh_info.batch_count,
+            &mut bytes,
+            &mut batch,
+            &mut failure,
+        )
     };
     take_error(&mut failure);
-    assert_eq!(status, status::DONE, "{}: stream did not end", baseline.name);
+    assert_eq!(
+        status,
+        status::DONE,
+        "{}: stream did not end",
+        baseline.name
+    );
     assert!(bytes.is_null());
     assert_eq!(batch, empty_batch());
 
@@ -404,7 +425,10 @@ fn check_batch(
     introduced: &mut HashMap<u32, u32>,
 ) {
     let where_ = format!("{} batch {expected}", baseline.name);
-    assert_eq!(batch.batch_index, expected, "{where_}: reported index mismatch");
+    assert_eq!(
+        batch.batch_index, expected,
+        "{where_}: reported index mismatch"
+    );
     assert_eq!(batch.triangle_count as u64 * 3, batch.index_count as u64);
     let parts = unsafe { std::slice::from_raw_parts(view.parts, view.part_count) };
     let geometry = unsafe { std::slice::from_raw_parts(view.geometry, view.geometry_length) };
@@ -413,24 +437,36 @@ fn check_batch(
     let mut indices = 0;
     let mut texture_bytes = 0;
     for part in parts {
-        assert!(part.vertex_count > 0 && part.index_count > 0, "{where_}: empty part");
+        assert!(
+            part.vertex_count > 0 && part.index_count > 0,
+            "{where_}: empty part"
+        );
         assert_eq!(part.index_count % 3, 0);
         assert!(matches!(part.index_size, 2 | 4));
         assert!(part.vertex_offset + part.vertex_count as usize * 24 <= geometry.len());
         if part.texture_index == 0 {
             assert_eq!(part.texture_length, 0, "{where_}: duplicate atlas");
         } else if part.texture_length > 0 {
-            assert!(introduced.insert(part.texture_index, expected).is_none(), "{where_}: duplicate texture");
+            assert!(
+                introduced.insert(part.texture_index, expected).is_none(),
+                "{where_}: duplicate texture"
+            );
             let png = unsafe { std::slice::from_raw_parts(part.texture_png, part.texture_length) };
             assert!(png.starts_with(b"\x89PNG\r\n\x1a\n"));
         } else {
-            assert!(introduced.contains_key(&part.texture_index), "{where_}: texture used before introduction");
+            assert!(
+                introduced.contains_key(&part.texture_index),
+                "{where_}: texture used before introduction"
+            );
         }
         let end = part.index_offset + part.index_count as usize * part.index_size as usize;
         assert!(end <= geometry.len());
         for index in geometry[part.index_offset..end].chunks_exact(part.index_size as usize) {
-            let index = if part.index_size == 2 { u16::from_le_bytes(index.try_into().unwrap()) as u32 }
-                else { u32::from_le_bytes(index.try_into().unwrap()) };
+            let index = if part.index_size == 2 {
+                u16::from_le_bytes(index.try_into().unwrap()) as u32
+            } else {
+                u32::from_le_bytes(index.try_into().unwrap())
+            };
             assert!(index < part.vertex_count, "{where_}: index out of bounds");
         }
         vertices += part.vertex_count;
@@ -439,7 +475,10 @@ fn check_batch(
     }
     assert_eq!(vertices, batch.vertex_count);
     assert_eq!(indices, batch.index_count);
-    assert_eq!(geometry.len() + texture_bytes, batch.payload_length as usize);
+    assert_eq!(
+        geometry.len() + texture_bytes,
+        batch.payload_length as usize
+    );
 }
 
 fn accumulate(measured: &mut Measurement, batch: &NQLBatchInfo) {
@@ -528,8 +567,7 @@ fn check_geometry(baseline: &Baseline, measured: &Measurement) {
         baseline.name
     );
     assert_eq!(
-        measured.atlas,
-        baseline.atlas,
+        measured.atlas, baseline.atlas,
         "{}: the shared atlas changed size",
         baseline.name
     );
@@ -557,7 +595,12 @@ fn check_geometry(baseline: &Baseline, measured: &Measurement) {
         baseline.name
     );
 
-    within(baseline, "triangles", measured.triangles, baseline.triangles);
+    within(
+        baseline,
+        "triangles",
+        measured.triangles,
+        baseline.triangles,
+    );
     // Compact vertices halve attribute bytes; variable-width indices reduce them
     // further. Keep the measured old payload as a ceiling until rebaselined.
     assert!(measured.payload_bytes < baseline.payload_bytes * 2 / 3);
@@ -565,7 +608,11 @@ fn check_geometry(baseline: &Baseline, measured: &Measurement) {
     // Meshed bounds are the chunk-padded region, not the content box, and this
     // is where that difference shows: Valkyrie reports 256 blocks of content
     // height but 320 of geometry.
-    assert_eq!(measured.geometry_min, [0.0; 3], "{}: geometry does not start at the origin", baseline.name);
+    assert_eq!(
+        measured.geometry_min, [0.0; 3],
+        "{}: geometry does not start at the origin",
+        baseline.name
+    );
     for axis in 0..3 {
         assert_eq!(
             measured.geometry_max[axis], baseline.geometry[axis],
@@ -626,7 +673,8 @@ fn format_report(baseline: &Baseline, measured: &Measurement) -> String {
 
 #[test]
 fn large_builds_decode_mesh_and_stream_within_budget() {
-    let pack_bytes = fs::read(repo_root().join("Resources/pack.zip")).expect("bundled resource pack");
+    let pack_bytes =
+        fs::read(repo_root().join("Resources/pack.zip")).expect("bundled resource pack");
     let before_pack = AllocationMeter::live();
     let pack = open(&pack_bytes);
     let pack_bytes_live = AllocationMeter::live().saturating_sub(before_pack);

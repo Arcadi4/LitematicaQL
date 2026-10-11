@@ -27,6 +27,7 @@ lto = "fat"
 codegen-units = 1
 
 [dependencies]
+litematica-preview-core = "0.1.0"
 # 0.10.15 and later publish `meshing` with a crates.io `gltf_build` version that
 # lacks the git-only API its `glb.rs` calls. This pin keeps the feature buildable.
 nucleation = { version = "=0.10.14", default-features = false, features = [
@@ -35,16 +36,6 @@ nucleation = { version = "=0.10.14", default-features = false, features = [
 # A direct crates.io dependency lets Nucleation's version-or-git mesher
 # requirement resolve to one copy.
 schematic-mesher = "0.2.0"
-# Match Nucleation's quartz_nbt version so the binary structure reader shares
-# one NBT representation.
-quartz_nbt = { version = "0.2.9", features = ["preserve_order"] }
-flate2 = { version = "1", default-features = false, features = ["zlib-rs"] }
-# Vanilla LZ4 regions use the lz4-java block-stream container, not lz4_flex's
-# `frame` format. `mca` implements the small framing layer over the block codec.
-lz4_flex = { version = "0.14", default-features = false, features = ["std"] }
-regex = "1"
-rustc-hash = "2"
-zip = { version = "8.6", default-features = false, features = ["deflate"] }
 
 [dev-dependencies]
 quartz_nbt = { version = "0.2.9", features = ["preserve_order"] }

@@ -2,10 +2,10 @@ use std::fs;
 use std::path::PathBuf;
 
 use litematicaql_native::{
-    nql_buffer_free, nql_mesh_batch_free, nql_mesh_stream_free, nql_mesh_stream_next, nql_mesh_stream_open,
-    nql_resource_pack_free, nql_resource_pack_open, nql_schematic_cancel, nql_schematic_free,
-    nql_schematic_info, nql_schematic_open, nql_schematic_warnings, status, NQLAtlasInfo,
-    NQLBatchInfo, NQLError, NQLMeshInfo, NQLSchematicInfo,
+    nql_buffer_free, nql_mesh_batch_free, nql_mesh_stream_free, nql_mesh_stream_next,
+    nql_mesh_stream_open, nql_resource_pack_free, nql_resource_pack_open, nql_schematic_cancel,
+    nql_schematic_free, nql_schematic_info, nql_schematic_open, nql_schematic_warnings, status,
+    NQLAtlasInfo, NQLBatchInfo, NQLError, NQLMeshInfo, NQLSchematicInfo,
 };
 
 fn repo_root() -> PathBuf {
@@ -118,10 +118,14 @@ fn defer_free(buffer: *mut u8, length: usize) {
 
 struct OwnedBatch(*mut litematicaql_native::stream::NQLMeshBatch);
 impl Drop for OwnedBatch {
-    fn drop(&mut self) { unsafe { nql_mesh_batch_free(self.0) }; }
+    fn drop(&mut self) {
+        unsafe { nql_mesh_batch_free(self.0) };
+    }
 }
 impl OwnedBatch {
-    fn view(&self) -> litematicaql_native::stream::NQLBatchView { unsafe { (*self.0).view() } }
+    fn view(&self) -> litematicaql_native::stream::NQLBatchView {
+        unsafe { (*self.0).view() }
+    }
     fn geometry(&self) -> &[u8] {
         let view = self.view();
         unsafe { std::slice::from_raw_parts(view.geometry, view.geometry_length) }
@@ -190,13 +194,7 @@ fn mesh(
         };
         let mut failure = error();
         let result = unsafe {
-            nql_mesh_stream_next(
-                stream,
-                expected,
-                &mut bytes,
-                &mut batch_info,
-                &mut failure,
-            )
+            nql_mesh_stream_next(stream, expected, &mut bytes, &mut batch_info, &mut failure)
         };
         let message = take_error(&mut failure);
         assert_eq!(result, status::OK, "batch {expected}: {message}");
@@ -247,11 +245,17 @@ fn assert_valid_batch(batch: &OwnedBatch, info: &NQLBatchInfo) {
         let end = part.index_offset + part.index_count as usize * part.index_size as usize;
         assert!(end <= geometry.len());
         for index in geometry[part.index_offset..end].chunks_exact(part.index_size as usize) {
-            let index = if part.index_size == 2 { u16::from_le_bytes(index.try_into().unwrap()) as u32 }
-                else { u32::from_le_bytes(index.try_into().unwrap()) };
+            let index = if part.index_size == 2 {
+                u16::from_le_bytes(index.try_into().unwrap()) as u32
+            } else {
+                u32::from_le_bytes(index.try_into().unwrap())
+            };
             assert!(index < part.vertex_count);
         }
-        assert!(part.texture_index != 0 || part.texture_length == 0, "atlas embedded in batch");
+        assert!(
+            part.texture_index != 0 || part.texture_length == 0,
+            "atlas embedded in batch"
+        );
         texture_bytes += part.texture_length;
     }
     assert_eq!(geometry.len() + texture_bytes, info.payload_length as usize);
@@ -259,8 +263,13 @@ fn assert_valid_batch(batch: &OwnedBatch, info: &NQLBatchInfo) {
 
 fn assert_shared_atlas(result: &MeshResult) {
     assert!(result.atlas_info.width > 0 && result.atlas_info.height > 0);
-    assert_eq!(result.atlas.len(), result.atlas_info.width as usize * result.atlas_info.height as usize * 4);
-    for (batch, info) in &result.batches { assert_valid_batch(batch, info); }
+    assert_eq!(
+        result.atlas.len(),
+        result.atlas_info.width as usize * result.atlas_info.height as usize * 4
+    );
+    for (batch, info) in &result.batches {
+        assert_valid_batch(batch, info);
+    }
 }
 
 fn deterministic_fixture() -> Vec<u8> {
@@ -306,8 +315,10 @@ fn ordered_batch_delivery_is_deterministic() {
             assert_eq!(lp.texture_index, rp.texture_index);
             assert_eq!(lp.texture_length, rp.texture_length);
             if lp.texture_length > 0 {
-                let left_tex = unsafe { std::slice::from_raw_parts(lp.texture_png, lp.texture_length) };
-                let right_tex = unsafe { std::slice::from_raw_parts(rp.texture_png, rp.texture_length) };
+                let left_tex =
+                    unsafe { std::slice::from_raw_parts(lp.texture_png, lp.texture_length) };
+                let right_tex =
+                    unsafe { std::slice::from_raw_parts(rp.texture_png, rp.texture_length) };
                 assert_eq!(left_tex, right_tex);
             }
         }
@@ -364,15 +375,8 @@ fn cancellation_returns_no_geometry_through_the_c_abi() {
         bounds_max: [0.0; 3],
     };
     let mut failure = error();
-    let result = unsafe {
-        nql_mesh_stream_next(
-            stream,
-            0,
-            &mut batch,
-            &mut batch_info,
-            &mut failure,
-        )
-    };
+    let result =
+        unsafe { nql_mesh_stream_next(stream, 0, &mut batch, &mut batch_info, &mut failure) };
     assert_eq!(result, status::ERR_CANCELLED);
     assert!(batch.is_null());
     assert_eq!(batch_info.triangle_count, 0);
@@ -531,8 +535,7 @@ fn streamed_geometry_stays_within_the_camera_frame() {
             for axis in 0..3 {
                 let end = view.origin[axis] + view.extent[axis];
                 assert!(
-                    view.origin[axis] >= frame_min[axis] - 0.001
-                        && end <= frame_max[axis] + 0.001,
+                    view.origin[axis] >= frame_min[axis] - 0.001 && end <= frame_max[axis] + 0.001,
                     "{fixture} axis {axis}: geometry {:.3}..{:.3} leaves the camera \
                      frame {:.3}..{:.3}, which would move the camera mid-load",
                     view.origin[axis],
@@ -559,4 +562,36 @@ fn pack_failures_keep_stable_status_codes() {
     };
     assert_eq!(result, status::ERR_PACK);
     take_error(&mut failure);
+}
+
+#[test]
+fn cancelled_source_cannot_open_a_mesh_stream() {
+    let (source, _) = open(&deterministic_fixture());
+    let pack = open_pack(&pack_bytes());
+    assert_eq!(unsafe { nql_schematic_cancel(source) }, status::OK);
+    let mut pixels = std::ptr::null_mut();
+    let mut length = 0;
+    let mut stream = std::ptr::null_mut();
+    let mut failure = error();
+    let result = unsafe {
+        nql_mesh_stream_open(
+            source,
+            pack,
+            &mut pixels,
+            &mut length,
+            std::ptr::null_mut(),
+            std::ptr::null_mut(),
+            &mut stream,
+            &mut failure,
+        )
+    };
+    let message = take_error(&mut failure);
+    unsafe {
+        nql_schematic_free(source);
+        nql_resource_pack_free(pack);
+    }
+    assert_eq!(result, status::ERR_CANCELLED, "{message}");
+    assert!(stream.is_null());
+    assert!(pixels.is_null());
+    assert_eq!(length, 0);
 }
