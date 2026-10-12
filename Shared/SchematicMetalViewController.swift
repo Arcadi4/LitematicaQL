@@ -123,6 +123,10 @@ final class SchematicMetalViewController: NSViewController {
         let session = NativeSchematicSession(overridesPreviewLimits: overridesPreviewLimits)
         nativeSession = session
         let uploader = MetalMeshUploader(device: renderer.device, queue: renderer.queue)
+        // Parsing the pack and reading the schematic are independent, so the
+        // pack's textures are ready by the time the atlas is, instead of adding
+        // its parse to the load's critical path.
+        let requestedPack = resourcePack
         status.stringValue = "Reading schematic…"
         details.stringValue = ""
         details.isHidden = true
@@ -131,6 +135,9 @@ final class SchematicMetalViewController: NSViewController {
         // Return to Quick Look immediately so it can show progressive geometry.
         // Neither decoding nor stream progress depends on drawing the view.
         nativeLoad = Task.detached(priority: .userInitiated) { [weak self] in
+            let packReady = Task { () throws -> NativeResourcePack in
+                try requestedPack ?? NativeResourcePack.bundled.get()
+            }
             await withTaskCancellationHandler {
                 do {
                     let facts = try autoreleasepool {
@@ -142,7 +149,7 @@ final class SchematicMetalViewController: NSViewController {
                     // batches cannot drag the view around while they load.
                     await self?.pinFrame(current, facts: facts)
                     await self?.update(current, message: "Preparing block textures…", fraction: 0)
-                    let pack = try resourcePack ?? NativeResourcePack.bundled.get()
+                    let pack = try await packReady.value
                     let batchCount = try autoreleasepool {
                         let start = try session.beginMesh(pack: pack)
                         try uploader.uploadAtlas(start)
