@@ -27,7 +27,7 @@ lto = "fat"
 codegen-units = 1
 
 [dependencies]
-litematica-preview-core = "0.1.0"
+litematica-preview-core = "0.1.1"
 # 0.10.15 and later publish `meshing` with a crates.io `gltf_build` version that
 # lacks the git-only API its `glb.rs` calls. This pin keeps the feature buildable.
 nucleation = { version = "=0.10.14", default-features = false, features = [
