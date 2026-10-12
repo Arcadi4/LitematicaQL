@@ -9,6 +9,10 @@ final class SchematicMetalViewController: NSViewController {
     private var nativeLoad: Task<Void, Never>?
     private var nativeSession: NativeSchematicSession?
     private var generation = 0
+    /// File and pack of the current preview, kept so an override retry after a
+    /// limit hit re-reads exactly what the user was looking at.
+    private var retryURL: URL?
+    private var retryPack: NativeResourcePack?
     private let status = NSTextField(wrappingLabelWithString: "")
     private let details = NSTextField(wrappingLabelWithString: "")
     private let progress = NSProgressIndicator()
@@ -105,15 +109,18 @@ final class SchematicMetalViewController: NSViewController {
         nativeLoad = nil
     }
 
-    func preparePreview(of url: URL, resourcePack: NativeResourcePack? = nil) throws {
+    func preparePreview(of url: URL, resourcePack: NativeResourcePack? = nil,
+                        overridesPreviewLimits: Bool = false) throws {
         _ = view
         try Task.checkCancellation()
         guard LitematicFile.supports(url) else { throw LitematicFileError.unsupportedExtension }
         guard let renderer else { return }
         cancelNativeLoad()
+        retryURL = url
+        retryPack = resourcePack
         renderer.clear()
         let current = generation
-        let session = NativeSchematicSession()
+        let session = NativeSchematicSession(overridesPreviewLimits: overridesPreviewLimits)
         nativeSession = session
         let uploader = MetalMeshUploader(device: renderer.device, queue: renderer.queue)
         status.stringValue = "Reading schematic…"
@@ -160,6 +167,9 @@ final class SchematicMetalViewController: NSViewController {
                     await self?.finish(current, facts: facts)
                 } catch is CancellationError {
                     // Replacement previews own their own UI and resources.
+                } catch let refusal as NativeSchematicRefusal {
+                    await self?.fail(current, message: refusal.message)
+                    await self?.offerOverride(refusal)
                 } catch {
                     await self?.fail(current, message: error.localizedDescription)
                 }
@@ -210,6 +220,31 @@ final class SchematicMetalViewController: NSViewController {
         nativeSession = nil
         nativeLoad = nil
         showFailure(message)
+    }
+
+    /// Asks whether to render past the quota a file broke. The sheet shows in
+    /// both hosts, so Quick Look gets the same offer as the app window.
+    private func offerOverride(_ refusal: NativeSchematicRefusal) {
+        guard refusal.isPreviewLimit, let url = retryURL, let window = view.window else { return }
+        let alert = NSAlert()
+        alert.messageText = "This schematic exceeds a preview limit"
+        alert.informativeText = """
+            \(refusal.message)
+
+            Rendering it anyway drops the preview size limits. Decoding may take far longer, and very large schematics can exhaust memory.
+            """
+        alert.alertStyle = .warning
+        alert.addButton(withTitle: "Render Anyway")
+        alert.addButton(withTitle: "Cancel")
+        alert.beginSheetModal(for: window) { response in
+            guard response == .alertFirstButtonReturn else { return }
+            do {
+                try self.preparePreview(of: url, resourcePack: self.retryPack,
+                                        overridesPreviewLimits: true)
+            } catch {
+                self.showFailure(error.localizedDescription)
+            }
+        }
     }
 
     private func showFailure(_ message: String) {

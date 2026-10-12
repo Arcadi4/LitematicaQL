@@ -2,9 +2,18 @@ import Foundation
 import LitematicaQLNative
 
 /// A content-level preview failure with panel-ready user-facing text.
-struct NativeSchematicRefusal: LocalizedError, Sendable {
+struct NativeSchematicRefusal: LocalizedError, Sendable, Identifiable {
     let message: String
+    /// True when a preview quota — not the content's shape — caused the
+    /// refusal, so the host may re-read the file past the quota after asking.
+    let isPreviewLimit: Bool
     var errorDescription: String? { message }
+    var id: String { message }
+
+    init(message: String, isPreviewLimit: Bool = false) {
+        self.message = message
+        self.isPreviewLimit = isPreviewLimit
+    }
 }
 
 /// Decoded build metadata exposed before meshing begins.
@@ -113,6 +122,13 @@ final class NativeSchematicSession: @unchecked Sendable {
     private var resourcePack: NativeResourcePack?
     private let cancellationLock = NSLock()
     private var cancelled = false
+    /// Reads past every preview quota. Set once the user has chosen to render
+    /// a refused file; both native stages then take their override entry.
+    private let overridesPreviewLimits: Bool
+
+    init(overridesPreviewLimits: Bool = false) {
+        self.overridesPreviewLimits = overridesPreviewLimits
+    }
 
     deinit {
         endMesh()
@@ -124,12 +140,11 @@ final class NativeSchematicSession: @unchecked Sendable {
         var failure = NQLError(message: nil, message_len: 0)
         let status = data.withUnsafeBytes { raw -> NQLStatus in
             guard let base = raw.baseAddress else { return NQL_ERR_NULL }
-            return nql_schematic_open(
-                base.assumingMemoryBound(to: UInt8.self),
-                raw.count,
-                &handle,
-                &failure
-            )
+            let pointer = base.assumingMemoryBound(to: UInt8.self)
+            if overridesPreviewLimits {
+                return nql_schematic_open_override(pointer, raw.count, &handle, &failure)
+            }
+            return nql_schematic_open(pointer, raw.count, &handle, &failure)
         }
         guard status == NQL_OK, let handle else {
             throw Self.refusal(status, failure)
@@ -201,16 +216,16 @@ final class NativeSchematicSession: @unchecked Sendable {
             var meshInfo = NQLMeshInfo(batch_count: 0, triangle_count: 0)
             var stream: OpaquePointer?
             var failure = NQLError(message: nil, message_len: 0)
-            let status = nql_mesh_stream_open(
-                handle,
-                packHandle,
-                &atlas,
-                &atlasLength,
-                &atlasInfo,
-                &meshInfo,
-                &stream,
-                &failure
-            )
+            let status: NQLStatus
+            if overridesPreviewLimits {
+                status = nql_mesh_stream_open_override(
+                    handle, packHandle, &atlas, &atlasLength, &atlasInfo, &meshInfo, &stream, &failure
+                )
+            } else {
+                status = nql_mesh_stream_open(
+                    handle, packHandle, &atlas, &atlasLength, &atlasInfo, &meshInfo, &stream, &failure
+                )
+            }
             if status == NQL_ERR_CANCELLED {
                 if let message = failure.message { nql_buffer_free(message, failure.message_len) }
                 throw CancellationError()
@@ -259,9 +274,12 @@ final class NativeSchematicSession: @unchecked Sendable {
 
     private static func refusal(_ status: NQLStatus, _ failure: NQLError) -> NativeSchematicRefusal {
         defer { if let message = failure.message { nql_buffer_free(message, failure.message_len) } }
+        let isPreviewLimit = status == NQL_ERR_LIMIT
         if let bytes = failure.message, failure.message_len > 0 {
             let message = String(decoding: Data(bytes: bytes, count: failure.message_len), as: UTF8.self)
-            if !message.isEmpty { return NativeSchematicRefusal(message: message) }
+            if !message.isEmpty {
+                return NativeSchematicRefusal(message: message, isPreviewLimit: isPreviewLimit)
+            }
         }
         switch status {
         case NQL_ERR_FORMAT:
