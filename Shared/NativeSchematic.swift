@@ -266,7 +266,7 @@ final class NativeSchematicSession: @unchecked Sendable {
         switch status {
         case NQL_ERR_FORMAT:
             return NativeSchematicRefusal(
-                message: "This file is not a readable Minecraft schematic, or it expands beyond the 1024 MiB preview limit."
+                message: "This file is not a readable Minecraft schematic, or it expands beyond the preview limit."
             )
         case NQL_ERR_LIMIT:
             return NativeSchematicRefusal(message: "This schematic is too large to preview.")

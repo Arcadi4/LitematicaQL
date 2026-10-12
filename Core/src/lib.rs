@@ -9,19 +9,15 @@ use std::sync::Arc;
 
 pub mod stream;
 
-const MAX_INPUT_BYTES: usize = 1_024 * 1_024 * 1_024;
-const MAX_DECOMPRESSED_BYTES: usize = 1_024 * 1_024 * 1_024;
-const MAX_AXIS_LENGTH: usize = 4_096;
-const MAX_VOLUME: usize = 536_870_912;
+// Preview limits. One metric per orthogonal attribution.
+const MAX_DECOMPRESSED_BYTES: usize = 4 * 1_024 * 1_024 * 1_024;
+const MAX_AXIS_LENGTH: usize = 8_192;
+const MAX_VOLUME: usize = 2048 * 2048 * 2048;
 const MAX_REGIONS: usize = 64;
-const MAX_PALETTE_ENTRIES: usize = 4_096;
-const MAX_ENTITIES: usize = 100_000;
-const MAX_BLOCK_ENTITIES: usize = 100_000;
+const MAX_PALETTE_ENTRIES: usize = 32_768;
 const MAX_NBT_DEPTH: usize = 64;
-const MAX_NBT_STRING_BYTES: usize = 1_000_000;
-const MAX_NBT_COLLECTION_ITEMS: usize = MAX_VOLUME * 2;
 const MAX_NBT_NODES: usize = 4_194_304;
-const MAX_MESH_BLOCKS: i64 = 33_554_432;
+const MAX_MESH_BLOCKS: i64 = 512 * 512 * 512;
 
 // Status codes shared with the Swift bridge through the C header.
 pub mod status {
@@ -94,17 +90,20 @@ pub struct NQLError {
 
 fn preview_limits() -> DecodeLimits {
     DecodeLimits {
-        max_input_bytes: MAX_INPUT_BYTES,
+        // Input size is the host's file acceptance check, not a decode quota.
+        max_input_bytes: usize::MAX,
         max_decompressed_bytes: MAX_DECOMPRESSED_BYTES,
         max_dimension: MAX_AXIS_LENGTH,
         max_volume: MAX_VOLUME,
         max_regions: MAX_REGIONS,
         max_palette_entries: MAX_PALETTE_ENTRIES,
-        max_entities: MAX_ENTITIES,
-        max_block_entities: MAX_BLOCK_ENTITIES,
+        // Entities and block entities are top-level collections inside the NBT
+        // node budget above; string payloads and collection items likewise.
+        max_entities: usize::MAX,
+        max_block_entities: usize::MAX,
         max_nbt_depth: MAX_NBT_DEPTH,
-        max_nbt_string_bytes: MAX_NBT_STRING_BYTES,
-        max_nbt_collection_items: MAX_NBT_COLLECTION_ITEMS,
+        max_nbt_string_bytes: usize::MAX,
+        max_nbt_collection_items: usize::MAX,
         max_nbt_nodes: MAX_NBT_NODES,
     }
 }
