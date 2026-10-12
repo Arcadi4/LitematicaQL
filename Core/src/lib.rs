@@ -108,6 +108,27 @@ fn preview_limits() -> DecodeLimits {
     }
 }
 
+/// No preview quotas: only the formats' own width limits stand between the
+/// readers and the file's content. Reached solely from the override entry
+/// points after the user asked to render despite a limit hit, so the caller
+/// owns everything this admits.
+fn override_limits() -> DecodeLimits {
+    DecodeLimits {
+        max_input_bytes: usize::MAX,
+        max_decompressed_bytes: usize::MAX,
+        max_dimension: usize::MAX,
+        max_volume: usize::MAX,
+        max_regions: usize::MAX,
+        max_palette_entries: usize::MAX,
+        max_entities: usize::MAX,
+        max_block_entities: usize::MAX,
+        max_nbt_depth: usize::MAX,
+        max_nbt_string_bytes: usize::MAX,
+        max_nbt_collection_items: usize::MAX,
+        max_nbt_nodes: usize::MAX,
+    }
+}
+
 /// Meshing concurrency. Each worker meshes one chunk batch and every finished
 /// batch is held whole until the host pulls it, so this cap is also the
 /// preview's peak-geometry window: a deeper window bought no measurable
@@ -125,16 +146,18 @@ fn decode_worker_count() -> usize {
 pub enum MeshFailure {
     Pack(String),
     NoBlocks,
+    /// A preview quota refused the mesh; recoverable by an override open.
+    Limit(String),
     Mesh(String),
     Cancelled,
 }
 
-fn decode(bytes: &[u8]) -> Result<NQLSchematic, DecodeFailure> {
+fn decode(bytes: &[u8], limits: &DecodeLimits) -> Result<NQLSchematic, DecodeFailure> {
     let workers = decode_worker_count();
     let thread_count = (workers > 1).then_some(workers as u8);
     let source = litematica_preview_core::decode_with_options(
         bytes,
-        &preview_limits(),
+        limits,
         PreviewOptions {
             chunk_size: Some(64),
             thread_count,
@@ -192,12 +215,12 @@ unsafe fn init_error(err_out: *mut NQLError) {
     }
 }
 
-#[no_mangle]
-pub unsafe extern "C" fn nql_schematic_open(
+unsafe fn open_schematic(
     data: *const u8,
     len: usize,
     out: *mut *mut NQLSchematic,
     err_out: *mut NQLError,
+    limits: &DecodeLimits,
 ) -> i32 {
     init_error(err_out);
     if data.is_null() || out.is_null() {
@@ -209,7 +232,7 @@ pub unsafe extern "C" fn nql_schematic_open(
     }
     *out = std::ptr::null_mut();
     let bytes = slice::from_raw_parts(data, len);
-    match catch_unwind(AssertUnwindSafe(|| decode(bytes))) {
+    match catch_unwind(AssertUnwindSafe(|| decode(bytes, limits))) {
         Ok(Ok(schematic)) => {
             *out = Box::into_raw(Box::new(schematic));
             status::OK
@@ -222,6 +245,29 @@ pub unsafe extern "C" fn nql_schematic_open(
             "Something went wrong while reading this schematic.",
         ),
     }
+}
+
+#[no_mangle]
+pub unsafe extern "C" fn nql_schematic_open(
+    data: *const u8,
+    len: usize,
+    out: *mut *mut NQLSchematic,
+    err_out: *mut NQLError,
+) -> i32 {
+    open_schematic(data, len, out, err_out, &preview_limits())
+}
+
+/// Reads a schematic with no preview quotas, for schematics whose limit hit
+/// the caller has already surfaced to the user with an offer to render
+/// anyway. Every admission decision moves to the caller from here on.
+#[no_mangle]
+pub unsafe extern "C" fn nql_schematic_open_override(
+    data: *const u8,
+    len: usize,
+    out: *mut *mut NQLSchematic,
+    err_out: *mut NQLError,
+) -> i32 {
+    open_schematic(data, len, out, err_out, &override_limits())
 }
 
 #[no_mangle]
@@ -361,8 +407,7 @@ pub unsafe extern "C" fn nql_resource_pack_overlay(
     }
 }
 
-#[no_mangle]
-pub unsafe extern "C" fn nql_mesh_stream_open(
+unsafe fn start_mesh_stream(
     schematic: *const NQLSchematic,
     pack: *const NQLResourcePack,
     atlas_rgba_out: *mut *mut u8,
@@ -371,6 +416,7 @@ pub unsafe extern "C" fn nql_mesh_stream_open(
     info_out: *mut NQLMeshInfo,
     stream_out: *mut *mut stream::NQLMeshStream<'_>,
     err_out: *mut NQLError,
+    block_budget: i64,
 ) -> i32 {
     init_error(err_out);
     if schematic.is_null()
@@ -397,7 +443,7 @@ pub unsafe extern "C" fn nql_mesh_stream_open(
                 Ok(())
             }
         };
-        stream::NQLMeshStream::open(&*schematic, &*pack, &current)
+        stream::NQLMeshStream::open(&*schematic, &*pack, &current, block_budget)
     }));
     match outcome {
         Err(_) => fail(
@@ -420,6 +466,57 @@ pub unsafe extern "C" fn nql_mesh_stream_open(
             status::OK
         }
     }
+}
+
+#[no_mangle]
+pub unsafe extern "C" fn nql_mesh_stream_open(
+    schematic: *const NQLSchematic,
+    pack: *const NQLResourcePack,
+    atlas_rgba_out: *mut *mut u8,
+    atlas_rgba_len: *mut usize,
+    atlas_info_out: *mut NQLAtlasInfo,
+    info_out: *mut NQLMeshInfo,
+    stream_out: *mut *mut stream::NQLMeshStream<'_>,
+    err_out: *mut NQLError,
+) -> i32 {
+    start_mesh_stream(
+        schematic,
+        pack,
+        atlas_rgba_out,
+        atlas_rgba_len,
+        atlas_info_out,
+        info_out,
+        stream_out,
+        err_out,
+        MAX_MESH_BLOCKS,
+    )
+}
+
+/// Strips the render-stage block budget, for schematics whose limit hit the
+/// caller has already surfaced to the user with an offer to render anyway.
+/// The block-count notice stays the caller's to explain before asking.
+#[no_mangle]
+pub unsafe extern "C" fn nql_mesh_stream_open_override(
+    schematic: *const NQLSchematic,
+    pack: *const NQLResourcePack,
+    atlas_rgba_out: *mut *mut u8,
+    atlas_rgba_len: *mut usize,
+    atlas_info_out: *mut NQLAtlasInfo,
+    info_out: *mut NQLMeshInfo,
+    stream_out: *mut *mut stream::NQLMeshStream<'_>,
+    err_out: *mut NQLError,
+) -> i32 {
+    start_mesh_stream(
+        schematic,
+        pack,
+        atlas_rgba_out,
+        atlas_rgba_len,
+        atlas_info_out,
+        info_out,
+        stream_out,
+        err_out,
+        i64::MAX,
+    )
 }
 
 /// The stream borrows schematic and pack; both must outlive it. A returned
@@ -497,6 +594,7 @@ unsafe fn mesh_failure(err_out: *mut NQLError, error: MeshFailure) -> i32 {
             status::ERR_NO_BLOCKS,
             "This schematic contains no blocks to render.",
         ),
+        MeshFailure::Limit(message) => fail(err_out, status::ERR_LIMIT, &message),
         MeshFailure::Cancelled => fail(err_out, status::ERR_CANCELLED, "Preview cancelled."),
         MeshFailure::Mesh(_) => fail(
             err_out,

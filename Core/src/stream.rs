@@ -74,10 +74,11 @@ impl<'a> NQLMeshStream<'a> {
         source: &'a crate::NQLSchematic,
         pack: &'a crate::NQLResourcePack,
         current: &impl Fn() -> Result<(), String>,
+        block_budget: i64,
     ) -> Result<(Self, Vec<u8>, NQLAtlasInfo, NQLMeshInfo), MeshFailure> {
         current().map_err(|_| MeshFailure::Cancelled)?;
-        if source.source.block_count() > crate::MAX_MESH_BLOCKS {
-            return Err(MeshFailure::Mesh(
+        if source.source.block_count() > block_budget {
+            return Err(MeshFailure::Limit(
                 "This schematic renders too many blocks for the preview limit.".into(),
             ));
         }

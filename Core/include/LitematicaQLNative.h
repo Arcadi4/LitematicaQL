@@ -90,6 +90,10 @@ typedef struct {
 } NQLError;
 
 NQLStatus nql_schematic_open(const uint8_t *data, size_t len, NQLSchematic **out, NQLError *err);
+// Reads a schematic with no preview quotas. Only for limit hits the host has
+// already offered to render past; admissions move to the caller from here.
+NQLStatus nql_schematic_open_override(const uint8_t *data, size_t len,
+                                      NQLSchematic **out, NQLError *err);
 void nql_schematic_free(NQLSchematic *schematic);
 NQLStatus nql_schematic_cancel(const NQLSchematic *schematic);
 NQLStatus nql_schematic_info(const NQLSchematic *schematic, NQLSchematicInfo *out);
@@ -104,6 +108,12 @@ NQLStatus nql_mesh_stream_open(const NQLSchematic *schematic,
                                uint8_t **atlas_rgba_out, size_t *atlas_rgba_len,
                                NQLAtlasInfo *atlas_info_out, NQLMeshInfo *info_out,
                                NQLMeshStream **stream_out, NQLError *err);
+// Strips the render-stage block budget; companion to nql_schematic_open_override.
+NQLStatus nql_mesh_stream_open_override(const NQLSchematic *schematic,
+                                        const NQLResourcePack *pack,
+                                        uint8_t **atlas_rgba_out, size_t *atlas_rgba_len,
+                                        NQLAtlasInfo *atlas_info_out, NQLMeshInfo *info_out,
+                                        NQLMeshStream **stream_out, NQLError *err);
 NQLStatus nql_mesh_stream_next(NQLMeshStream *stream, uint32_t expected_batch,
                                NQLMeshBatch **batch_out,
                                NQLBatchInfo *info_out, NQLError *err);
