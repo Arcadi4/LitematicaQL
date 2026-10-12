@@ -78,9 +78,11 @@ impl<'a> NQLMeshStream<'a> {
     ) -> Result<(Self, Vec<u8>, NQLAtlasInfo, NQLMeshInfo), MeshFailure> {
         current().map_err(|_| MeshFailure::Cancelled)?;
         if source.source.block_count() > block_budget {
-            return Err(MeshFailure::Limit(
-                "This schematic renders too many blocks for the preview limit.".into(),
-            ));
+            return Err(MeshFailure::Limit(format!(
+                "This schematic renders {} blocks; the preview limit is {}.",
+                crate::grouped(source.source.block_count() as u64),
+                crate::grouped(block_budget as u64)
+            )));
         }
         let mut engine = MeshStream::new(
             &source.source,

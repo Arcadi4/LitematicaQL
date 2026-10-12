@@ -238,7 +238,9 @@ unsafe fn open_schematic(
             status::OK
         }
         Ok(Err(DecodeFailure::Format(message))) => fail(err_out, status::ERR_FORMAT, &message),
-        Ok(Err(DecodeFailure::Limit(message))) => fail(err_out, status::ERR_LIMIT, &message),
+        Ok(Err(DecodeFailure::Limit(message))) => {
+            fail(err_out, status::ERR_LIMIT, &describe_limit(&message))
+        }
         Err(_) => fail(
             err_out,
             status::ERR_INTERNAL,
@@ -582,6 +584,43 @@ pub unsafe extern "C" fn nql_mesh_stream_free(stream: *mut stream::NQLMeshStream
     }
 }
 
+/// Thousands separators for the numbers describe_limit surfaces.
+pub(crate) fn grouped(value: u64) -> String {
+    let digits = value.to_string();
+    let mut out = String::with_capacity(digits.len() + digits.len() / 3);
+    for (index, digit) in digits.chars().enumerate() {
+        if index > 0 && (digits.len() - index) % 3 == 0 {
+            out.push(',');
+        }
+        out.push(digit);
+    }
+    out
+}
+
+/// Names the dimension a quota broke and the exact number, so hosts can show
+/// figures instead of the engine's terse refusal. Anything unrecognized
+/// passes through unchanged.
+fn describe_limit(message: &str) -> String {
+    let quota = if message.contains("palette") || message.contains("block-entry") {
+        format!("block-state entries, up to {}", grouped(MAX_PALETTE_ENTRIES as u64))
+    } else if message.contains("NBT node") {
+        format!("NBT nodes, up to {}", grouped(MAX_NBT_NODES as u64))
+    } else if message.contains("depth") {
+        format!("NBT nesting depth, up to {}", grouped(MAX_NBT_DEPTH as u64))
+    } else if message.contains("region") {
+        format!("regions per file, up to {}", grouped(MAX_REGIONS as u64))
+    } else if message.contains("dimension") {
+        format!("blocks per axis, up to {}", grouped(MAX_AXIS_LENGTH as u64))
+    } else if message.contains("volume") {
+        format!("total block cells, up to {}", grouped(MAX_VOLUME as u64))
+    } else if message.contains("decompressed") {
+        format!("decompressed bytes, up to {}", grouped(MAX_DECOMPRESSED_BYTES as u64))
+    } else {
+        return message.to_string();
+    };
+    format!("Preview limit reached: {quota}.")
+}
+
 unsafe fn mesh_failure(err_out: *mut NQLError, error: MeshFailure) -> i32 {
     match error {
         MeshFailure::Pack(error) => fail(
@@ -594,7 +633,7 @@ unsafe fn mesh_failure(err_out: *mut NQLError, error: MeshFailure) -> i32 {
             status::ERR_NO_BLOCKS,
             "This schematic contains no blocks to render.",
         ),
-        MeshFailure::Limit(message) => fail(err_out, status::ERR_LIMIT, &message),
+        MeshFailure::Limit(message) => fail(err_out, status::ERR_LIMIT, &describe_limit(&message)),
         MeshFailure::Cancelled => fail(err_out, status::ERR_CANCELLED, "Preview cancelled."),
         MeshFailure::Mesh(_) => fail(
             err_out,

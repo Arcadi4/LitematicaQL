@@ -149,6 +149,8 @@ final class SchematicMetalViewController: NSViewController {
                         return start.batchCount
                     }
                     defer { session.endMesh() }
+                    // The atlas is on the GPU; everything ahead is geometry.
+                    await self?.update(current, message: "Building geometry…", fraction: 0)
                     var lastUpdate = ContinuousClock.now
                     for index in 0..<batchCount {
                         try Task.checkCancellation()
@@ -227,11 +229,11 @@ final class SchematicMetalViewController: NSViewController {
     private func offerOverride(_ refusal: NativeSchematicRefusal) {
         guard refusal.isPreviewLimit, let url = retryURL, let window = view.window else { return }
         let alert = NSAlert()
-        alert.messageText = "This schematic exceeds a preview limit"
+        alert.messageText = "This schematic is difficult to render"
         alert.informativeText = """
             \(refusal.message)
 
-            Rendering it anyway drops the preview size limits. Decoding may take far longer, and very large schematics can exhaust memory.
+            Rendering it anyway may take forever or exhaust your memory.
             """
         alert.alertStyle = .warning
         alert.addButton(withTitle: "Render Anyway")
