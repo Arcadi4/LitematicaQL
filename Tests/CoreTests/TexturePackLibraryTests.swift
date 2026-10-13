@@ -104,6 +104,145 @@ struct TexturePackLibraryTests {
 
         #expect(fixture.defaults.data(forKey: "texturePackLibrary") == data)
     }
+
+    @Test("Publishes the selected archive for the Quick Look extension")
+    func publishesSelectionFile() throws {
+        let fixture = try LibraryFixture()
+        defer { fixture.cleanUp() }
+        var library = try TexturePackLibrary(
+            defaults: fixture.defaults, directory: fixture.directory,
+            publishesSelection: true, selectionDirectory: fixture.directory
+        )
+
+        let pack = try fixture.addArchive(named: "Shared", to: &library)
+        try library.select(pack.id)
+        let selectionURL = fixture.directory.appendingPathComponent("Selection.json")
+        #expect(FileManager.default.fileExists(atPath: selectionURL.path))
+        #expect(TexturePackLibrary.sharedSelectedFileURL(directory: fixture.directory) == library.fileURL(for: pack.id))
+
+        try library.select(nil)
+        #expect(TexturePackLibrary.sharedSelectedFileURL(directory: fixture.directory) == nil)
+
+        // A selection whose archive vanished resolves to nil, not to an error.
+        try library.select(pack.id)
+        try FileManager.default.removeItem(at: library.fileURL(for: pack.id))
+        #expect(TexturePackLibrary.sharedSelectedFileURL(directory: fixture.directory) == nil)
+        #expect(try fixture.open().selectedID == pack.id)
+    }
+
+    @Test("Migrates the legacy library into the shared container")
+    func migratesLegacyLibrary() throws {
+        let fixture = try LibraryFixture()
+        defer { fixture.cleanUp() }
+        let legacyDefaults = try #require(
+            UserDefaults(suiteName: "\(fixture.suiteName).legacy")
+        )
+        let legacyDirectory = FileManager.default.temporaryDirectory
+            .appendingPathComponent("legacy-\(UUID().uuidString)", isDirectory: true)
+        let destinationDirectory = FileManager.default.temporaryDirectory
+            .appendingPathComponent("shared-\(UUID().uuidString)", isDirectory: true)
+        defer { legacyDefaults.removePersistentDomain(forName: "\(fixture.suiteName).legacy") }
+        try FileManager.default.createDirectory(at: legacyDirectory, withIntermediateDirectories: true)
+        try FileManager.default.createDirectory(at: destinationDirectory, withIntermediateDirectories: true)
+
+        var legacy = try TexturePackLibrary(
+            defaults: legacyDefaults, directory: legacyDirectory,
+            selectionDirectory: legacyDirectory
+        )
+        let pack = try fixture.addArchive(named: "Legacy", to: &legacy)
+        try legacy.select(pack.id)
+        let legacyArchive = try Data(contentsOf: legacy.fileURL(for: pack.id))
+        #expect(TexturePackLibrary.migrateLegacyState(
+            from: legacyDefaults, legacyDirectory: legacyDirectory,
+            to: fixture.defaults, directory: destinationDirectory,
+            publishingSelectionIn: destinationDirectory
+        ))
+
+        var migrated = try TexturePackLibrary(
+            defaults: fixture.defaults, directory: destinationDirectory,
+            selectionDirectory: destinationDirectory
+        )
+        defer {
+            try? FileManager.default.removeItem(at: legacyDirectory)
+            try? FileManager.default.removeItem(at: destinationDirectory)
+        }
+        #expect(migrated.packs == [pack])
+        #expect(migrated.selectedID == pack.id)
+        #expect(try Data(contentsOf: migrated.fileURL(for: pack.id)) == legacyArchive)
+        #expect(!FileManager.default.fileExists(atPath: legacyDirectory.path))
+        #expect(legacyDefaults.data(forKey: "texturePackLibrary") == nil)
+
+        // A second run is a no-op; the destination is already the source of truth.
+        try migrated.select(nil)
+        #expect(TexturePackLibrary.migrateLegacyState(
+            from: legacyDefaults, legacyDirectory: legacyDirectory,
+            to: fixture.defaults, directory: destinationDirectory
+        ))
+        #expect(try fixture.open().selectedID == nil)
+    }
+
+    @Test("A host without legacy state leaves the shared library alone")
+    func skipsMigrationWithoutLegacyState() throws {
+        let fixture = try LibraryFixture()
+        defer { fixture.cleanUp() }
+        let legacyDefaults = try #require(
+            UserDefaults(suiteName: "\(fixture.suiteName).legacy")
+        )
+        let legacyDirectory = FileManager.default.temporaryDirectory
+            .appendingPathComponent("legacy-\(UUID().uuidString)", isDirectory: true)
+        let destinationDirectory = FileManager.default.temporaryDirectory
+            .appendingPathComponent("shared-\(UUID().uuidString)", isDirectory: true)
+        defer { legacyDefaults.removePersistentDomain(forName: "\(fixture.suiteName).legacy") }
+
+        #expect(TexturePackLibrary.migrateLegacyState(
+            from: legacyDefaults, legacyDirectory: legacyDirectory,
+            to: fixture.defaults, directory: destinationDirectory
+        ))
+
+        #expect(try fixture.open().packs.isEmpty)
+        #expect(legacyDefaults.data(forKey: "texturePackLibrary") == nil)
+        #expect(!FileManager.default.fileExists(atPath: destinationDirectory.path))
+    }
+
+    @Test("Existing shared state makes migration preserve the legacy library")
+    func preservesLegacyWhenSharedExists() throws {
+        let fixture = try LibraryFixture()
+        defer { fixture.cleanUp() }
+        let legacyDefaults = try #require(
+            UserDefaults(suiteName: "\(fixture.suiteName).legacy")
+        )
+        let legacyDirectory = FileManager.default.temporaryDirectory
+            .appendingPathComponent("legacy-\(UUID().uuidString)", isDirectory: true)
+        let destinationDirectory = FileManager.default.temporaryDirectory
+            .appendingPathComponent("shared-\(UUID().uuidString)", isDirectory: true)
+        defer { legacyDefaults.removePersistentDomain(forName: "\(fixture.suiteName).legacy") }
+        try FileManager.default.createDirectory(at: legacyDirectory, withIntermediateDirectories: true)
+        try FileManager.default.createDirectory(at: destinationDirectory, withIntermediateDirectories: true)
+
+        var shared = try TexturePackLibrary(
+            defaults: fixture.defaults, directory: destinationDirectory,
+            selectionDirectory: destinationDirectory
+        )
+        _ = try fixture.addArchive(named: "Shared", to: &shared)
+
+        var legacy = try TexturePackLibrary(
+            defaults: legacyDefaults, directory: legacyDirectory,
+            selectionDirectory: legacyDirectory
+        )
+        let pack = try fixture.addArchive(named: "Legacy", to: &legacy)
+        try legacy.select(pack.id)
+
+        #expect(TexturePackLibrary.migrateLegacyState(
+            from: legacyDefaults, legacyDirectory: legacyDirectory,
+            to: fixture.defaults, directory: destinationDirectory
+        ))
+
+        #expect(try fixture.open().packs == [TexturePackLibrary.Pack(
+            id: shared.packs[0].id, name: "Shared"
+        )])
+        #expect(legacyDefaults.data(forKey: "texturePackLibrary") != nil)
+        #expect(FileManager.default.fileExists(atPath: legacyDirectory.path))
+    }
 }
 
 @MainActor
