@@ -177,13 +177,12 @@ const BASELINES: &[Baseline] = &[
         payload_bytes: 200_000_000,
         geometry: [256.0, 256.0, 1024.0],
         peak_budget: 1_200_000_000,
-        // Sixty-seven million blocks stream for minutes on a shared machine
-        // while their interior culls to a shell: this build measures about
-        // 407 s, so the ceiling keeps the doubled headroom a CI runner needs.
-        // Its rate floor is off because surviving triangles per block are
-        // three hundredths of any other build's, and no floor that admits an
-        // honest rate here would still catch a regression.
-        total_budget: Duration::from_secs(900),
+        // Sixty-seven million blocks cull down to a shell, so its rate floor is
+        // off: surviving triangles per block are three hundredths of any other
+        // build's, and no floor that admits an honest rate here would still
+        // catch a regression. Its time ceiling is the one every other fixture
+        // carries, because the work it does is ordinary meshing work.
+        total_budget: Duration::from_secs(45),
         million_triangles_per_s: 0.0,
     },
 ];
