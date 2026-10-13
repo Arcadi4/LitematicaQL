@@ -108,7 +108,10 @@ NQLStatus nql_mesh_stream_open(const NQLSchematic *schematic,
                                uint8_t **atlas_rgba_out, size_t *atlas_rgba_len,
                                NQLAtlasInfo *atlas_info_out, NQLMeshInfo *info_out,
                                NQLMeshStream **stream_out, NQLError *err);
-// Strips the render-stage block budget; companion to nql_schematic_open_override.
+// Lifts the render-stage block budget and the shared texture atlas's ceiling;
+// companion to nql_schematic_open_override. NQL_ERR_LIMIT from
+// nql_mesh_stream_open is the cue to use this after the user has agreed to the
+// cost the refusal described.
 NQLStatus nql_mesh_stream_open_override(const NQLSchematic *schematic,
                                         const NQLResourcePack *pack,
                                         uint8_t **atlas_rgba_out, size_t *atlas_rgba_len,

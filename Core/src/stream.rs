@@ -74,20 +74,20 @@ impl<'a> NQLMeshStream<'a> {
         source: &'a crate::NQLSchematic,
         pack: &'a crate::NQLResourcePack,
         current: &impl Fn() -> Result<(), String>,
-        block_budget: i64,
+        quotas: crate::MeshQuotas,
     ) -> Result<(Self, Vec<u8>, NQLAtlasInfo, NQLMeshInfo), MeshFailure> {
         current().map_err(|_| MeshFailure::Cancelled)?;
-        if source.source.block_count() > block_budget {
+        if source.source.block_count() > quotas.block_budget {
             return Err(MeshFailure::Limit(format!(
                 "This schematic renders {} blocks; the preview limit is {}.",
                 crate::grouped(source.source.block_count() as u64),
-                crate::grouped(block_budget as u64)
+                crate::grouped(quotas.block_budget as u64)
             )));
         }
         let mut engine = MeshStream::new(
             &source.source,
             &pack.0,
-            &litematica_preview_core::mesh_config(),
+            &crate::mesh_config(quotas.atlas_max_side),
             crate::worker_count(),
             current,
         )

@@ -1,7 +1,7 @@
 //! C ABI and native ownership adapter over litematica-preview-core.
 use litematica_preview_core::{DecodeFailure, DecodedSchematic, PreviewOptions};
 use nucleation::formats::limits::DecodeLimits;
-use nucleation::meshing::ResourcePackSource;
+use nucleation::meshing::{MeshConfig, ResourcePackSource};
 use std::panic::{catch_unwind, AssertUnwindSafe};
 use std::slice;
 use std::sync::atomic::{AtomicBool, Ordering};
@@ -18,6 +18,14 @@ const MAX_PALETTE_ENTRIES: usize = 32_768;
 const MAX_NBT_DEPTH: usize = 64;
 const MAX_NBT_NODES: usize = 4_194_304;
 const MAX_MESH_BLOCKS: i64 = 512 * 512 * 512;
+/// Preview ceiling on one side of the shared texture atlas, in texels. Only
+/// the ceiling: the builder grows an atlas to what a palette needs, so builds
+/// with fewer distinct tiles keep the smaller atlases they have always had.
+const MAX_ATLAS_SIDE: u32 = 2048;
+/// Override ceiling on the same atlas, reached only after the user agreed to
+/// the graphics-memory cost. 8192² of RGBA is 256 MB of host pixels while the
+/// tiles are placed, on top of the atlas the device then keeps.
+const OVERRIDE_ATLAS_SIDE: u32 = 8192;
 
 // Status codes shared with the Swift bridge through the C header.
 pub mod status {
@@ -126,6 +134,54 @@ fn override_limits() -> DecodeLimits {
         max_nbt_string_bytes: usize::MAX,
         max_nbt_collection_items: usize::MAX,
         max_nbt_nodes: usize::MAX,
+    }
+}
+
+/// Mesher configuration, with the atlas ceiling the caller chose.
+///
+/// `litematica_preview_core::mesh_config()` fixes the atlas ceiling at 2048
+/// texels and takes no argument, so the preview's two mesh-stage quotas are
+/// expressed here instead of being limited to whichever ceiling upstream
+/// happens to prefer.
+fn mesh_config(atlas_max_side: u32) -> MeshConfig {
+    MeshConfig::new()
+        .with_greedy_meshing(true)
+        .with_ambient_occlusion(true)
+        .with_atlas_max_size(atlas_max_side)
+}
+
+/// Mesh-stage quotas. One metric per orthogonal attribution: how many blocks
+/// the stream may describe, and how much tile area their textures may occupy.
+/// Both are preview quotas that the override entry lifts.
+#[derive(Clone, Copy)]
+pub(crate) struct MeshQuotas {
+    pub(crate) block_budget: i64,
+    pub(crate) atlas_max_side: u32,
+}
+
+/// Which of the two quota sets a mesh stream is being opened at.
+///
+/// The preview tier protects a preview from a palette whose tiles do not fit
+/// the shared atlas. The override tier is what the preview tier's refusal buys
+/// with the user's agreement, and levies nothing more.
+#[derive(Clone, Copy, PartialEq, Eq)]
+pub(crate) enum MeshTier {
+    Preview,
+    Override,
+}
+
+impl MeshTier {
+    fn quotas(self) -> MeshQuotas {
+        match self {
+            MeshTier::Preview => MeshQuotas {
+                block_budget: MAX_MESH_BLOCKS,
+                atlas_max_side: MAX_ATLAS_SIDE,
+            },
+            MeshTier::Override => MeshQuotas {
+                block_budget: i64::MAX,
+                atlas_max_side: OVERRIDE_ATLAS_SIDE,
+            },
+        }
     }
 }
 
@@ -418,7 +474,7 @@ unsafe fn start_mesh_stream(
     info_out: *mut NQLMeshInfo,
     stream_out: *mut *mut stream::NQLMeshStream<'_>,
     err_out: *mut NQLError,
-    block_budget: i64,
+    tier: MeshTier,
 ) -> i32 {
     init_error(err_out);
     if schematic.is_null()
@@ -436,38 +492,80 @@ unsafe fn start_mesh_stream(
     *atlas_rgba_out = std::ptr::null_mut();
     *atlas_rgba_len = 0;
     *stream_out = std::ptr::null_mut();
-    let outcome = catch_unwind(AssertUnwindSafe(|| {
-        let cancelled = (*schematic).cancelled.clone();
-        let current = || {
-            if cancelled.load(Ordering::Relaxed) {
-                Err("Preview cancelled.".to_string())
-            } else {
-                Ok(())
-            }
-        };
-        stream::NQLMeshStream::open(&*schematic, &*pack, &current, block_budget)
-    }));
-    match outcome {
-        Err(_) => fail(
-            err_out,
-            status::ERR_MESH,
-            "This schematic has too much visible surface to preview. Its block geometry exceeds what the renderer can build.",
-        ),
-        Ok(Err(error)) => mesh_failure(err_out, error),
-        Ok(Ok((stream, atlas, atlas_info, info))) => {
-            let (data, len) = export_bytes(atlas);
-            *atlas_rgba_out = data;
-            *atlas_rgba_len = len;
-            if !atlas_info_out.is_null() {
-                *atlas_info_out = atlas_info;
-            }
-            if !info_out.is_null() {
-                *info_out = info;
-            }
-            *stream_out = Box::into_raw(Box::new(stream));
-            status::OK
+    let cancelled = (*schematic).cancelled.clone();
+    let current = || {
+        if cancelled.load(Ordering::Relaxed) {
+            Err("Preview cancelled.".to_string())
+        } else {
+            Ok(())
         }
+    };
+    let opened = match catch_unwind(AssertUnwindSafe(|| {
+        stream::NQLMeshStream::open(&*schematic, &*pack, &current, tier.quotas())
+    })) {
+        Ok(Ok(opened)) => opened,
+        Ok(Err(error)) => {
+            if tier != MeshTier::Preview {
+                return mesh_failure(err_out, error);
+            }
+            // The atlas ceiling is the last quota the preview tier can lift, so
+            // the probe moves exactly that field and leaves the block budget
+            // where the preview tier put it. A different outcome can then only
+            // be the ceiling: the tiles did not fit, the host has a quota to
+            // offer, and the override atlas's side states the price. Its stream
+            // is dropped again, so nothing is built at that cost until the user
+            // has agreed to it. Every other refusal — the block budget, a
+            // genuinely unreadable build — fails the probe too, because the
+            // probe raises nothing but the ceiling, and so keeps its own
+            // status and message.
+            let atlas_probe = MeshQuotas {
+                block_budget: tier.quotas().block_budget,
+                atlas_max_side: OVERRIDE_ATLAS_SIDE,
+            };
+            let probe = catch_unwind(AssertUnwindSafe(|| {
+                stream::NQLMeshStream::open(&*schematic, &*pack, &current, atlas_probe)
+            }));
+            return match probe {
+                Ok(Ok((_, _, probe_info, _))) => {
+                    let cost = u64::from(probe_info.width) * u64::from(probe_info.height) * 4;
+                    fail(
+                        err_out,
+                        status::ERR_LIMIT,
+                        &format!(
+                            "This schematic's blocks need a {} × {} texture atlas of \
+                             distinct block tiles. The preview limit is {} × {}, so \
+                             rendering it anyway needs {} of graphics memory.",
+                            grouped(probe_info.width as u64),
+                            grouped(probe_info.height as u64),
+                            grouped(u64::from(MAX_ATLAS_SIDE)),
+                            grouped(u64::from(MAX_ATLAS_SIDE)),
+                            ByteCount(cost)
+                        ),
+                    )
+                }
+                _ => mesh_failure(err_out, error),
+            };
+        }
+        Err(_) => {
+            return fail(
+                err_out,
+                status::ERR_MESH,
+                "This schematic has too much visible surface to preview. Its block geometry exceeds what the renderer can build.",
+            )
+        }
+    };
+    let (stream, atlas, atlas_info, info) = opened;
+    let (data, len) = export_bytes(atlas);
+    *atlas_rgba_out = data;
+    *atlas_rgba_len = len;
+    if !atlas_info_out.is_null() {
+        *atlas_info_out = atlas_info;
     }
+    if !info_out.is_null() {
+        *info_out = info;
+    }
+    *stream_out = Box::into_raw(Box::new(stream));
+    status::OK
 }
 
 #[no_mangle]
@@ -490,13 +588,14 @@ pub unsafe extern "C" fn nql_mesh_stream_open(
         info_out,
         stream_out,
         err_out,
-        MAX_MESH_BLOCKS,
+        MeshTier::Preview,
     )
 }
 
-/// Strips the render-stage block budget, for schematics whose limit hit the
-/// caller has already surfaced to the user with an offer to render anyway.
-/// The block-count notice stays the caller's to explain before asking.
+/// Lifts the render-stage block budget and the shared texture atlas's ceiling,
+/// for schematics whose quota the caller has already surfaced to the user with
+/// an offer to render anyway. The notice that earns the offer stays the
+/// caller's to state before asking.
 #[no_mangle]
 pub unsafe extern "C" fn nql_mesh_stream_open_override(
     schematic: *const NQLSchematic,
@@ -517,7 +616,7 @@ pub unsafe extern "C" fn nql_mesh_stream_open_override(
         info_out,
         stream_out,
         err_out,
-        i64::MAX,
+        MeshTier::Override,
     )
 }
 
@@ -595,6 +694,29 @@ pub(crate) fn grouped(value: u64) -> String {
         out.push(digit);
     }
     out
+}
+
+/// A byte count in binary units, for the atlas price an override offer states.
+/// The host renders its own size strings elsewhere; this one only has to say
+/// how much graphics memory the atlas costs.
+struct ByteCount(u64);
+
+impl std::fmt::Display for ByteCount {
+    fn fmt(&self, formatter: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        const UNITS: [&str; 5] = ["B", "KB", "MB", "GB", "TB"];
+        let mut value = self.0 as f64;
+        let mut unit = 0;
+        while value >= 1024.0 && unit + 1 < UNITS.len() {
+            value /= 1024.0;
+            unit += 1;
+        }
+        let text = if value >= 100.0 || unit == 0 {
+            format!("{}", value as u64)
+        } else {
+            format!("{value:.1}")
+        };
+        write!(formatter, "{text} {}", UNITS[unit])
+    }
 }
 
 /// Names the dimension a quota broke and the exact number, so hosts can show
