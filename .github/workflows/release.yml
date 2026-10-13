@@ -155,7 +155,7 @@ jobs:
           printf '%s' "$DISTRIBUTION_CERTIFICATE" | base64 --decode > "$RUNNER_TEMP/litematicaql-signing.p12"
 
       - name: Import signing certificate
-        uses: Apple-Actions/import-codesign-certs@5142e029c445c10ffc7149d172e540235a065466 # v7.0.0
+        uses: Apple-Actions/import-codesign-certs@77ba2a2a8f5cfc8c405ebf3159f767c323e238f9 # v7.1.0
         with:
           p12-filepath: ${{ runner.temp }}/litematicaql-signing.p12
           p12-password: ${{ secrets.DISTRIBUTION_CERTIFICATE_PASSWORD }}
