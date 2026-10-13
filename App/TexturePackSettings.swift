@@ -39,7 +39,7 @@ struct TexturePackSettings: View {
             } header: {
                 Text("Appearance")
             } footer: {
-                Text("Add Minecraft Java resource-pack ZIPs. Packs are saved on your Mac; missing assets use vanilla resources.\n\nApplies to previews in this app. Finder Quick Look uses vanilla textures.")
+                Text("Add Minecraft Java resource packs to use in the preview.")
             }
         }
         .formStyle(.grouped)

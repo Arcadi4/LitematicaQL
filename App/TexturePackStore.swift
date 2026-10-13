@@ -29,7 +29,7 @@ final class TexturePackStore: ObservableObject {
 
     init() {
         do {
-            library = try TexturePackLibrary()
+            library = try TexturePackLibrary.openShared()
             if let id = selectedID { selectPack(id) }
         } catch {
             alert = Alert(title: "Unable to Open the Texture Pack Library",
@@ -172,12 +172,12 @@ final class TexturePackStore: ObservableObject {
     private func ensureLibrary() -> Bool {
         if library != nil { return true }
         do {
-            library = try TexturePackLibrary()
+            library = try TexturePackLibrary.openShared()
             return true
         } catch {
-            TexturePackLibrary.discardSavedState()
+            TexturePackLibrary.discardSavedState(defaults: TexturePackLibrary.sharedDefaults())
             do {
-                library = try TexturePackLibrary()
+                library = try TexturePackLibrary.openShared()
                 return true
             } catch {
                 alert = Alert(title: "Unable to Add Texture Packs", message: error.localizedDescription)

@@ -39,6 +39,15 @@ project_version := env_var_or_default("CURRENT_PROJECT_VERSION", "1")
 # identities. This is what makes an unsigned checkout buildable at all.
 signing := "CODE_SIGN_STYLE=Manual CODE_SIGN_IDENTITY=- CODE_SIGNING_REQUIRED=YES CODE_SIGNING_ALLOWED=YES DEVELOPMENT_TEAM="
 
+# Xcode's manual-signing resolver refuses ad-hoc builds whose entitlements
+# claim the app-group capability ("requires a provisioning profile"), although
+# ad-hoc signatures work fine with group containers at runtime. xcodebuild
+# therefore embeds a stripped copy, and codesign replaces the signature with
+# the real entitlements afterward — the same re-signing order sign-release.sh
+# uses for releases: extension first, then the app.
+adhoc_entitlements := build_dir / "adhoc" / "entitlements.plist"
+codesign_entitlements := "CODE_SIGN_ENTITLEMENTS=" + adhoc_entitlements
+
 # Recipes
 #
 # A `[script]` recipe runs as a plain file, so `set shell` does not apply to
@@ -55,7 +64,7 @@ default:
     @just --list
 
 # Build the ad-hoc signed app into build/DerivedData.
-build: generate native
+build: generate native prepare-adhoc-entitlements
     xcodebuild \
       -project {{ project_file }} \
       -scheme {{ scheme }} \
@@ -63,9 +72,25 @@ build: generate native
       -destination "generic/platform=macOS" \
       -derivedDataPath {{ derived_data }} \
       {{ signing }} \
+      {{ codesign_entitlements }} \
       ARCHS="{{ build_archs }}" \
       ONLY_ACTIVE_ARCH=NO \
       build
+    codesign --force --sign - \
+      --entitlements PreviewExtension/LitematicaQLPreview.entitlements \
+      "{{ app_bundle }}/Contents/PlugIns/LitematicaQLPreview.appex"
+    codesign --force --sign - \
+      --entitlements App/LitematicaQL.entitlements \
+      "{{ app_bundle }}"
+
+# Write the app-group-free entitlements xcodebuild embeds; the codesign step
+# in `build` applies the real files. PlistBuddy deletes the literal dotted key
+# without touching the tracked source.
+prepare-adhoc-entitlements:
+    mkdir -p {{ build_dir }}/adhoc
+    cp App/LitematicaQL.entitlements {{ adhoc_entitlements }}
+    /usr/libexec/PlistBuddy -c 'Delete :com.apple.security.application-groups' \
+      {{ adhoc_entitlements }} || true
 
 # Build the app and open it.
 run: build
@@ -135,7 +160,7 @@ native:
 
 # Archive, verify, and package a release build.
 [script("bash")]
-release version arch="arm64": generate
+release version arch="arm64": generate prepare-adhoc-entitlements
     set -euo pipefail
 
     version="{{ version }}"
@@ -158,6 +183,7 @@ release version arch="arm64": generate
       MARKETING_VERSION="$version" \
       CURRENT_PROJECT_VERSION="{{ project_version }}" \
       {{ signing }} \
+      {{ codesign_entitlements }} \
       ARCHS="{{ arch }}" \
       ONLY_ACTIVE_ARCH=NO \
       archive
