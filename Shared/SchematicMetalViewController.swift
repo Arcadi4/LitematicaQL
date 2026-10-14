@@ -120,7 +120,12 @@ final class SchematicMetalViewController: NSViewController {
         retryPack = resourcePack
         renderer.clear()
         let current = generation
-        let session = NativeSchematicSession(overridesPreviewLimits: overridesPreviewLimits)
+        let session = NativeSchematicSession(
+            // The user's render-anyway choice lifts both stages' preview quotas
+            // up front, so an oversized schematic renders without the alert.
+            overridesPreviewLimits: overridesPreviewLimits
+                || RenderLimits.bypassesPreviewLimits()
+        )
         nativeSession = session
         let uploader = MetalMeshUploader(device: renderer.device, queue: renderer.queue)
         // Parsing the pack and reading the schematic are independent, so the
@@ -232,9 +237,12 @@ final class SchematicMetalViewController: NSViewController {
     }
 
     /// Asks whether to render past the quota a file broke. The sheet shows in
-    /// both hosts, so Quick Look gets the same offer as the app window.
+    /// both hosts, so Quick Look gets the same offer as the app window. Hosts
+    /// whose user opted out of warnings render past the quotas from the start
+    /// and stay past them, so they never see this sheet.
     private func offerOverride(_ refusal: NativeSchematicRefusal) {
-        guard refusal.isPreviewLimit, let url = retryURL, let window = view.window else { return }
+        guard refusal.isPreviewLimit, !RenderLimits.bypassesPreviewLimits(),
+              let url = retryURL, let window = view.window else { return }
         let alert = NSAlert()
         alert.messageText = "This schematic is difficult to render"
         alert.informativeText = """

@@ -5,6 +5,7 @@ struct TexturePackSettings: View {
     @EnvironmentObject private var texturePacks: TexturePackStore
     @State private var isImporterPresented = false
     @State private var isManagerPresented = false
+    @State private var bypassesPreviewLimits = RenderLimits.bypassesPreviewLimits()
 
     private var isBusy: Bool { texturePacks.isImporting || texturePacks.loadingID != nil }
 
@@ -40,6 +41,21 @@ struct TexturePackSettings: View {
                 Text("Appearance")
             } footer: {
                 Text("Add Minecraft Java resource packs to use in the preview.")
+            }
+
+            Section {
+                Toggle("Render oversized schematics without asking", isOn: Binding(
+                    get: { bypassesPreviewLimits },
+                    set: { newValue in
+                        bypassesPreviewLimits = newValue
+                        RenderLimits.setBypassesPreviewLimits(newValue)
+                    }
+                ))
+                .accessibilityHint("Skips the warning for schematics that exceed the preview limits")
+            } header: {
+                Text("Preview Limits")
+            } footer: {
+                Text("Always renders schematics that exceed the preview quotas, in the app and in Quick Look. Very large files may take forever or exhaust memory.")
             }
         }
         .formStyle(.grouped)

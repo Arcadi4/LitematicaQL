@@ -23,6 +23,7 @@
 		80288D53EF9101EBA4C148B4 /* NativeSchematic.swift in Sources */ = {isa = PBXBuildFile; fileRef = 1731D039E39C96CBA090B26A /* NativeSchematic.swift */; };
 		90618732273EDA23FB0CAAFD /* LitematicFile.swift in Sources */ = {isa = PBXBuildFile; fileRef = B1A1925EDAA8DE5EC973D716 /* LitematicFile.swift */; };
 		9DAE787492510998237A47B8 /* MetalMesh.swift in Sources */ = {isa = PBXBuildFile; fileRef = 8AA7D125B8EC403963BC5661 /* MetalMesh.swift */; };
+		9E868EEEAE07E9F1D79957A6 /* RenderLimits.swift in Sources */ = {isa = PBXBuildFile; fileRef = E14C5FB26180DE50071E305A /* RenderLimits.swift */; };
 		9E9EE298E19227930760D4A2 /* SchematicMetalRenderer.swift in Sources */ = {isa = PBXBuildFile; fileRef = 3249334344F94472F29878AD /* SchematicMetalRenderer.swift */; };
 		CB71FE2A92F71E6B6BE40912 /* TexturePackLibrary.swift in Sources */ = {isa = PBXBuildFile; fileRef = 646DD41871FD7ABED867E4DA /* TexturePackLibrary.swift */; };
 		CBA3EDB8A0319A2AC740DACC /* MetalKit.framework in Frameworks */ = {isa = PBXBuildFile; fileRef = 1CC0DAA0F8A7FB16B7CE88D0 /* MetalKit.framework */; };
@@ -33,6 +34,7 @@
 		E378D971632F6512B0054C2B /* SchematicShaders.metal in Sources */ = {isa = PBXBuildFile; fileRef = F11E0E0ADB5F965E8AE67CE6 /* SchematicShaders.metal */; };
 		EA33262F9DCE1A63FD097039 /* SchematicMetalPreview.swift in Sources */ = {isa = PBXBuildFile; fileRef = 27F2060D9EE2DAD828BF1F66 /* SchematicMetalPreview.swift */; };
 		EBC89290D891707B8BA85B85 /* LitematicaQLPreview.appex in Embed Foundation Extensions */ = {isa = PBXBuildFile; fileRef = DA17F55FCEA9A62E5785DFBD /* LitematicaQLPreview.appex */; settings = {ATTRIBUTES = (RemoveHeadersOnCopy, ); }; };
+		ED3778CC6BE8B3282E3023AF /* RenderLimits.swift in Sources */ = {isa = PBXBuildFile; fileRef = E14C5FB26180DE50071E305A /* RenderLimits.swift */; };
 		F0A8095346D506426555F5AD /* pack.zip in Resources */ = {isa = PBXBuildFile; fileRef = 5A892015BA7DC39A148F185F /* pack.zip */; };
 		FC1EB75021CA17144B5149D8 /* ContentView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 41426C6CB3826011D9D7DBC3 /* ContentView.swift */; };
 		FC20A71E29ED25DD618ED3A4 /* SchematicMetalViewController.swift in Sources */ = {isa = PBXBuildFile; fileRef = B3EF49CEC2317E2BF0AC874A /* SchematicMetalViewController.swift */; };
@@ -85,6 +87,7 @@
 		C19A1BA9A77D9F6F545EEBA7 /* Quartz.framework */ = {isa = PBXFileReference; lastKnownFileType = wrapper.framework; name = Quartz.framework; path = System/Library/Frameworks/Quartz.framework; sourceTree = SDKROOT; };
 		D28BABB57DAE08167DFAF8C2 /* Demos */ = {isa = PBXFileReference; lastKnownFileType = folder; name = Demos; path = Fixtures/Demos; sourceTree = SOURCE_ROOT; };
 		DA17F55FCEA9A62E5785DFBD /* LitematicaQLPreview.appex */ = {isa = PBXFileReference; explicitFileType = "wrapper.app-extension"; includeInIndex = 0; path = LitematicaQLPreview.appex; sourceTree = BUILT_PRODUCTS_DIR; };
+		E14C5FB26180DE50071E305A /* RenderLimits.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = RenderLimits.swift; sourceTree = "<group>"; };
 		F11E0E0ADB5F965E8AE67CE6 /* SchematicShaders.metal */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.metal; path = SchematicShaders.metal; sourceTree = "<group>"; };
 		F74465552D8FB63AFA213C81 /* LitematicaQL.icon */ = {isa = PBXFileReference; lastKnownFileType = wrapper.icon; path = LitematicaQL.icon; sourceTree = "<group>"; };
 		F8757780D24E478C1043A705 /* Info.plist */ = {isa = PBXFileReference; lastKnownFileType = text.plist; path = Info.plist; sourceTree = "<group>"; };
@@ -110,6 +113,7 @@
 				B1A1925EDAA8DE5EC973D716 /* LitematicFile.swift */,
 				8AA7D125B8EC403963BC5661 /* MetalMesh.swift */,
 				1731D039E39C96CBA090B26A /* NativeSchematic.swift */,
+				E14C5FB26180DE50071E305A /* RenderLimits.swift */,
 				3249334344F94472F29878AD /* SchematicMetalRenderer.swift */,
 				B3EF49CEC2317E2BF0AC874A /* SchematicMetalViewController.swift */,
 				F11E0E0ADB5F965E8AE67CE6 /* SchematicShaders.metal */,
@@ -327,6 +331,7 @@
 				4A4CBAD90F2A0642CC5C18D0 /* MetalMesh.swift in Sources */,
 				CD94D49BF943C5BD005563F0 /* NativeSchematic.swift in Sources */,
 				70B47465CEBA091BC564C754 /* PreviewViewController.swift in Sources */,
+				9E868EEEAE07E9F1D79957A6 /* RenderLimits.swift in Sources */,
 				9E9EE298E19227930760D4A2 /* SchematicMetalRenderer.swift in Sources */,
 				FC20A71E29ED25DD618ED3A4 /* SchematicMetalViewController.swift in Sources */,
 				E378D971632F6512B0054C2B /* SchematicShaders.metal in Sources */,
@@ -344,6 +349,7 @@
 				148CF4887D755F0579EAF8F8 /* LitematicaType.swift in Sources */,
 				9DAE787492510998237A47B8 /* MetalMesh.swift in Sources */,
 				80288D53EF9101EBA4C148B4 /* NativeSchematic.swift in Sources */,
+				ED3778CC6BE8B3282E3023AF /* RenderLimits.swift in Sources */,
 				EA33262F9DCE1A63FD097039 /* SchematicMetalPreview.swift in Sources */,
 				4801EB4DD3A2722259E35A20 /* SchematicMetalRenderer.swift in Sources */,
 				65D2DA80AB64E89B5C27ED83 /* SchematicMetalViewController.swift in Sources */,
