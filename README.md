@@ -13,14 +13,14 @@ LitematicaQL adds a macOS Quick Look preview extension for Minecraft schematics 
 
 If you are on Windows, check out the sister project [LitematicaPreview](https://github.com/Arcadi4/LitematicaPreview) for rendering speed as fast as LitematicaQL!
 
-<table>
+<table align=center>
 <tr>
 <th>Previewing Schematics</th>
 <th>Previewing World Saves</th>
 </tr>
 <tr>
-<td>https://github.com/user-attachments/assets/d2268ef1-2fcd-4232-af3f-1d29fd32ccb6</td>
-<td>https://github.com/user-attachments/assets/d8b034f7-44b6-4940-8fc5-be5c5af25cb4</td>
+<td width=368px>https://github.com/user-attachments/assets/d2268ef1-2fcd-4232-af3f-1d29fd32ccb6</td>
+<td width=368px>https://github.com/user-attachments/assets/d8b034f7-44b6-4940-8fc5-be5c5af25cb4</td>
 </tr>
 </table>
 
