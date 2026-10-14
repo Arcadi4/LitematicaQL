@@ -49,7 +49,11 @@ and on-demand drawing. See [the rendering architecture](docs/rendering.md).
 
 ## Texture Packs
 
-Open **LitematicaQL → Settings…** (`⌘+,`) and choose **Add Texture Packs…** to import Minecraft Java resource-pack ZIPs.
+Open **LitematicaQL → Settings…** (`⌘ + ,`) and choose **Add Texture Packs…** to import Minecraft Java resource-pack ZIPs.
+
+## Preview Limits
+
+Very large schematics are refused with an offer to render them anyway. To skip the warning and always render them, enable **Render oversized schematics without asking** under **LitematicaQL → Settings…** (`⌘ + ,`). The choice applies to the app and Quick Look; oversized previews may take a long time or exhaust memory.
 
 ## Supported Formats
 

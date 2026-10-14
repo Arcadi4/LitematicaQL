@@ -49,7 +49,11 @@ brew install --cask arcadi4/tap/litematicaql
 
 ## 材质包
 
-打开 **LitematicaQL → Settings…**（`⌘+,`），选择 **Add Texture Packs…** 即可导入 Minecraft Java 版资源包 ZIP 文件。
+打开 **LitematicaQL → Settings…**（`⌘ + ,`），选择 **Add Texture Packs…** 即可导入 Minecraft Java 版资源包 ZIP 文件。
+
+## 预览限制
+
+超大原理图默认会被拒绝预览，并询问是否仍要渲染。若要跳过警告并始终渲染，请在 **LitematicaQL → Settings…**（`⌘ + ,`）中启用 **Render oversized schematics without asking**。该设置同时作用于应用和快速查看；超大预览可能耗时很久或耗尽内存。
 
 ## 支持格式
 
