@@ -6,6 +6,7 @@ struct TexturePackSettings: View {
     @State private var isImporterPresented = false
     @State private var isManagerPresented = false
     @State private var bypassesPreviewLimits = RenderLimits.bypassesPreviewLimits()
+    @FocusState private var isTexturePackPickerFocused: Bool
 
     private var isBusy: Bool { texturePacks.isImporting || texturePacks.loadingID != nil }
 
@@ -22,6 +23,7 @@ struct TexturePackSettings: View {
                     }
                 }
                 .pickerStyle(.menu)
+                .focused($isTexturePackPickerFocused)
                 .disabled(!texturePacks.isAvailable)
 
                 HStack {
@@ -60,6 +62,15 @@ struct TexturePackSettings: View {
         }
         .formStyle(.grouped)
         .frame(width: 520)
+        .onAppear {
+            // The Form focuses its first control when the pane appears; give
+            // the key view loop a beat, then release the texture pack picker
+            // so no control starts out focused.
+            Task { @MainActor in
+                try? await Task.sleep(nanoseconds: 150_000_000)
+                isTexturePackPickerFocused = false
+            }
+        }
         .fileImporter(isPresented: $isImporterPresented, allowedContentTypes: [.zip],
                       allowsMultipleSelection: true) { result in
             switch result {
