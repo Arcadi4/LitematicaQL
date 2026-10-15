@@ -692,7 +692,7 @@ fn check_geometry(baseline: &Baseline, measured: &Measurement) {
 
 /// Allow a one percent band around a baseline, rounding away from it.
 fn within(baseline: &Baseline, what: &str, measured: u64, expected: u64) {
-    let slack = expected / 100 * VOLUME_TOLERANCE;
+    let slack = (expected * VOLUME_TOLERANCE).div_ceil(10_000);
     let low = expected.saturating_sub(slack);
     let high = expected + slack;
     assert!(
