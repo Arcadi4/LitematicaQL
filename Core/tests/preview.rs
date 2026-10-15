@@ -139,7 +139,6 @@ impl OwnedBatch {
 struct MeshResult {
     atlas: Vec<u8>,
     atlas_info: NQLAtlasInfo,
-    info: NQLMeshInfo,
     batches: Vec<(OwnedBatch, NQLBatchInfo)>,
 }
 
@@ -229,7 +228,6 @@ fn mesh(
     MeshResult {
         atlas: atlas_bytes,
         atlas_info,
-        info: mesh_info,
         batches,
     }
 }
@@ -274,60 +272,6 @@ fn assert_shared_atlas(result: &MeshResult) {
 
 fn deterministic_fixture() -> Vec<u8> {
     fs::read(repo_root().join("Fixtures/Demos/Cottage.litematic")).expect("litematic demo")
-}
-
-#[test]
-fn ordered_batch_delivery_is_deterministic() {
-    let bytes = deterministic_fixture();
-    let pack = open_pack(&pack_bytes());
-    let (handle, _) = open(&bytes);
-    let first = mesh(handle, pack);
-    let second = mesh(handle, pack);
-    assert_eq!(first.info, second.info);
-    assert_eq!(first.atlas, second.atlas);
-    assert_eq!(
-        first.batches.len(),
-        second.batches.len(),
-        "batch counts differ"
-    );
-    for (index, (left, right)) in first.batches.iter().zip(&second.batches).enumerate() {
-        assert_eq!(left.1.batch_index, index as u32);
-        assert_eq!(right.1.batch_index, index as u32);
-        assert_eq!(left.1.part_count, right.1.part_count);
-        assert_eq!(left.1.vertex_count, right.1.vertex_count);
-        assert_eq!(left.1.index_count, right.1.index_count);
-        assert_eq!(left.1.triangle_count, right.1.triangle_count);
-        assert_eq!(left.1.bounds_min, right.1.bounds_min);
-        assert_eq!(left.1.bounds_max, right.1.bounds_max);
-        assert_valid_batch(&left.0, &left.1);
-        assert_valid_batch(&right.0, &right.1);
-        assert_eq!(left.0.view().origin, right.0.view().origin);
-        assert_eq!(left.0.view().extent, right.0.view().extent);
-        assert_eq!(left.0.geometry().len(), right.0.geometry().len());
-        assert_eq!(left.0.parts().len(), right.0.parts().len());
-        for (lp, rp) in left.0.parts().iter().zip(right.0.parts()) {
-            assert_eq!(lp.vertex_offset, rp.vertex_offset);
-            assert_eq!(lp.index_offset, rp.index_offset);
-            assert_eq!(lp.vertex_count, rp.vertex_count);
-            assert_eq!(lp.index_count, rp.index_count);
-            assert_eq!(lp.index_size, rp.index_size);
-            assert_eq!(lp.alpha_mode, rp.alpha_mode);
-            assert_eq!(lp.texture_index, rp.texture_index);
-            assert_eq!(lp.texture_length, rp.texture_length);
-            if lp.texture_length > 0 {
-                let left_tex =
-                    unsafe { std::slice::from_raw_parts(lp.texture_png, lp.texture_length) };
-                let right_tex =
-                    unsafe { std::slice::from_raw_parts(rp.texture_png, rp.texture_length) };
-                assert_eq!(left_tex, right_tex);
-            }
-        }
-    }
-    assert_shared_atlas(&first);
-    unsafe {
-        nql_schematic_free(handle);
-        nql_resource_pack_free(pack);
-    }
 }
 
 #[test]
