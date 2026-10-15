@@ -230,21 +230,18 @@ final class SchematicMetalRenderer: NSObject, MTKViewDelegate {
         let planes = frustumPlanes(projection)
         let eye = self.eye
         let visible = chunks.filter { chunk in
-            let center = chunk.center
-            let half = chunk.extent * 0.5
-            return planes.allSatisfy { plane in
-                let n = SIMD3(plane.x, plane.y, plane.z)
-                return simd_dot(n, center) + plane.w + simd_dot(simd_abs(n), half) >= 0
-            }
+            boxVisible(planes, center: chunk.center, half: chunk.extent * 0.5)
         }.sorted { simd_length_squared($0.center - eye) < simd_length_squared($1.center - eye) }
         for alpha in 0...2 {
             encoder.setRenderPipelineState(pipelines[alpha])
             encoder.setDepthStencilState(alpha == 2 ? depthRead : depthWrite)
             encoder.setCullMode(alpha == 0 ? .back : .none)
             if alpha == 2 {
-                for chunk in visible.reversed() { encode(chunk, alpha: alpha, with: encoder) }
+                for chunk in visible.reversed() {
+                    encode(chunk, alpha: alpha, with: encoder, planes: planes)
+                }
             } else {
-                for chunk in visible { encode(chunk, alpha: alpha, with: encoder) }
+                for chunk in visible { encode(chunk, alpha: alpha, with: encoder, planes: planes) }
             }
         }
         encoder.endEncoding()
@@ -260,10 +257,26 @@ final class SchematicMetalRenderer: NSObject, MTKViewDelegate {
         command.commit()
     }
 
-    private func encode(_ chunk: MetalMeshChunk, alpha: Int, with encoder: MTLRenderCommandEncoder) {
+    /// True when an axis-aligned box survives the frustum. The test is the
+    /// same corner-distance one the chunk cull uses, so per-part boxes and the
+    /// chunk box agree at the boundary.
+    private func boxVisible(_ planes: [SIMD4<Float>], center: SIMD3<Float>, half: SIMD3<Float>) -> Bool {
+        planes.allSatisfy { plane in
+            let n = SIMD3(plane.x, plane.y, plane.z)
+            return simd_dot(n, center) + plane.w + simd_dot(simd_abs(n), half) >= 0
+        }
+    }
+
+    private func encode(
+        _ chunk: MetalMeshChunk, alpha: Int, with encoder: MTLRenderCommandEncoder, planes: [SIMD4<Float>]
+    ) {
         var transform = (SIMD4(chunk.origin, 0), SIMD4(chunk.extent, 0))
         encoder.setVertexBytes(&transform, length: 32, index: 2)
-        for part in chunk.parts where part.alphaMode == alpha {
+        // A chunk box can span the whole viewport while a single part sits
+        // outside it, so each part is tested against its own bounds before any
+        // of its draws is encoded.
+        for part in chunk.parts where part.alphaMode == alpha
+            && boxVisible(planes, center: part.center, half: part.halfExtent) {
             encoder.setVertexBuffer(chunk.buffer, offset: part.vertexOffset, index: 0)
             encoder.setFragmentTexture(part.texture, index: 0)
             encoder.setFragmentSamplerState(part.repeats ? repeatSampler : clampSampler, index: 0)

@@ -30,7 +30,10 @@ typedef struct NQLMeshBatch NQLMeshBatch;
 // Vertices are 24 bytes: UNORM16x4 position, float2 UV, SNORM8x4 normal,
 // UNORM8x4 color. Indices are uint16 or uint32, local to each part. Texture
 // indices name an entry in the batch's texture views below, or zero for the
-// shared atlas delivered at stream open.
+// shared atlas delivered at stream open. `min` and `max` are this part's
+// actual meshed-geometry bounds in block-center coordinates, the same space as
+// the batch's `origin`/`extent`; together they form the box a host tests
+// against the frustum before encoding a part's draws.
 typedef struct {
     size_t vertex_offset;
     size_t index_offset;
@@ -39,6 +42,8 @@ typedef struct {
     uint32_t index_size;
     uint32_t alpha_mode;
     uint32_t texture_index;
+    float min[3];
+    float max[3];
 } NQLMeshPart;
 
 // One first-use RGBA8 sRGB texture owned by a batch. Texture zero is the

@@ -243,6 +243,7 @@ fn assert_valid_batch(batch: &OwnedBatch, info: &NQLBatchInfo, introduced: &mut 
     let parts = batch.parts();
     assert_eq!(parts.len(), info.part_count as usize);
     let geometry = batch.geometry();
+    let view = batch.view();
     let mut referenced = Vec::new();
     for part in parts {
         assert!(part.vertex_offset + part.vertex_count as usize * 24 <= geometry.len());
@@ -256,6 +257,22 @@ fn assert_valid_batch(batch: &OwnedBatch, info: &NQLBatchInfo, introduced: &mut 
                 u32::from_le_bytes(index.try_into().unwrap())
             };
             assert!(index < part.vertex_count);
+        }
+        // Per-part actual-geometry bounds, in the same block-center space the
+        // batch's `origin`/`extent` shader transform decodes. They are the box
+        // the renderer frustum-tests, so each must stay inside the batch box.
+        for axis in 0..3 {
+            assert!(part.min[axis].is_finite(), "part min is not finite");
+            assert!(part.max[axis].is_finite(), "part max is not finite");
+            assert!(
+                part.min[axis] <= part.max[axis],
+                "part min exceeds max on axis {axis}"
+            );
+            assert!(
+                part.min[axis] >= view.origin[axis]
+                    && part.max[axis] <= view.origin[axis] + view.extent[axis],
+                "part bounds escape the batch view on axis {axis}"
+            );
         }
         if part.texture_index != 0 {
             referenced.push(part.texture_index);
@@ -299,6 +316,27 @@ fn assert_shared_atlas(result: &MeshResult) {
 
 fn deterministic_fixture() -> Vec<u8> {
     fs::read(repo_root().join("Fixtures/Demos/Cottage.litematic")).expect("litematic demo")
+}
+
+/// `Core/include/LitematicaQLNative.h` mirrors the engine's `MeshPart` field for
+/// field, because the Swift host reads these descriptors through the C ABI. Pin
+/// the layout here so a drifted header fails the suite instead of silently
+/// misreading a part's bounds.
+#[test]
+fn native_part_layout_matches_the_c_header() {
+    use litematicaql_native::stream::NQLMeshPart;
+    use std::mem::{offset_of, size_of};
+
+    assert_eq!(size_of::<NQLMeshPart>(), 64);
+    assert_eq!(offset_of!(NQLMeshPart, vertex_offset), 0);
+    assert_eq!(offset_of!(NQLMeshPart, index_offset), 8);
+    assert_eq!(offset_of!(NQLMeshPart, vertex_count), 16);
+    assert_eq!(offset_of!(NQLMeshPart, index_count), 20);
+    assert_eq!(offset_of!(NQLMeshPart, index_size), 24);
+    assert_eq!(offset_of!(NQLMeshPart, alpha_mode), 28);
+    assert_eq!(offset_of!(NQLMeshPart, texture_index), 32);
+    assert_eq!(offset_of!(NQLMeshPart, min), 36);
+    assert_eq!(offset_of!(NQLMeshPart, max), 48);
 }
 
 #[test]

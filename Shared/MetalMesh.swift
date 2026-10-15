@@ -11,6 +11,13 @@ struct MetalMeshPart: @unchecked Sendable {
     let alphaMode: Int
     let texture: MTLTexture
     let repeats: Bool
+    /// Actual meshed geometry of this part, in the chunk's block-center
+    /// coordinates. Only the frustum test reads them; the vertex shader keeps
+    /// decoding against the chunk-wide transform.
+    let min: SIMD3<Float>
+    let max: SIMD3<Float>
+    var center: SIMD3<Float> { (min + max) * 0.5 }
+    var halfExtent: SIMD3<Float> { (max - min) * 0.5 }
 }
 
 struct MetalMeshChunk: @unchecked Sendable {
@@ -101,7 +108,9 @@ final class MetalMeshUploader: @unchecked Sendable {
             parts.append(MetalMeshPart(
                 vertexOffset: part.vertex_offset, indexOffset: part.index_offset,
                 indexCount: Int(part.index_count), indexType: part.index_size == 2 ? .uint16 : .uint32,
-                alphaMode: Int(part.alpha_mode), texture: texture, repeats: part.texture_index != 0
+                alphaMode: Int(part.alpha_mode), texture: texture, repeats: part.texture_index != 0,
+                min: SIMD3(part.min.0, part.min.1, part.min.2),
+                max: SIMD3(part.max.0, part.max.1, part.max.2)
             ))
         }
         blit.copy(from: staging, sourceOffset: 0, to: buffer, destinationOffset: 0, size: view.geometry_length)
