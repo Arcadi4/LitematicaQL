@@ -42,7 +42,9 @@ Or install manually:
 This app requires macOS 13 Ventura or later and a Metal-capable GPU.
 
 Previews use native Metal with streamed chunk meshing, compact GPU buffers,
-and on-demand drawing. See [the rendering architecture](docs/rendering.md).
+and on-demand drawing. The shared [LitematicaPreview Core](https://github.com/Arcadi4/litematica-preview-core)
+prepares validated vertex/index buffers and first-use RGBA textures; the native
+hosts upload them directly to Metal.
 
 > [!NOTE]
 > If the preview doesn't show up, enable LitematicaQL under **System Settings → General → Login Items & Extensions → Quick Look**.
