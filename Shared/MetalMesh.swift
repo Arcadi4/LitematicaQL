@@ -1,5 +1,6 @@
 import Foundation
-import MetalKit
+import LitematicaQLNative
+import Metal
 import simd
 
 struct MetalMeshPart: @unchecked Sendable {
@@ -26,7 +27,6 @@ struct MetalMeshChunk: @unchecked Sendable {
 final class MetalMeshUploader: @unchecked Sendable {
     let device: MTLDevice
     let queue: MTLCommandQueue
-    private let loader: MTKTextureLoader
     private var textures: [UInt32: MTLTexture] = [:]
     private let uploads = DispatchSemaphore(value: 2)
     private let errorLock = NSLock()
@@ -35,7 +35,6 @@ final class MetalMeshUploader: @unchecked Sendable {
     init(device: MTLDevice, queue: MTLCommandQueue) {
         self.device = device
         self.queue = queue
-        loader = MTKTextureLoader(device: device)
     }
 
     func uploadAtlas(_ start: NativeMeshStart) throws {
@@ -51,17 +50,13 @@ final class MetalMeshUploader: @unchecked Sendable {
         // One staging copy from the Rust-owned pixels. Avoid image decoding and
         // leave private, shader-read-only textures eligible for GPU compression.
         let rowBytes = (start.atlasWidth * 4 + 255) & ~255
-        guard let staging = device.makeBuffer(length: rowBytes * start.atlasHeight, options: .storageModeShared),
-              let command = queue.makeCommandBuffer(), let blit = command.makeBlitCommandEncoder() else {
-            throw allocationError()
+        let staging = try start.atlas.withUnsafeBytes { raw -> MTLBuffer in
+            guard let base = raw.baseAddress else { throw allocationError() }
+            return try self.staging(base, rowBytes: rowBytes, width: start.atlasWidth,
+                                    height: start.atlasHeight)
         }
-        start.atlas.withUnsafeBytes { source in
-            for y in 0..<start.atlasHeight {
-                staging.contents().advanced(by: y * rowBytes).copyMemory(
-                    from: source.baseAddress!.advanced(by: y * start.atlasWidth * 4),
-                    byteCount: start.atlasWidth * 4
-                )
-            }
+        guard let command = queue.makeCommandBuffer(), let blit = command.makeBlitCommandEncoder() else {
+            throw allocationError()
         }
         blit.copy(from: staging, sourceOffset: 0, sourceBytesPerRow: rowBytes,
                   sourceBytesPerImage: rowBytes * start.atlasHeight,
@@ -89,22 +84,17 @@ final class MetalMeshUploader: @unchecked Sendable {
         guard let data = view.geometry,
               let staging = device.makeBuffer(bytes: data, length: view.geometry_length, options: .storageModeShared),
               let buffer = device.makeBuffer(length: view.geometry_length, options: .storageModePrivate),
-              let command = queue.makeCommandBuffer() else { throw allocationError() }
+              let command = queue.makeCommandBuffer(),
+              let blit = command.makeBlitCommandEncoder() else { throw allocationError() }
         buffer.label = "Schematic chunk \(batch.info.batch_index)"
+        // First-use RGBA textures upload ahead of the geometry copy, so every
+        // draw committed after this batch finds the pixels it samples.
+        for texture in UnsafeBufferPointer(start: view.textures, count: view.texture_count) {
+            try upload(texture, with: blit)
+        }
         var parts: [MetalMeshPart] = []
+        parts.reserveCapacity(view.part_count)
         for part in UnsafeBufferPointer(start: view.parts, count: view.part_count) {
-            if let png = part.texture_png, part.texture_length > 0 {
-                // The mesher exposes greedy textures as PNG. Borrow their bytes
-                // for the synchronous decoder; never retain native batch memory.
-                let data = Data(bytesNoCopy: UnsafeMutableRawPointer(mutating: png),
-                                count: part.texture_length, deallocator: .none)
-                textures[part.texture_index] = try loader.newTexture(data: data, options: [
-                    .SRGB: true, .generateMipmaps: true,
-                    .textureUsage: NSNumber(value: MTLTextureUsage.shaderRead.rawValue),
-                    .textureStorageMode: NSNumber(value: MTLStorageMode.private.rawValue),
-                    .origin: MTKTextureLoader.Origin.topLeft,
-                ])
-            }
             guard let texture = textures[part.texture_index] else {
                 throw NativeSchematicRefusal(message: "A mesh chunk is missing its block texture.")
             }
@@ -114,7 +104,6 @@ final class MetalMeshUploader: @unchecked Sendable {
                 alphaMode: Int(part.alpha_mode), texture: texture, repeats: part.texture_index != 0
             ))
         }
-        guard let blit = command.makeBlitCommandEncoder() else { throw allocationError() }
         blit.copy(from: staging, sourceOffset: 0, to: buffer, destinationOffset: 0, size: view.geometry_length)
         blit.endEncoding()
         command.addCompletedHandler { [self] command in
@@ -132,9 +121,57 @@ final class MetalMeshUploader: @unchecked Sendable {
                               extent: SIMD3(view.extent.0, view.extent.1, view.extent.2))
     }
 
+    /// Copies unpadded RGBA rows into a shared staging buffer, padding each row
+    /// to the 256-byte alignment blit copies expect. The caller keeps the
+    /// source pixels alive until this returns; the command buffer keeps the
+    /// staging buffer alive until the copy completes.
+    private func staging(
+        _ pixels: UnsafeRawPointer, rowBytes: Int, width: Int, height: Int
+    ) throws -> MTLBuffer {
+        guard let staging = device.makeBuffer(length: rowBytes * height, options: .storageModeShared)
+        else { throw allocationError() }
+        if rowBytes == width * 4 {
+            staging.contents().copyMemory(from: pixels, byteCount: rowBytes * height)
+        } else {
+            for y in 0..<height {
+                staging.contents().advanced(by: y * rowBytes).copyMemory(
+                    from: pixels.advanced(by: y * width * 4), byteCount: width * 4
+                )
+            }
+        }
+        return staging
+    }
+
+    /// Uploads one batch-owned RGBA8 texture as private shader storage. The
+    /// sampler's mip filter needs the chain repeating textures carry, so they
+    /// upload mipmapped and blit generates the levels; the clamped atlas
+    /// keeps the mip-free upload it got at stream open.
+    private func upload(_ texture: NQLBatchTexture, with blit: MTLBlitCommandEncoder) throws {
+        let width = Int(texture.width)
+        let height = Int(texture.height)
+        let descriptor = MTLTextureDescriptor.texture2DDescriptor(
+            pixelFormat: .rgba8Unorm_srgb, width: width, height: height,
+            mipmapped: texture.repeats
+        )
+        descriptor.storageMode = .private
+        descriptor.usage = .shaderRead
+        guard let target = device.makeTexture(descriptor: descriptor) else { throw allocationError() }
+        target.label = "Schematic texture \(texture.index)"
+        let rowBytes = (width * 4 + 255) & ~255
+        guard let source = texture.pixels else { throw allocationError() }
+        let staging = try staging(source, rowBytes: rowBytes, width: width, height: height)
+        blit.copy(from: staging, sourceOffset: 0, sourceBytesPerRow: rowBytes,
+                  sourceBytesPerImage: rowBytes * height,
+                  sourceSize: MTLSize(width: width, height: height, depth: 1),
+                  to: target, destinationSlice: 0, destinationLevel: 0,
+                  destinationOrigin: MTLOrigin(x: 0, y: 0, z: 0))
+        if texture.repeats { blit.generateMipmaps(for: target) }
+        textures[texture.index] = target
+    }
+
     func finish() throws {
-        // Queue ordering also covers atlas and texture-loader uploads. This
-        // checks completion without depending on MTKView visibility.
+        // Queue ordering also covers the atlas and first-use texture uploads.
+        // This checks completion without depending on MTKView visibility.
         uploads.wait()
         uploads.wait()
         uploads.signal()

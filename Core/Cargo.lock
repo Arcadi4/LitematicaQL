@@ -590,9 +590,9 @@ checksum = "3eaf3ede3fee6db1a4c2ee091bf8a8b4dccdc6d17f656fb07896ee72867612f2"
 
 [[package]]
 name = "litematica-preview-core"
-version = "0.1.1"
+version = "0.1.2"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "447ab342f215ee9e23498b9e4d06a91515e4a14e2300fd2ef84804250bb4924a"
+checksum = "23aa7eb2461f60d4e8c2f7a0d0e09f24b20afdad214e004ee8f258b6e5b04908"
 dependencies = [
  "flate2",
  "image",
@@ -615,7 +615,6 @@ dependencies = [
  "lz4_flex",
  "nucleation",
  "quartz_nbt",
- "schematic-mesher",
 ]
 
 [[package]]

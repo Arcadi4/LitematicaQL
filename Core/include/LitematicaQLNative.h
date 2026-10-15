@@ -1,6 +1,7 @@
 #ifndef LITEMATICAQL_NATIVE_H
 #define LITEMATICAQL_NATIVE_H
 
+#include <stdbool.h>
 #include <stddef.h>
 #include <stdint.h>
 
@@ -27,7 +28,9 @@ typedef struct NQLMeshStream NQLMeshStream;
 typedef struct NQLMeshBatch NQLMeshBatch;
 
 // Vertices are 24 bytes: UNORM16x4 position, float2 UV, SNORM8x4 normal,
-// UNORM8x4 color. Indices are uint16 or uint32, local to each part.
+// UNORM8x4 color. Indices are uint16 or uint32, local to each part. Texture
+// indices name an entry in the batch's texture views below, or zero for the
+// shared atlas delivered at stream open.
 typedef struct {
     size_t vertex_offset;
     size_t index_offset;
@@ -36,15 +39,27 @@ typedef struct {
     uint32_t index_size;
     uint32_t alpha_mode;
     uint32_t texture_index;
-    const uint8_t *texture_png;
-    size_t texture_length;
 } NQLMeshPart;
+
+// One first-use RGBA8 sRGB texture owned by a batch. Texture zero is the
+// clamped atlas, delivered once at stream open and never repeated; every
+// other texture repeats and may generate mipmaps.
+typedef struct {
+    uint32_t index;
+    uint32_t width;
+    uint32_t height;
+    bool repeats;
+    const uint8_t *pixels;
+    size_t length;
+} NQLBatchTexture;
 
 typedef struct {
     const uint8_t *geometry;
     size_t geometry_length;
     const NQLMeshPart *parts;
     size_t part_count;
+    const NQLBatchTexture *textures;
+    size_t texture_count;
     float origin[3];
     float extent[3];
 } NQLBatchView;

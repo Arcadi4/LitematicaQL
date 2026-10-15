@@ -73,8 +73,9 @@ struct Baseline {
     atlas: [u32; 2],
     /// Whether some greedy texture is introduced after the first batch. Organic
     /// builds have spatial texture coherence, so this is the normal case and it
-    /// holds the first-use PNG path honest; a generated stress build samples the
-    /// palette uniformly, so its first batch already touches every texture.
+    /// holds the first-use RGBA path honest; a generated stress build samples
+    /// the palette uniformly, so its first batch already touches every
+    /// texture.
     introduces_later_textures: bool,
     triangles: u64,
     /// Total batch bytes handed to the host. This is far larger than the peak
@@ -405,9 +406,9 @@ fn run(baseline: &Baseline, pack: *const litematicaql_native::NQLResourcePack) -
     measured.batches = mesh_info.batch_count;
 
     // Texture introduction is stream-wide state, so the first batch to use a
-    // greedy texture embeds its PNG and later batches reference the index
-    // alone. Tracking this across the whole stream is the only way to catch a
-    // texture that is referenced before the renderer has seen it.
+    // greedy texture carries its RGBA pixels and later batches reference the
+    // index alone. Tracking this across the whole stream is the only way to
+    // catch a texture that is referenced before the renderer has seen it.
     let mut introduced: HashMap<u32, u32> = HashMap::new();
     let mut bounds: Vec<([f32; 3], [f32; 3])> = Vec::with_capacity(mesh_info.batch_count as usize);
 
@@ -494,7 +495,7 @@ fn check_batch(
     assert_eq!(parts.len(), batch.part_count as usize);
     let mut vertices = 0;
     let mut indices = 0;
-    let mut texture_bytes = 0;
+    let mut referenced: Vec<u32> = Vec::new();
     for part in parts {
         assert!(
             part.vertex_count > 0 && part.index_count > 0,
@@ -503,20 +504,9 @@ fn check_batch(
         assert_eq!(part.index_count % 3, 0);
         assert!(matches!(part.index_size, 2 | 4));
         assert!(part.vertex_offset + part.vertex_count as usize * 24 <= geometry.len());
-        if part.texture_index == 0 {
-            assert_eq!(part.texture_length, 0, "{where_}: duplicate atlas");
-        } else if part.texture_length > 0 {
-            assert!(
-                introduced.insert(part.texture_index, expected).is_none(),
-                "{where_}: duplicate texture"
-            );
-            let png = unsafe { std::slice::from_raw_parts(part.texture_png, part.texture_length) };
-            assert!(png.starts_with(b"\x89PNG\r\n\x1a\n"));
-        } else {
-            assert!(
-                introduced.contains_key(&part.texture_index),
-                "{where_}: texture used before introduction"
-            );
+        // The atlas is delivered once at stream open, so no batch embeds it.
+        if part.texture_index != 0 {
+            referenced.push(part.texture_index);
         }
         let end = part.index_offset + part.index_count as usize * part.index_size as usize;
         assert!(end <= geometry.len());
@@ -530,7 +520,28 @@ fn check_batch(
         }
         vertices += part.vertex_count;
         indices += part.index_count;
-        texture_bytes += part.texture_length;
+    }
+    let mut texture_bytes = 0;
+    for texture in unsafe { std::slice::from_raw_parts(view.textures, view.texture_count) } {
+        assert!(texture.index != 0, "{where_}: duplicate atlas");
+        assert!(texture.repeats, "{where_}: clamped texture in a batch");
+        assert_eq!(
+            texture.length,
+            texture.width as usize * texture.height as usize * 4,
+            "{where_}: texture {} is not RGBA",
+            texture.index
+        );
+        assert!(
+            introduced.insert(texture.index, expected).is_none(),
+            "{where_}: duplicate texture"
+        );
+        texture_bytes += texture.length;
+    }
+    for index in referenced {
+        assert!(
+            introduced.contains_key(&index),
+            "{where_}: texture used before introduction"
+        );
     }
     assert_eq!(vertices, batch.vertex_count);
     assert_eq!(indices, batch.index_count);

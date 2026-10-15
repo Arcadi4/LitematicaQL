@@ -1,3 +1,4 @@
+use std::collections::HashMap;
 use std::fs;
 use std::path::PathBuf;
 
@@ -134,6 +135,10 @@ impl OwnedBatch {
         let view = self.view();
         unsafe { std::slice::from_raw_parts(view.parts, view.part_count) }
     }
+    fn textures(&self) -> &[litematicaql_native::stream::NQLBatchTexture] {
+        let view = self.view();
+        unsafe { std::slice::from_raw_parts(view.textures, view.texture_count) }
+    }
 }
 
 struct MeshResult {
@@ -142,11 +147,6 @@ struct MeshResult {
     batches: Vec<(OwnedBatch, NQLBatchInfo)>,
 }
 
-fn mesh(
-    handle: *const litematicaql_native::NQLSchematic,
-    pack: *const litematicaql_native::NQLResourcePack,
-) -> MeshResult {
-    let mut atlas = std::ptr::null_mut();
 fn empty_batch() -> NQLBatchInfo {
     NQLBatchInfo {
         batch_index: 0,
@@ -160,6 +160,11 @@ fn empty_batch() -> NQLBatchInfo {
     }
 }
 
+fn mesh(
+    handle: *const litematicaql_native::NQLSchematic,
+    pack: *const litematicaql_native::NQLResourcePack,
+) -> MeshResult {
+    let mut atlas = std::ptr::null_mut();
     let mut atlas_len = 0;
     let mut atlas_info = NQLAtlasInfo {
         width: 0,
@@ -192,6 +197,11 @@ fn empty_batch() -> NQLBatchInfo {
         nql_buffer_free(atlas, atlas_len);
     }
     let mut batches = Vec::new();
+    // Texture introduction is stream-wide state, so the first batch to use a
+    // greedy texture carries its RGBA pixels and later batches reference the
+    // index alone. Tracking this across the whole stream is the only way to
+    // catch a texture that is referenced before the host has seen it.
+    let mut introduced: HashMap<u32, u32> = HashMap::new();
     for expected in 0..mesh_info.batch_count {
         let mut bytes = std::ptr::null_mut();
         let mut batch_info = empty_batch();
@@ -202,7 +212,9 @@ fn empty_batch() -> NQLBatchInfo {
         let message = take_error(&mut failure);
         assert_eq!(result, status::OK, "batch {expected}: {message}");
         assert!(!bytes.is_null());
-        batches.push((OwnedBatch(bytes), batch_info));
+        let owned = OwnedBatch(bytes);
+        assert_valid_batch(&owned, &batch_info, &mut introduced);
+        batches.push((owned, batch_info));
     }
     let mut bytes = std::ptr::null_mut();
     let mut batch_info = empty_batch();
@@ -227,11 +239,11 @@ fn empty_batch() -> NQLBatchInfo {
     }
 }
 
-fn assert_valid_batch(batch: &OwnedBatch, info: &NQLBatchInfo) {
+fn assert_valid_batch(batch: &OwnedBatch, info: &NQLBatchInfo, introduced: &mut HashMap<u32, u32>) {
     let parts = batch.parts();
     assert_eq!(parts.len(), info.part_count as usize);
     let geometry = batch.geometry();
-    let mut texture_bytes = 0;
+    let mut referenced = Vec::new();
     for part in parts {
         assert!(part.vertex_offset + part.vertex_count as usize * 24 <= geometry.len());
         assert!(matches!(part.index_size, 2 | 4));
@@ -245,11 +257,34 @@ fn assert_valid_batch(batch: &OwnedBatch, info: &NQLBatchInfo) {
             };
             assert!(index < part.vertex_count);
         }
-        assert!(
-            part.texture_index != 0 || part.texture_length == 0,
-            "atlas embedded in batch"
+        if part.texture_index != 0 {
+            referenced.push(part.texture_index);
+        }
+    }
+    // The atlas is delivered once at stream open, so no batch embeds it; every
+    // texture here repeats and carries RGBA8 sRGB pixels.
+    let mut texture_bytes = 0;
+    for texture in batch.textures() {
+        assert_ne!(texture.index, 0, "atlas embedded in batch");
+        assert!(texture.repeats, "clamped texture in a batch");
+        assert_eq!(
+            texture.length,
+            texture.width as usize * texture.height as usize * 4,
+            "texture {} is not RGBA",
+            texture.index
         );
-        texture_bytes += part.texture_length;
+        assert!(
+            introduced.insert(texture.index, info.batch_index).is_none(),
+            "duplicate texture {}",
+            texture.index
+        );
+        texture_bytes += texture.length;
+    }
+    for index in referenced {
+        assert!(
+            introduced.contains_key(&index),
+            "texture {index} used before introduction"
+        );
     }
     assert_eq!(geometry.len() + texture_bytes, info.payload_length as usize);
 }
@@ -260,9 +295,6 @@ fn assert_shared_atlas(result: &MeshResult) {
         result.atlas.len(),
         result.atlas_info.width as usize * result.atlas_info.height as usize * 4
     );
-    for (batch, info) in &result.batches {
-        assert_valid_batch(batch, info);
-    }
 }
 
 fn deterministic_fixture() -> Vec<u8> {

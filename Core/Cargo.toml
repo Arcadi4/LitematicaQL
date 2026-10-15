@@ -27,15 +27,12 @@ lto = "fat"
 codegen-units = 1
 
 [dependencies]
-litematica-preview-core = "0.1.1"
+litematica-preview-core = "0.1.2"
 # 0.10.15 and later publish `meshing` with a crates.io `gltf_build` version that
 # lacks the git-only API its `glb.rs` calls. This pin keeps the feature buildable.
 nucleation = { version = "=0.10.14", default-features = false, features = [
   "meshing",
 ] }
-# A direct crates.io dependency lets Nucleation's version-or-git mesher
-# requirement resolve to one copy.
-schematic-mesher = "0.2.0"
 
 [dev-dependencies]
 quartz_nbt = { version = "0.2.9", features = ["preserve_order"] }
