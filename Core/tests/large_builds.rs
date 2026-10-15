@@ -187,16 +187,6 @@ const BASELINES: &[Baseline] = &[
     },
 ];
 
-/// The one ceiling that does not depend on the machine, and so is shared
-/// rather than per-build.
-struct Budget {
-    /// A multiplier of the current peak, so a change can grow resident geometry
-    /// slowly without ever doubling it.
-    peak_headroom: f64,
-}
-
-const BUDGET: Budget = Budget { peak_headroom: 1.25 };
-
 /// Freeing a preview has to give back everything but the harness's own
 /// bookkeeping, which a megabyte-scale allowance comfortably covers.
 const RETAINED_BUDGET: usize = 2 * 1024 * 1024;
