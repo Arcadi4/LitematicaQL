@@ -147,6 +147,19 @@ fn mesh(
     pack: *const litematicaql_native::NQLResourcePack,
 ) -> MeshResult {
     let mut atlas = std::ptr::null_mut();
+fn empty_batch() -> NQLBatchInfo {
+    NQLBatchInfo {
+        batch_index: 0,
+        part_count: 0,
+        vertex_count: 0,
+        index_count: 0,
+        triangle_count: 0,
+        payload_length: 0,
+        bounds_min: [0.0; 3],
+        bounds_max: [0.0; 3],
+    }
+}
+
     let mut atlas_len = 0;
     let mut atlas_info = NQLAtlasInfo {
         width: 0,
@@ -181,16 +194,7 @@ fn mesh(
     let mut batches = Vec::new();
     for expected in 0..mesh_info.batch_count {
         let mut bytes = std::ptr::null_mut();
-        let mut batch_info = NQLBatchInfo {
-            batch_index: 0,
-            part_count: 0,
-            vertex_count: 0,
-            index_count: 0,
-            triangle_count: 0,
-            payload_length: 0,
-            bounds_min: [0.0; 3],
-            bounds_max: [0.0; 3],
-        };
+        let mut batch_info = empty_batch();
         let mut failure = error();
         let result = unsafe {
             nql_mesh_stream_next(stream, expected, &mut bytes, &mut batch_info, &mut failure)
@@ -201,16 +205,7 @@ fn mesh(
         batches.push((OwnedBatch(bytes), batch_info));
     }
     let mut bytes = std::ptr::null_mut();
-    let mut batch_info = NQLBatchInfo {
-        batch_index: 0,
-        part_count: 0,
-        vertex_count: 0,
-        index_count: 0,
-        triangle_count: 0,
-        payload_length: 0,
-        bounds_min: [0.0; 3],
-        bounds_max: [0.0; 3],
-    };
+    let mut batch_info = empty_batch();
     let mut failure = error();
     let result = unsafe {
         nql_mesh_stream_next(
