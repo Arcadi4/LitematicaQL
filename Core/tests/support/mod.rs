@@ -1,17 +1,6 @@
-//! A `GlobalAlloc` that tracks how many bytes are live at once.
-//!
-//! Peak live bytes answer a question wall-clock timing cannot: whether a
-//! change makes the native bridge hold more of a model in memory. The counts
-//! come from the allocator rather than the OS, so they exclude allocator
-//! bookkeeping and stay comparable across machines.
-//!
-//! Each thread keeps its own running total and folds it into the shared
-//! figures periodically rather than charging on every call. Charging on every
-//! call makes each allocation a contended read-modify-write across the mesher's
-//! worker threads, and the suite then measures its own instrumentation: one
-//! build streams in seconds and takes hundreds of seconds under the meter. The
-//! thread that ends holding a partial total pays it on the way out, so the live
-//! figure cannot stall above the truth.
+//! Peak live bytes measure whether a change makes the native bridge hold more
+//! of a model in memory. The counts come from the allocator, so they exclude
+//! allocator bookkeeping and stay comparable across machines.
 
 use std::alloc::{GlobalAlloc, Layout, System};
 use std::cell::Cell;
@@ -19,16 +8,15 @@ use std::sync::atomic::{AtomicIsize, Ordering};
 
 pub struct AllocationMeter;
 
-/// Calls a thread charges before folding its running total in.
 const CALLS_PER_FOLD: usize = 1024;
 
-/// Bytes a thread may leave uncharged, so a large buffer is never invisible.
+/// Maximum bytes one thread holds uncharged. An allocation that passes this
+/// limit triggers an immediate fold.
 const BYTES_PER_FOLD: isize = 16 * 1024;
 
 static LIVE: AtomicIsize = AtomicIsize::new(0);
 static PEAK: AtomicIsize = AtomicIsize::new(0);
 
-/// One thread's uncharged allocations: bytes still held, and calls seen.
 struct Uncharged {
     bytes: Cell<isize>,
     calls: Cell<usize>,
@@ -52,14 +40,15 @@ thread_local! {
     };
 }
 
-/// Fold one thread's running total in and mark the high-water mark.
 fn fold(bytes: isize) {
     let live = LIVE.fetch_add(bytes, Ordering::Relaxed) + bytes;
     PEAK.fetch_max(live, Ordering::Relaxed);
 }
 
-/// Charge or credit bytes on this thread. Returns the amount that still has to
-/// reach the shared figures, which is zero while the thread keeps accumulating.
+/// Charges or credits bytes to the running total on this thread. The total
+/// folds into the shared counters when it passes the [`BYTES_PER_FOLD`] or
+/// [`CALLS_PER_FOLD`] limit. Returns the amount that the caller must fold now,
+/// or zero.
 #[inline]
 fn pending_fold(bytes: isize) -> isize {
     UNCHARGED
@@ -80,8 +69,8 @@ fn pending_fold(bytes: isize) -> isize {
 }
 
 impl AllocationMeter {
-    /// Bytes currently held by the process, less whatever each thread has yet
-    /// to fold in.
+    /// Bytes the process currently holds, less the uncharged total on each
+    /// thread.
     pub fn live() -> usize {
         LIVE.load(Ordering::Relaxed).max(0) as usize
     }
@@ -91,8 +80,8 @@ impl AllocationMeter {
         PEAK.load(Ordering::Relaxed).max(0) as usize
     }
 
-    /// Start a fresh high-water mark from whatever is live right now, so one
-    /// measured phase excludes allocations an earlier phase left behind.
+    /// Sets a fresh high-water mark at the bytes that are live now, so one
+    /// measured phase excludes allocations from an earlier phase.
     pub fn reset_peak() {
         PEAK.store(LIVE.load(Ordering::Relaxed), Ordering::Relaxed);
     }

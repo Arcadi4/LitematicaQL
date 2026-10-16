@@ -197,10 +197,10 @@ fn mesh(
         nql_buffer_free(atlas, atlas_len);
     }
     let mut batches = Vec::new();
-    // Texture introduction is stream-wide state, so the first batch to use a
-    // greedy texture carries its RGBA pixels and later batches reference the
-    // index alone. Tracking this across the whole stream is the only way to
-    // catch a texture that is referenced before the host has seen it.
+    // Texture introduction is stream-wide state. The first batch that uses a
+    // greedy texture carries its RGBA pixels, and later batches reference the
+    // index alone. Only a map that spans the whole stream catches a texture
+    // used before its introduction.
     let mut introduced: HashMap<u32, u32> = HashMap::new();
     for expected in 0..mesh_info.batch_count {
         let mut bytes = std::ptr::null_mut();
@@ -258,9 +258,9 @@ fn assert_valid_batch(batch: &OwnedBatch, info: &NQLBatchInfo, introduced: &mut 
             };
             assert!(index < part.vertex_count);
         }
-        // Per-part actual-geometry bounds, in the same block-center space the
-        // batch's `origin`/`extent` shader transform decodes. They are the box
-        // the renderer frustum-tests, so each must stay inside the batch box.
+        // Part bounds are in the same block-center space that the batch
+        // `origin` and `extent` shader transform decodes. The renderer
+        // frustum-tests each part box, so it must stay inside the batch box.
         for axis in 0..3 {
             assert!(part.min[axis].is_finite(), "part min is not finite");
             assert!(part.max[axis].is_finite(), "part max is not finite");
@@ -278,7 +278,7 @@ fn assert_valid_batch(batch: &OwnedBatch, info: &NQLBatchInfo, introduced: &mut 
             referenced.push(part.texture_index);
         }
     }
-    // The atlas is delivered once at stream open, so no batch embeds it; every
+    // The atlas is delivered once at stream open, so no batch embeds it. Every
     // texture here repeats and carries RGBA8 sRGB pixels.
     let mut texture_bytes = 0;
     for texture in batch.textures() {
@@ -318,10 +318,10 @@ fn deterministic_fixture() -> Vec<u8> {
     fs::read(repo_root().join("Fixtures/Demos/Cottage.litematic")).expect("litematic demo")
 }
 
-/// `Core/include/LitematicaQLNative.h` mirrors the engine's `MeshPart` field for
-/// field, because the Swift host reads these descriptors through the C ABI. Pin
-/// the layout here so a drifted header fails the suite instead of silently
-/// misreading a part's bounds.
+/// The C header `Core/include/LitematicaQLNative.h` mirrors the engine
+/// `MeshPart` struct, field for field. The Swift host reads these descriptors
+/// through the C ABI. This test pins the layout, so a drifted header fails the
+/// suite instead of misreading part bounds.
 #[test]
 fn native_part_layout_matches_the_c_header() {
     use litematicaql_native::stream::NQLMeshPart;
@@ -397,10 +397,10 @@ fn cancellation_returns_no_geometry_through_the_c_abi() {
     }
 }
 
-// `Fixtures/Large` is deliberately absent: this sweep keeps every batch payload
-// in a `Vec`, and those builds mesh to about 1.6 GB between them. The large
-// fixtures have their own test, which validates and releases each batch as it
-// arrives, the way the host does.
+// `Fixtures/Large` is deliberately absent. This test keeps every batch payload
+// in a `Vec`, and the large builds together mesh to about 1.6 GB. A separate
+// test covers the large fixtures: it validates and releases each batch on
+// arrival, the way the host does.
 #[test]
 fn every_format_and_demo_fixture_uses_the_c_abi() {
     let pack = open_pack(&pack_bytes());
@@ -509,9 +509,9 @@ fn mca_notices_and_custom_lz4_survive_the_c_abi() {
 }
 
 /// The renderer frames the schematic from the occupied-block bounds reported
-/// before meshing, then only widens that frame to admit streamed geometry. If
-/// geometry reached outside the padded block box, each batch would nudge the
-/// camera and the preview would jitter while it loads.
+/// before meshing, and the frame only widens when streamed geometry needs more
+/// room. If geometry reaches outside the padded block box, each batch moves
+/// the camera and the preview jitters while it loads.
 #[test]
 fn streamed_geometry_stays_within_the_camera_frame() {
     // A negative content origin exercises the padding on the low side too.
@@ -525,7 +525,8 @@ fn streamed_geometry_stays_within_the_camera_frame() {
         let facts = info(handle);
         assert!(facts.content_x > 0 && facts.content_y > 0 && facts.content_z > 0);
 
-        // A block at `p` is meshed around its center, spanning [p - 0.5, p + 0.5].
+        // The mesher places geometry around the block center, so a block
+        // at `p` spans [p - 0.5, p + 0.5].
         let frame_min = [
             facts.content_min_x as f32 - 0.5,
             facts.content_min_y as f32 - 0.5,

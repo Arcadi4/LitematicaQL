@@ -1,11 +1,9 @@
 import Foundation
 
-/// The saved library is independent of which pack is currently parsed for rendering.
-///
-/// State lives in the app-group container so the Quick Look extension can read
-/// the same archives and selection the app manages. Both hosts fall back to
-/// their own container when the group is unavailable, which keeps tests and
-/// ad-hoc builds working without the entitlement.
+/// The library state lives in the app-group container so the Quick Look
+/// extension reads the same packs and selection as the app. Both hosts fall
+/// back to their own container when the group is unavailable. Tests and
+/// ad-hoc builds then work without the entitlement.
 @MainActor
 struct TexturePackLibrary {
     /// Shared between the app and the Quick Look preview extension.
@@ -22,9 +20,9 @@ struct TexturePackLibrary {
     }
 
     /// The selection handoff between the host app and its Quick Look extension.
-    /// Plain JSON, because `UserDefaults(suiteName:)` does not resolve group
-    /// suites inside every extension runtime even when the group container
-    /// itself is accessible.
+    /// The file format is JSON because `UserDefaults(suiteName:)` does not
+    /// resolve group suites in every extension runtime, even when the group
+    /// container is accessible.
     struct SelectionHandoff: Codable {
         var selectedID: UUID?
     }
@@ -32,15 +30,15 @@ struct TexturePackLibrary {
     private static let libraryKey = "texturePackLibrary"
     private let defaults: UserDefaults
     private let publishesSelection: Bool
-    /// Where the selection handoff is published; nil resolves the group
+    /// Where the selection handoff is published. nil means the group
     /// container. Tests point it at their own fixtures.
     private let selectionDirectory: URL?
     let directory: URL
     private var saved: SavedLibrary
 
-    /// The library defaults domain, shared through the app-group container when
-    /// it is available. The SwiftPM package and tests use standard defaults
-    /// because they run outside the sandbox entirely.
+    /// The defaults suite for the library, shared through the app-group
+    /// container when it is available. The SwiftPM package and tests run
+    /// outside the sandbox and get standard defaults.
     static func sharedDefaults() -> UserDefaults {
         UserDefaults(suiteName: groupIdentifier) ?? .standard
     }
@@ -52,9 +50,9 @@ struct TexturePackLibrary {
         )?.appendingPathComponent("Texture Packs", isDirectory: true)
     }
 
-    /// Publishes the selected pack id where the Quick Look extension can read
-    /// it. Atomic and best-effort: a failed handoff degrades to vanilla Quick
-    /// Look rendering while the app itself still works.
+    /// Publishes the selected pack id where the Quick Look extension reads it.
+    /// Atomic and best-effort: a failed write is not fatal. The app keeps
+    /// working, and the extension renders without the selected pack.
     static func writeSelectionFile(_ id: UUID?, directory: URL? = nil) {
         guard let directory = directory ?? sharedDirectory() else { return }
         let url = directory.appendingPathComponent("Selection.json")
@@ -66,9 +64,10 @@ struct TexturePackLibrary {
         }
     }
 
-    /// The archive the Quick Look extension should parse, resolved from the
-    /// published selection. Returns nil for vanilla and for selections whose
-    /// archive went missing. `directory` overrides the group container, for tests.
+    /// The archive for the Quick Look extension to parse, resolved from the
+    /// published selection. Returns nil when no pack is selected and when the
+    /// selected archive does not exist. `directory` overrides the group
+    /// container, for tests.
     static func sharedSelectedFileURL(directory source: URL? = nil) -> URL? {
         guard let directory = source ?? sharedDirectory() else { return nil }
         let url = directory.appendingPathComponent("Selection.json")
@@ -107,7 +106,8 @@ struct TexturePackLibrary {
         directory.appendingPathComponent(id.uuidString).appendingPathExtension("zip")
     }
 
-    /// Register an archive only after it has been validated and copied off-thread.
+    /// Register an archive only after the caller validates it and copies it
+    /// off-thread.
     @discardableResult
     mutating func add(_ pack: Pack) throws -> Pack {
         var name = pack.name
@@ -132,16 +132,17 @@ struct TexturePackLibrary {
         saved = next
     }
 
-    /// Drops the index entry and deletes the archive. The store deletes through
-    /// `removeEntry` instead, so this stays only for tests and direct callers.
+    /// Removes the index entry and deletes the archive in this call. The
+    /// store uses `removeEntry`, so this method is for tests and direct
+    /// callers.
     mutating func remove(_ id: UUID) throws {
         let url = fileURL(for: id)
         try removeEntry(id)
         try? FileManager.default.removeItem(at: url)
     }
 
-    /// Drops the index entry without touching the filesystem. The store uses
-    /// this on the main actor and deletes the archive off-thread.
+    /// Removes the index entry without touching the filesystem. The store
+    /// calls this on the main actor and deletes the archive off-thread.
     mutating func removeEntry(_ id: UUID) throws {
         guard packs.contains(where: { $0.id == id }) else { return }
         var next = saved
@@ -158,21 +159,21 @@ struct TexturePackLibrary {
         }
     }
 
-    /// Drops unreadable saved state so the next launch starts from an empty
-    /// library. Archives on disk are left alone; only the index is discarded.
-    /// `selectionDirectory` overrides where the published selection is cleared,
-    /// for tests; nil means the real group container.
+    /// Removes saved state that the library cannot decode, and clears the
+    /// published selection, so the next launch starts from an empty library.
+    /// Archives on disk are not deleted. `selectionDirectory` overrides where
+    /// the selection is cleared, for tests. nil means the real group container.
     static func discardSavedState(defaults: UserDefaults = .standard,
                                   selectionDirectory: URL? = nil) {
         defaults.removeObject(forKey: Self.libraryKey)
         writeSelectionFile(nil, directory: selectionDirectory)
     }
 
-    /// Copies the pre-group-container library (per-app `defaults` and
+    /// Copies the legacy state (the per-app `defaults` index and the
     /// per-app-sandbox archives) into the shared group storage. Every step is
-    /// idempotent and failure-tolerant: a failure leaves the source untouched
-    /// and changes the destination as far as it could get. Returns true when
-    /// the legacy state is gone, either because it moved or never existed.
+    /// idempotent. A failure leaves the source unchanged and the destination
+    /// partly updated. Returns true when the legacy state is gone: it moved,
+    /// or it never existed.
     static func migrateLegacyState() -> Bool {
         migrateLegacyState(
             from: .standard,
@@ -192,8 +193,8 @@ struct TexturePackLibrary {
         publishingSelectionIn selectionDirectory: URL? = nil
     ) -> Bool {
         guard sharedDefaults.data(forKey: libraryKey) == nil else { return true }
-        // A host without legacy state must not write an empty index: that
-        // would make the host that does have legacy state skip its migration.
+        // A host without legacy state must not write an empty index. An empty
+        // index makes the host with legacy state skip its migration.
         guard let legacyData = legacyDefaults.data(forKey: libraryKey) else { return true }
         guard let sharedDirectory else { return false }
 
@@ -201,7 +202,8 @@ struct TexturePackLibrary {
         do {
             saved = try JSONDecoder().decode(SavedLibrary.self, from: legacyData)
         } catch {
-            // Unreadable state has nothing to carry over; start from empty.
+            // Unreadable legacy state has nothing to copy, so the migration
+            // writes an empty index.
         }
 
         do {
@@ -225,8 +227,8 @@ struct TexturePackLibrary {
             try? FileManager.default.removeItem(at: legacyDirectory)
             return true
         } catch {
-            // Partial migration is retryable: fewer files copied only means
-            // fewer to copy next time.
+            // A partial migration is safe to retry. The next call copies every
+            // archive again and removes the legacy state only after success.
             return false
         }
     }
@@ -238,7 +240,8 @@ struct TexturePackLibrary {
     }
 
     /// The archive of the selected pack, for hosts that parse packs lazily.
-    /// Returns nil for vanilla and for selections whose archive went missing.
+    /// Returns nil when no pack is selected and when the archive does not
+    /// exist.
     func selectedFileURL() -> URL? {
         guard let id = selectedID else { return nil }
         let url = fileURL(for: id)

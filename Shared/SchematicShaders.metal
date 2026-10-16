@@ -23,8 +23,8 @@ vertex Varying schematicVertex(Vertex in [[stage_in]], constant Frame &frame [[b
     out.position = frame.viewProjection * float4(world, 1.0);
     out.uv = in.uv;
     out.color = half4(in.color);
-    // Directional light plus a hemisphere term; the mesher's vertex colors
-    // already include biome tint and ambient occlusion.
+    // Directional light plus a hemisphere term. The mesher already includes
+    // biome tint and ambient occlusion in the vertex colors.
     float3 normal = normalize(in.normal.xyz);
     out.light = half(0.58 + 0.22 * max(normal.y, 0.0) +
                      0.20 * max(dot(normal, normalize(float3(-0.4, 0.8, 0.5))), 0.0));

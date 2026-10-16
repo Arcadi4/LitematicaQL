@@ -1,11 +1,12 @@
 import Foundation
 import LitematicaQLNative
 
-/// A content-level preview failure with panel-ready user-facing text.
+/// A preview failure from the native decoder. The message is user-facing text
+/// for the preview panel.
 struct NativeSchematicRefusal: LocalizedError, Sendable, Identifiable {
     let message: String
-    /// True when a preview quota — not the content's shape — caused the
-    /// refusal, so the host may re-read the file past the quota after asking.
+    /// True when a preview quota, not the content shape, caused the refusal.
+    /// The host can then ask the user and read the file past the quota.
     let isPreviewLimit: Bool
     var errorDescription: String? { message }
     var id: String { message }
@@ -20,7 +21,8 @@ struct NativeSchematicRefusal: LocalizedError, Sendable, Identifiable {
 struct NativeSchematicFacts: Sendable {
     let blockCount: Int
     let blockEntityCount: Int
-    /// Occupied-block bounds; region padding can make declared dimensions larger.
+    /// The bounds of the occupied blocks. Region padding can make the
+    /// declared dimensions larger.
     let contentDimensions: (Int, Int, Int)
     /// Lower corner of the occupied-block box. Pairs with `contentDimensions`
     /// to give the full framing box before any geometry is meshed.
@@ -37,7 +39,7 @@ struct NativeMeshStart: Sendable {
     let atlasHeight: Int
 }
 
-/// Owns one native allocation until Metal has copied the compact geometry.
+/// Owns one native allocation until Metal copies the compact geometry.
 final class NativeMeshBatch: @unchecked Sendable {
     let handle: OpaquePointer
     let info: NQLBatchInfo
@@ -51,13 +53,13 @@ final class NativeMeshBatch: @unchecked Sendable {
     deinit { nql_mesh_batch_free(handle) }
 }
 
-/// Owns a parsed immutable resource pack. One instance may be reused by any
-/// number of previews; the native pack is immutable after this call returns.
+/// Owns a parsed immutable resource pack. Any number of previews can reuse
+/// one instance. The native pack is immutable after `init` returns.
 final class NativeResourcePack: @unchecked Sendable {
     private let handle: OpaquePointer
 
-    // Parsing is expensive and the resource pack is immutable. Swift's static
-    // initialization serializes the first access across preview workers.
+    // Parsing is expensive. Swift evaluates this constant once and serializes
+    // the first access across preview workers.
     static let bundled: Result<NativeResourcePack, Error> = Result {
         guard let url = Bundle.main.url(forResource: "pack", withExtension: "zip") else {
             throw NativeSchematicRefusal(message: "The bundled block resources are missing.")
@@ -113,17 +115,18 @@ final class NativeResourcePack: @unchecked Sendable {
 
 /// Owns one native decoded-preview handle.
 ///
-/// The handle may be cancelled from Swift structured concurrency while native
-/// meshing is active. Decoding, querying, meshing, and release remain inside
-/// synchronous calls; only cancellation may overlap a mesh call.
+/// The caller can cancel the session from Swift structured concurrency while
+/// native meshing is active. Decoding, querying, meshing, and release are
+/// synchronous calls. Only cancellation can overlap a mesh call.
 final class NativeSchematicSession: @unchecked Sendable {
     private var handle: OpaquePointer?
     private var meshStream: OpaquePointer?
     private var resourcePack: NativeResourcePack?
     private let cancellationLock = NSLock()
     private var cancelled = false
-    /// Reads past every preview quota. Set once the user has chosen to render
-    /// a refused file; both native stages then take their override entry.
+    /// When true, decode and mesh use the override entry points and read past
+    /// every preview quota. The host sets it when the user chooses to render
+    /// a refused file.
     private let overridesPreviewLimits: Bool
 
     init(overridesPreviewLimits: Bool = false) {
@@ -264,8 +267,9 @@ final class NativeSchematicSession: @unchecked Sendable {
         return NativeMeshBatch(handle: batch, info: info)
     }
 
-    // Only the producer uses or releases the stream; cancellation touches just
-    // the schematic's atomic flag and never frees memory under a mesh call.
+    // Only the producer uses or releases the stream. Cancellation sets only
+    // the atomic flag on the schematic, and it never frees memory under a
+    // mesh call.
     func endMesh() {
         if let meshStream { nql_mesh_stream_free(meshStream) }
         meshStream = nil

@@ -45,9 +45,9 @@ enum LitematicFile {
         supportedFileExtensions.contains(url.pathExtension.lowercased())
     }
 
-    /// Reads a regular, nonempty file no larger than `maximumFileSize` after checking
-    /// its extension. Content validation belongs to the native decoder because several
-    /// supported formats are uncompressed.
+    /// Reads a regular, nonempty file no larger than `maximumFileSize` after
+    /// checking its extension. Content validation belongs to the native
+    /// decoder because some supported formats are uncompressed.
     static func readValidatedData(from url: URL) throws -> Data {
         guard supports(url) else {
             throw LitematicFileError.unsupportedExtension

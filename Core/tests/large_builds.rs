@@ -1,34 +1,32 @@
 //! Real-world builds at million-block scale, through the C ABI.
 //!
-//! The `Formats` and `Demos` fixtures are authored by this project and stay
-//! small enough to hold in memory at once. These four are third-party or
-//! stress builds that mesh in bulk, which makes them the only fixtures that
-//! exercise:
+//! The `Formats` and `Demos` fixtures are small project builds, and these
+//! four are third-party or stress builds that mesh in bulk. They are the
+//! only fixtures that exercise:
 //!
-//! - Litematic versions 5 and 6, and palettes built by Minecraft itself rather
-//!   than by `generate-demos.ts`.
-//! - The streaming path end to end. `preview.rs` keeps every batch payload in a
-//!   `Vec`, so it cannot run these; each batch here is validated and released
-//!   before the next is requested, exactly as the host does.
-//! - Meshing a build with hundreds of greedy-meshed textures, where the atlas
-//!   no longer covers the model and each texture must be introduced by the
-//!   first batch that uses it.
-//! - A palette several times larger than the block count warrants, packed
-//!   densely with non-solid blocks (`DenseNonSolid`): almost no hidden face can
-//!   be culled and almost none can be greedy-merged, so per-block vertex volume
-//!   is an order of magnitude above the organic builds. It is the build that
-//!   catches a regression in either optimization, and the one the
-//!   texture-preparation path spends its time on.
-//! - A solid interior fifteen times larger than any other fixture's block count
-//!   (`Concrete`), where every hidden face is culled and the geometry that
-//!   survives is only the shell. It is the only build that makes the compact
-//!   block store dominate memory, and its triangle throughput is low by design,
-//!   so the throughput floor is the metric to watch when it regresses.
+//! - Litematic versions 5 and 6, and palettes that Minecraft itself built
+//!   rather than `generate-demos.ts`.
+//! - The streaming path end to end. The test validates and frees each batch
+//!   before it requests the next one, as the host does. `preview.rs` keeps
+//!   every batch payload in a `Vec`, so it cannot run these fixtures.
+//! - A build with hundreds of greedy textures. The atlas cannot cover the
+//!   model, so the first batch that uses each texture must carry its
+//!   pixels.
+//! - A dense palette of non-solid blocks (`DenseNonSolid`). The mesher can
+//!   cull almost no hidden face and can greedy-merge almost none. The
+//!   vertex volume per block is therefore about ten times the organic
+//!   builds. A regression in either optimization fails here, and texture
+//!   preparation takes most of the runtime.
+//! - A solid interior fifteen times larger than any other fixture's block
+//!   count (`Concrete`). Every hidden face is culled, so only the shell
+//!   survives. This is the only build that makes the compact block store
+//!   dominate memory. Its wall-clock ceiling, not a throughput floor,
+//!   guards it.
 //!
-//! The test also reports throughput and peak resident geometry, because the
-//! failure mode this guards against is a preview that quietly stops scaling:
-//! a change that doubles the geometry or holds a second copy of it would still
-//! pass a "does it draw" assertion on a fast machine.
+//! The test writes a report and asserts throughput, memory, and wall-clock
+//! budgets in optimized builds. A change that doubles the geometry or keeps
+//! a second copy of it still passes a draw check on a fast machine. These
+//! budgets catch it.
 
 mod support;
 
@@ -48,22 +46,19 @@ use support::AllocationMeter;
 #[global_allocator]
 static ALLOCATOR: AllocationMeter = AllocationMeter;
 
-/// Litematic regions are padded to whole chunks, and `nql_mesh_stream_open`
-/// partitions the model into `CHUNK_SIZE` cubes, so batch bounds land on a
-/// 64-block grid. A batch that is misaligned, oversized, or overlaps another
-/// would mean geometry is duplicated or dropped.
+/// Litematic pads regions to whole chunks, and `nql_mesh_stream_open`
+/// partitions the model into cubes of this size, so batch bounds sit on
+/// this grid.
 const CHUNK_SIZE: f32 = 64.0;
 
-/// What the pipeline has to keep producing for a bundled build.
+/// Recorded output that the pipeline must reproduce for one large build.
 ///
-/// Counts that come out of integer parsing are pinned exactly: a silent change
-/// means blocks were dropped or duplicated, and the model would show a hole or
-/// z-fighting that no amount of drawing correctness would catch. Counts that
-/// depend on the mesher's floating-point output carry a one percent band so a
-/// benign difference in vertex packing does not fail the run.
+/// The check pins the counts from integer parsing exactly. A difference
+/// means the decoder dropped or duplicated blocks, and the model shows a
+/// hole or z-fighting. The check applies the [`VOLUME_TOLERANCE`] band to
+/// counts from mesher floating-point output.
 struct Baseline {
     name: &'static str,
-    /// Litematic format version, which the two fixtures straddle.
     litematic_version: i32,
     block_count: i64,
     block_entities: i64,
@@ -71,39 +66,38 @@ struct Baseline {
     batches: u32,
     greedy_textures: u32,
     atlas: [u32; 2],
-    /// Whether some greedy texture is introduced after the first batch. Organic
-    /// builds have spatial texture coherence, so this is the normal case and it
-    /// holds the first-use RGBA path honest; a generated stress build samples
-    /// the palette uniformly, so its first batch already touches every
-    /// texture.
+    /// Whether the stream introduces some greedy texture after the first
+    /// batch. Organic builds have spatial texture coherence, so this is the
+    /// normal case. A generated stress build samples the palette uniformly,
+    /// so its first batch uses every texture.
     introduces_later_textures: bool,
     triangles: u64,
-    /// Total batch bytes handed to the host. This is far larger than the peak
-    /// live figure because the batches are meshed and released one at a time
-    /// instead of all being resident at once; that gap is the whole design,
-    /// and a change that closed it would leave the host holding gigabytes it
-    /// has no reason to.
+    /// Total batch bytes handed to the host over the whole stream. The host
+    /// releases each batch before the next request, so the peak live bytes
+    /// stay far below this total. A change that closes that gap makes the
+    /// host hold gigabytes.
     payload_bytes: u64,
     /// Extent of the union of every batch bound.
     geometry: [f32; 3],
-    /// Ceiling on peak live bytes while streaming: the recorded peak plus a
-    /// quarter, absorbing the few percent of drift from how many chunks the
-    /// mesher has in flight. Stated outright rather than as a ratio, because
-    /// integer division rounds `5 / 4` to a factor of exactly one.
+    /// Ceiling on peak live bytes while streaming. It is the recorded peak
+    /// plus a quarter, with room for drift in the count of chunks that the
+    /// mesher processes at once. The value is absolute, not a ratio, because
+    /// integer division rounds `5 / 4` down to one.
     peak_budget: usize,
-    /// Wall-clock ceiling for the build. Per-build because a solid interior
-    /// holds a thousand times more blocks than its surviving geometry, so its
-    /// honest runtime shares nothing with the organic builds.
+    /// Wall-clock ceiling for one build. The ceiling is per build, because
+    /// the ratio of block count to surviving geometry differs greatly across
+    /// the fixtures.
     total_budget: Duration,
-    /// Geometry throughput floor; bytes/s would penalize the compact GPU
-    /// layout. A build whose interior is culled away leaves almost no
-    /// triangles to stream per block, so its floor is set to zero and the
-    /// time budget above is what guards it.
+    /// Floor on throughput, in millions of triangles per second. The floor
+    /// does not use bytes per second, because the compact vertex layout
+    /// stores fewer bytes per triangle. A build with a culled interior
+    /// leaves almost no triangles per block, so its floor is zero and the
+    /// wall-clock ceiling above guards it.
     million_triangles_per_s: f64,
 }
 
-/// Drift allowed on the counts the mesher produces, in hundredths of a
-/// percent, so a benign difference in vertex packing does not fail a run.
+/// Drift allowed on the counts that the mesher produces, in hundredths of a
+/// percent. A small difference in vertex packing does not fail the run.
 const VOLUME_TOLERANCE: u64 = 100;
 
 const BASELINES: &[Baseline] = &[
@@ -152,10 +146,7 @@ const BASELINES: &[Baseline] = &[
         atlas: [2048, 2048],
         introduces_later_textures: false,
         triangles: 28_667_554,
-        // No earlier, fatter payload to inherit: pinned at twice the measured
-        // one under the current 24-byte vertex layout, which keeps the
-        // two-thirds ceiling below the rule's intent while leaving room for
-        // real growth.
+        // Payload recorded under the current 24-byte vertex layout.
         payload_bytes: 3_438_230_290,
         geometry: [128.0, 128.0, 128.0],
         peak_budget: 3_615_043_178,
@@ -173,23 +164,20 @@ const BASELINES: &[Baseline] = &[
         atlas: [128, 128],
         introduces_later_textures: false,
         triangles: 2_097_350,
-        // No earlier, fatter payload to inherit: pinned at twice the measured
-        // one under the current 24-byte vertex layout.
+        // Payload recorded under the current 24-byte vertex layout.
         payload_bytes: 200_000_000,
         geometry: [256.0, 256.0, 1024.0],
         peak_budget: 1_200_000_000,
-        // Sixty-seven million blocks cull down to a shell, so its rate floor is
-        // off: surviving triangles per block are three hundredths of any other
-        // build's, and no floor that admits an honest rate here would still
-        // catch a regression. Its time ceiling is the one every other fixture
-        // carries, because the work it does is ordinary meshing work.
+        // Sixty-seven million blocks cull to a shell, about one triangle per
+        // thirty-two blocks. A throughput floor low enough for this build
+        // does not catch a regression.
         total_budget: Duration::from_secs(45),
         million_triangles_per_s: 0.0,
     },
 ];
 
-/// Freeing a preview has to give back everything but the harness's own
-/// bookkeeping, which a megabyte-scale allowance comfortably covers.
+/// Teardown must free everything but the bookkeeping of the test harness.
+/// This allowance covers that bookkeeping.
 const RETAINED_BUDGET: usize = 2 * 1024 * 1024;
 
 /// Everything one run of the pipeline observed.
@@ -204,8 +192,8 @@ struct Measurement {
     triangles: u64,
     vertices: u64,
     payload_bytes: u64,
-    /// Format version read straight out of the file, so the pair is known to
-    /// straddle the versions Litematica writes rather than assumed to.
+    /// Litematic version read from the file, so the check confirms the
+    /// fixture version instead of assuming it.
     litematic_version: i32,
     greedy_textures: HashMap<u32, u32>,
     geometry_min: [f32; 3],
@@ -242,7 +230,8 @@ fn empty_error() -> NQLError {
     }
 }
 
-/// Read and release a C-allocated message, leaving the error zeroed.
+/// Read and free the C message of the error. The freed pointer stays in
+/// place, so the caller must not use the error again.
 fn take_error(error: &mut NQLError) -> String {
     let text = (!error.message.is_null()).then(|| unsafe {
         String::from_utf8_lossy(std::slice::from_raw_parts(error.message, error.message_len))
@@ -333,7 +322,7 @@ fn empty_batch() -> NQLBatchInfo {
     }
 }
 
-/// Decode, mesh, and stream one build, validating every batch as it arrives.
+/// Decode, mesh, and stream one build. Check each batch as it arrives.
 fn run(baseline: &Baseline, pack: *const litematicaql_native::NQLResourcePack) -> Measurement {
     let path = repo_root().join(format!("Fixtures/Large/{}.litematic", baseline.name));
     let bytes = fs::read(&path).expect("large build fixture");
@@ -346,9 +335,9 @@ fn run(baseline: &Baseline, pack: *const litematicaql_native::NQLResourcePack) -
         .get("Version")
         .unwrap_or_else(|error| panic!("{}: no litematic Version tag: {error}", baseline.name));
 
-    // Measure from a single baseline taken before the model is touched, so
-    // the peak covers the decoded schematic and the meshed geometry together
-    // rather than whichever phase happened to reset the marker last.
+    // The harness records one allocation baseline before the decode. Each
+    // peak figure subtracts it, so the figures exclude the fixture bytes
+    // that the harness holds.
     let before = AllocationMeter::live();
     AllocationMeter::reset_peak();
     let started = Instant::now();
@@ -405,10 +394,10 @@ fn run(baseline: &Baseline, pack: *const litematicaql_native::NQLResourcePack) -
     measured.atlas = [atlas_info.width, atlas_info.height];
     measured.batches = mesh_info.batch_count;
 
-    // Texture introduction is stream-wide state, so the first batch to use a
-    // greedy texture carries its RGBA pixels and later batches reference the
-    // index alone. Tracking this across the whole stream is the only way to
-    // catch a texture that is referenced before the renderer has seen it.
+    // Texture introduction is stream-wide state: the first batch that uses
+    // a greedy texture carries its RGBA pixels, and later batches reference
+    // the index alone. The map therefore catches a texture used before the
+    // renderer sees it.
     let mut introduced: HashMap<u32, u32> = HashMap::new();
     let mut bounds: Vec<([f32; 3], [f32; 3])> = Vec::with_capacity(mesh_info.batch_count as usize);
 
@@ -439,7 +428,8 @@ fn run(baseline: &Baseline, pack: *const litematicaql_native::NQLResourcePack) -
     measured.stream = started.elapsed();
     measured.peak = AllocationMeter::peak().saturating_sub(before);
 
-    // The host asks for one batch past the end to learn the stream is done.
+    // The host asks for one batch past the end to learn that the stream is
+    // done.
     let mut bytes = std::ptr::null_mut();
     let mut batch = empty_batch();
     let mut failure = empty_error();
@@ -470,13 +460,14 @@ fn run(baseline: &Baseline, pack: *const litematicaql_native::NQLResourcePack) -
         nql_mesh_stream_free(stream);
         nql_schematic_free(handle);
     }
-    // Tearing the preview down has to give the memory back, or a host that
-    // opens one file after another grows without bound.
+    // Teardown must give the memory back, or a host that opens one file
+    // after another grows without bound.
     measured.retained = AllocationMeter::live().saturating_sub(before);
     measured
 }
 
-/// Check the native Metal buffers as each batch arrives, without collecting them.
+/// Check the native Metal buffers as each batch arrives, and store none of
+/// them.
 fn check_batch(
     baseline: &Baseline,
     expected: u32,
@@ -504,7 +495,7 @@ fn check_batch(
         assert_eq!(part.index_count % 3, 0);
         assert!(matches!(part.index_size, 2 | 4));
         assert!(part.vertex_offset + part.vertex_count as usize * 24 <= geometry.len());
-        // The atlas is delivered once at stream open, so no batch embeds it.
+        // The stream delivers the atlas once at open, so no batch embeds it.
         if part.texture_index != 0 {
             referenced.push(part.texture_index);
         }
@@ -557,7 +548,7 @@ fn accumulate(measured: &mut Measurement, batch: &NQLBatchInfo) {
     measured.payload_bytes += batch.payload_length as u64;
 }
 
-/// Record the volume the batches span between them.
+/// Record the union of all batch bounds.
 fn cover(bounds: &[([f32; 3], [f32; 3])], measured: &mut Measurement) {
     let mut min = [f32::MAX; 3];
     let mut max = [f32::MIN; 3];
@@ -571,8 +562,9 @@ fn cover(bounds: &[([f32; 3], [f32; 3])], measured: &mut Measurement) {
     measured.geometry_max = max;
 }
 
-/// Every batch must sit on the chunk grid, and no two may overlap: an overlap
-/// means the same surface was meshed twice and drawn twice.
+/// Every batch must sit on the chunk grid and span at most one chunk per
+/// axis. No two batches overlap. A misaligned or oversized batch duplicates
+/// or drops geometry. An overlap draws the same surface twice.
 fn duplicates(baseline: &Baseline, bounds: &[([f32; 3], [f32; 3])]) {
     for (index, (low, high)) in bounds.iter().enumerate() {
         for axis in 0..3 {
@@ -601,10 +593,12 @@ fn duplicates(baseline: &Baseline, bounds: &[([f32; 3], [f32; 3])]) {
     }
 }
 
-/// Fail when the pipeline stops producing what this build used to produce.
+/// Compare a measured build with its baseline record. Each difference fails
+/// the check.
 fn check_geometry(baseline: &Baseline, measured: &Measurement) {
-    // Between them the two fixtures cover the litematic versions Litematica
-    // writes, so a swap that quietly dropped version 5 coverage fails here.
+    // Together the fixtures cover every litematic version that Litematica
+    // writes. A change that drops version 5 coverage therefore fails this
+    // check.
     assert_eq!(
         measured.litematic_version, baseline.litematic_version,
         "{}: the file is not litematic version {}",
@@ -642,8 +636,8 @@ fn check_geometry(baseline: &Baseline, measured: &Measurement) {
         baseline.name
     );
 
-    // Greedy textures are numbered from one in the order they are introduced,
-    // so the count and the highest index are the same number.
+    // Greedy texture indices start at one and follow introduction order, so
+    // the count and the highest index are the same number.
     assert_eq!(
         measured.greedy_textures.len(),
         baseline.greedy_textures as usize,
@@ -656,11 +650,10 @@ fn check_geometry(baseline: &Baseline, measured: &Measurement) {
         "{}: greedy texture numbering is no longer dense",
         baseline.name
     );
-    // The atlas cannot cover a build this size, so the first batch that needs
-    // one has to carry it. If every texture were already in the atlas, the
-    // fixtures would no longer be testing the greedy path. A build that
-    // samples its palette uniformly introduces everything in its first batch,
-    // so this is only pinned for the organic fixtures.
+    // The atlas cannot cover a build of this size, so the first batch that
+    // needs a texture must carry it. A build that samples its palette
+    // uniformly introduces every texture in its first batch, so this check
+    // applies to the organic fixtures only.
     if baseline.introduces_later_textures {
         assert!(
             measured.greedy_textures.values().any(|batch| *batch > 0),
@@ -675,13 +668,15 @@ fn check_geometry(baseline: &Baseline, measured: &Measurement) {
         measured.triangles,
         baseline.triangles,
     );
-    // Compact vertices halve attribute bytes; variable-width indices reduce them
-    // further. Keep the measured old payload as a ceiling until rebaselined.
+    // Compact vertices and variable-width indices reduce the payload bytes,
+    // so the ceiling is two thirds of the baseline payload. A baseline
+    // recorded under the current 24-byte layout pins twice its measured
+    // payload, so the ceiling leaves room for growth.
     assert!(measured.payload_bytes < baseline.payload_bytes * 2 / 3);
 
-    // Meshed bounds are the chunk-padded region, not the content box, and this
-    // is where that difference shows: Valkyrie reports 256 blocks of content
-    // height but 320 of geometry.
+    // Meshed bounds are the chunk-padded region, not the content box.
+    // Valkyrie shows the difference: 256 blocks of content height, 320
+    // blocks of geometry.
     assert_eq!(
         measured.geometry_min, [0.0; 3],
         "{}: geometry does not start at the origin",
@@ -701,7 +696,8 @@ fn check_geometry(baseline: &Baseline, measured: &Measurement) {
     }
 }
 
-/// Allow a one percent band around a baseline, rounding away from it.
+/// Check one measured count against the [`VOLUME_TOLERANCE`] band around
+/// the baseline. The band rounds away from the baseline.
 fn within(baseline: &Baseline, what: &str, measured: u64, expected: u64) {
     let slack = (expected * VOLUME_TOLERANCE).div_ceil(10_000);
     let low = expected.saturating_sub(slack);
@@ -758,9 +754,10 @@ fn large_builds_decode_mesh_and_stream_within_budget() {
         let measured = run(baseline, pack);
         check_geometry(baseline, &measured);
 
-        // Budgets are only meaningful for optimized code: the mesher runs about
-        // fifteen times slower unoptimized, which would fail every run without
-        // saying anything about the change under test.
+        // The budget assertions run only in optimized builds. Unoptimized
+        // code runs the mesher about fifteen times slower, so every budget
+        // fails there. Such a failure says nothing about the change under
+        // test.
         if !cfg!(debug_assertions) {
             let text = format_report(baseline, &measured);
             report.push_str(&text);
@@ -787,9 +784,7 @@ fn large_builds_decode_mesh_and_stream_within_budget() {
                 baseline.name,
                 measured.peak
             );
-            // Allocation totals are exact, so anything left behind is a leak
-            // rather than noise. A few megabytes covers the bookkeeping the
-            // reporting itself allocates.
+            // Allocation totals are exact, so anything left behind is a leak.
             assert!(
                 measured.retained <= RETAINED_BUDGET,
                 "{} kept {} bytes live after teardown\n{text}",

@@ -63,9 +63,9 @@ struct TexturePackSettings: View {
         .formStyle(.grouped)
         .frame(width: 520)
         .onAppear {
-            // The Form focuses its first control when the pane appears; give
-            // the key view loop a beat, then release the texture pack picker
-            // so no control starts out focused.
+            // The Form focuses its first control when the pane appears. Wait
+            // for the key view loop, then release the picker so no control
+            // starts out focused.
             Task { @MainActor in
                 try? await Task.sleep(nanoseconds: 150_000_000)
                 isTexturePackPickerFocused = false
@@ -87,8 +87,8 @@ struct TexturePackSettings: View {
     }
 }
 
-/// Presents the store's one pack failure. Settings and the manager sheet each
-/// attach it to a different view so a single alert site covers both surfaces.
+/// Presents the one pack failure in the store. Settings and the manager sheet
+/// both attach this modifier, so one alert site serves both.
 private struct TexturePackErrorAlert: ViewModifier {
     @EnvironmentObject private var texturePacks: TexturePackStore
 
@@ -124,8 +124,8 @@ private struct TexturePackManager: View {
                     .foregroundStyle(.secondary)
                     .frame(maxWidth: .infinity, minHeight: 80)
             } else {
-                // The rows live in their own view so the delete confirmation and the
-                // shared error alert attach to different views in the hierarchy.
+                // The rows live in their own view so the delete confirmation
+                // and the error alert attach to different views.
                 SavedPackList(packToRemove: $packToRemove)
                     .frame(minHeight: 80, maxHeight: 320)
             }

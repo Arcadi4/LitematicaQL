@@ -26,17 +26,17 @@ final class PreviewViewController: NSViewController, QLPreviewingController {
 
     func preparePreviewOfFile(at url: URL) async throws {
         _ = view
-        // Resolve the user's selected texture pack through the shared app-group
-        // storage, then parse it off the main thread inside the controller's
-        // loader; the atlas upload already waits for that parse to finish.
+        // The selected texture pack comes from the shared app group storage.
+        // The parse runs off the main thread in the controller loader, and
+        // the atlas upload waits for the parse to finish.
         let pack = await PreviewPackResolver.resourcePack()
         try rendererController.preparePreview(of: url, resourcePack: pack)
     }
 }
 
-/// Bridges the shared pack archive to the native pack handle. One archive is
-/// parsed per resolution; the returned pack is immutable and reusable by the
-/// renderer for this preview.
+/// Resolves the shared pack archive to a native pack handle. The resolver
+/// parses one archive per resolution. The returned pack is immutable, and
+/// the renderer can reuse it for this preview.
 @MainActor
 private enum PreviewPackResolver {
     static func resourcePack() async -> NativeResourcePack? {

@@ -54,8 +54,8 @@ jobs:
       APP_NAME: LitematicaQL
       CI: true
       ARCH: ${{ matrix.arch }}
-      # Drives `just native` and the Xcode pre-build phase to the matrix
-      # architecture instead of building both.
+      # Sets the matrix architecture for `just native` and the Xcode
+      # pre-build phase, instead of building both architectures.
       ARCHS: ${{ matrix.arch }}
 
     steps:
@@ -106,7 +106,6 @@ jobs:
     needs: build
     runs-on: macos-26
     timeout-minutes: 60
-    # Configure this environment for release tags only, with no reviewers.
     strategy:
       fail-fast: false
       matrix:

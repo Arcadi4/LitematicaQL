@@ -9,8 +9,8 @@ final class SchematicMetalViewController: NSViewController {
     private var nativeLoad: Task<Void, Never>?
     private var nativeSession: NativeSchematicSession?
     private var generation = 0
-    /// File and pack of the current preview, kept so an override retry after a
-    /// limit hit re-reads exactly what the user was looking at.
+    /// File and pack of the current preview. An override retry after a limit
+    /// refusal re-reads this exact pair.
     private var retryURL: URL?
     private var retryPack: NativeResourcePack?
     private let status = NSTextField(wrappingLabelWithString: "")
@@ -128,17 +128,18 @@ final class SchematicMetalViewController: NSViewController {
         )
         nativeSession = session
         let uploader = MetalMeshUploader(device: renderer.device, queue: renderer.queue)
-        // Parsing the pack and reading the schematic are independent, so the
-        // pack's textures are ready by the time the atlas is, instead of adding
-        // its parse to the load's critical path.
+        // The pack parse and the schematic read run in parallel, so the pack
+        // textures are ready when the atlas arrives. The parse does not extend
+        // the load's critical path.
         let requestedPack = resourcePack
         status.stringValue = "Reading schematic…"
         details.stringValue = ""
         details.isHidden = true
         progress.isHidden = false
         progress.doubleValue = 0
-        // Return to Quick Look immediately so it can show progressive geometry.
-        // Neither decoding nor stream progress depends on drawing the view.
+        // The load starts on a detached task, so preparePreview returns control
+        // to Quick Look at once and it can show progressive geometry. Decoding
+        // and stream progress do not depend on drawing the view.
         nativeLoad = Task.detached(priority: .userInitiated) { [weak self] in
             let packReady = Task { () throws -> NativeResourcePack in
                 try requestedPack ?? NativeResourcePack.bundled.get()
@@ -151,7 +152,7 @@ final class SchematicMetalViewController: NSViewController {
                     }
                     try Task.checkCancellation()
                     // Pin the camera before any geometry exists, so streamed
-                    // batches cannot drag the view around while they load.
+                    // batches cannot move the view during the load.
                     await self?.pinFrame(current, facts: facts)
                     await self?.update(current, message: "Preparing block textures…", fraction: 0)
                     let pack = try await packReady.value
@@ -161,7 +162,8 @@ final class SchematicMetalViewController: NSViewController {
                         return start.batchCount
                     }
                     defer { session.endMesh() }
-                    // The atlas is on the GPU; everything ahead is geometry.
+                    // The atlas is on the GPU. Everything after this point is
+                    // geometry.
                     await self?.update(current, message: "Building geometry…", fraction: 0)
                     var lastUpdate = ContinuousClock.now
                     for index in 0..<batchCount {
@@ -180,7 +182,8 @@ final class SchematicMetalViewController: NSViewController {
                     try Task.checkCancellation()
                     await self?.finish(current, facts: facts)
                 } catch is CancellationError {
-                    // Replacement previews own their own UI and resources.
+                    // A replacement preview owns its UI and resources, so this
+                    // cancellation needs no cleanup.
                 } catch let refusal as NativeSchematicRefusal {
                     await self?.fail(current, message: refusal.message)
                     await self?.offerOverride(refusal)
@@ -236,10 +239,10 @@ final class SchematicMetalViewController: NSViewController {
         showFailure(message)
     }
 
-    /// Asks whether to render past the quota a file broke. The sheet shows in
-    /// both hosts, so Quick Look gets the same offer as the app window. Hosts
-    /// whose user opted out of warnings render past the quotas from the start
-    /// and stay past them, so they never see this sheet.
+    /// Offers to render past the preview quota that the file exceeded. Both
+    /// hosts show this sheet, so Quick Look gets the same offer as the app
+    /// window. A host whose user opted out of warnings renders past the quotas
+    /// from the start and never shows this sheet.
     private func offerOverride(_ refusal: NativeSchematicRefusal) {
         guard refusal.isPreviewLimit, !RenderLimits.bypassesPreviewLimits(),
               let url = retryURL, let window = view.window else { return }

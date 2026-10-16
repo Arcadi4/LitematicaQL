@@ -22,9 +22,9 @@ settings:
     SWIFT_STRICT_CONCURRENCY: complete
     SWIFT_VERSION: 6.0
   configs:
-    # Without deployment postprocessing the Release binaries keep their full
-    # symbol tables, about 9 MB of LINKEDIT per binary, for symbols nothing
-    # ever reads outside a debugger.
+    # Without deployment postprocessing, the Release binaries keep their full
+    # symbol tables, about 9 MB of LINKEDIT per binary. Nothing reads those
+    # symbols outside a debugger.
     Release:
       DEPLOYMENT_POSTPROCESSING: YES
       STRIP_INSTALLED_PRODUCT: YES

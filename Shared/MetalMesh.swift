@@ -11,9 +11,9 @@ struct MetalMeshPart: @unchecked Sendable {
     let alphaMode: Int
     let texture: MTLTexture
     let repeats: Bool
-    /// Actual meshed geometry of this part, in the chunk's block-center
-    /// coordinates. Only the frustum test reads them; the vertex shader keeps
-    /// decoding against the chunk-wide transform.
+    /// Bounds of the meshed part geometry, in block-center coordinates. Only
+    /// the frustum test reads these fields. The vertex shader decodes
+    /// positions against the chunk transform.
     let min: SIMD3<Float>
     let max: SIMD3<Float>
     var center: SIMD3<Float> { (min + max) * 0.5 }
@@ -28,9 +28,9 @@ struct MetalMeshChunk: @unchecked Sendable {
     var center: SIMD3<Float> { origin + extent * 0.5 }
 }
 
-/// Used exclusively by a background producer. Two uploads may be in flight;
-/// geometry becomes private GPU storage. Metal borrows native geometry pages
-/// until the copy completes; only partial boundary pages need staging.
+/// Used only by a background producer task. The `uploads` semaphore allows at
+/// most two uploads at one time. Chunk geometry uploads to private GPU
+/// storage.
 final class MetalMeshUploader: @unchecked Sendable {
     let device: MTLDevice
     let queue: MTLCommandQueue
@@ -54,8 +54,8 @@ final class MetalMeshUploader: @unchecked Sendable {
         descriptor.allowGPUOptimizedContents = true
         guard let texture = device.makeTexture(descriptor: descriptor) else { throw allocationError() }
         texture.label = "Schematic atlas"
-        // One staging copy from the Rust-owned pixels. Avoid image decoding and
-        // leave private, shader-read-only textures eligible for GPU compression.
+        // The atlas pixels arrive already decoded from Rust. One raw copy keeps
+        // the private texture eligible for GPU compression.
         let rowBytes = (start.atlasWidth * 4 + 255) & ~255
         let staging = try start.atlas.withUnsafeBytes { raw -> MTLBuffer in
             guard let base = raw.baseAddress else { throw allocationError() }
@@ -82,8 +82,9 @@ final class MetalMeshUploader: @unchecked Sendable {
         let view = batch.view
         if view.geometry_length == 0 { return nil }
         uploads.wait()
-        // Release the slot on failure; successful submissions transfer it to
-        // the GPU completion handler. No task waits for an on-screen draw.
+        // A failed upload releases the semaphore slot here. A committed upload
+        // transfers the slot to the GPU completion handler. No task waits for
+        // an on-screen draw.
         var submitted = false
         defer { if !submitted { uploads.signal() } }
         try Task.checkCancellation()
@@ -94,10 +95,9 @@ final class MetalMeshUploader: @unchecked Sendable {
         buffer.label = "Schematic chunk \(batch.info.batch_index)"
         var parts: [MetalMeshPart] = []
         do {
-            // End encoding on failure as well as before committing GPU work.
             defer { blit.endEncoding() }
-            // First-use RGBA textures upload ahead of the geometry copy, so every
-            // draw committed after this batch finds the pixels it samples.
+            // First-use textures upload before the geometry copy, so draws after
+            // this batch sample uploaded pixels.
             for texture in UnsafeBufferPointer(start: view.textures, count: view.texture_count) {
                 try upload(texture, with: blit)
             }
@@ -131,9 +131,9 @@ final class MetalMeshUploader: @unchecked Sendable {
                               extent: SIMD3(view.extent.0, view.extent.1, view.extent.2))
     }
 
-    /// Wrap only whole pages inside the allocation, never rounded-out malloc
-    /// memory belonging to another object. The buffer's deallocator retains the
-    /// immutable native batch until Metal has finished reading those pages.
+    /// Borrows only whole pages inside the allocation, never rounded-out malloc
+    /// memory that belongs to another object. The buffer deallocator keeps the
+    /// native batch alive until Metal stops reading the buffer pages.
     private func copyGeometry(
         _ view: NQLBatchView, owner: NativeMeshBatch,
         to buffer: MTLBuffer, with blit: MTLBlitCommandEncoder
@@ -170,10 +170,10 @@ final class MetalMeshUploader: @unchecked Sendable {
         }
     }
 
-    /// Copies unpadded RGBA rows into a shared staging buffer, padding each row
-    /// to the 256-byte alignment blit copies expect. The caller keeps the
-    /// source pixels alive until this returns; the command buffer keeps the
-    /// staging buffer alive until the copy completes.
+    /// Copies unpadded RGBA rows into a shared staging buffer and pads each row
+    /// to the 256-byte alignment that blit copies need. The caller keeps the
+    /// source pixels alive until this call returns. The command buffer keeps
+    /// the staging buffer alive until the copy completes.
     private func staging(
         _ pixels: UnsafeRawPointer, rowBytes: Int, width: Int, height: Int
     ) throws -> MTLBuffer {
@@ -192,9 +192,9 @@ final class MetalMeshUploader: @unchecked Sendable {
     }
 
     /// Uploads one batch-owned RGBA8 texture as private shader storage. The
-    /// sampler's mip filter needs the chain repeating textures carry, so they
-    /// upload mipmapped and blit generates the levels; the clamped atlas
-    /// keeps the mip-free upload it got at stream open.
+    /// repeat sampler uses a linear mip filter, so repeating textures upload
+    /// with a mip chain and a blit pass generates the levels. The clamped atlas
+    /// uploads without mips.
     private func upload(_ texture: NQLBatchTexture, with blit: MTLBlitCommandEncoder) throws {
         let width = Int(texture.width)
         let height = Int(texture.height)
@@ -219,8 +219,8 @@ final class MetalMeshUploader: @unchecked Sendable {
     }
 
     func finish() throws {
-        // Queue ordering also covers the atlas and first-use texture uploads.
-        // This checks completion without depending on MTKView visibility.
+        // The two waits cover the atlas and first-use texture uploads too. The
+        // check does not depend on MTKView visibility.
         uploads.wait()
         uploads.wait()
         uploads.signal()

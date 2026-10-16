@@ -1,4 +1,5 @@
-//! Thin C ABI ownership adapter over the shared engine's upload-ready batches.
+//! Thin C ABI adapter that gives the host ownership of the shared engine's
+//! upload-ready batches.
 //!
 //! Each returned batch owns one core [`MeshBatch`]: packed geometry, part draws,
 //! and the RGBA pixels of every texture this stream introduces for the first
@@ -14,9 +15,10 @@ use litematica_preview_core::{MeshBatch, MeshStream};
 
 pub use litematica_preview_core::{MeshPart as NQLMeshPart, VERTEX_STRIDE};
 
-/// One first-use RGBA8 sRGB texture, borrowed from the batch that introduced
-/// it. Texture zero is the clamped atlas, delivered once at stream open; every
-/// other texture repeats and may generate mipmaps.
+/// One first-use RGBA8 sRGB texture. The pixels come from the batch that
+/// introduced them and stay valid until the host frees that batch. Texture zero
+/// is the clamped atlas, and the open call delivers it once. Every other
+/// texture repeats and can generate mipmaps.
 #[repr(C)]
 #[derive(Clone, Copy, Debug)]
 pub struct NQLBatchTexture {
@@ -34,10 +36,10 @@ pub struct NQLBatchView {
     pub geometry_length: usize,
     pub parts: *const NQLMeshPart,
     pub part_count: usize,
-    /// Textures this batch introduces; valid until the batch is freed.
+    /// Textures that this batch introduces.
     pub textures: *const NQLBatchTexture,
     pub texture_count: usize,
-    /// Decode UNORM16 positions in the vertex shader using these actual bounds.
+    /// Decode UNORM16 positions in the vertex shader with these actual bounds.
     pub origin: [f32; 3],
     pub extent: [f32; 3],
 }
@@ -98,9 +100,9 @@ impl<'a> NQLMeshStream<'a> {
                 MeshFailure::Mesh(error)
             }
         })?;
-        // Taking the atlas consumes its delivery: the shared engine then keeps
-        // only texture identity, and the host owns the pixels through the open
-        // call's buffer.
+        // `take_atlas` consumes the atlas delivery. The shared engine then keeps
+        // only texture identity, and the host owns the pixels through the buffer
+        // that this open call returns.
         let atlas = engine.take_atlas();
         let atlas_info = NQLAtlasInfo {
             width: atlas.width,
@@ -168,8 +170,6 @@ impl<'a> NQLMeshStream<'a> {
     }
 }
 
-/// Adopt one engine batch: report its geometry statistics and source-grid
-/// bounds, and borrow each first-use texture's pixels for the batch's lifetime.
 fn own(index: u32, batch: MeshBatch) -> Result<NQLMeshBatch, MeshFailure> {
     let payload_length = batch
         .geometry
