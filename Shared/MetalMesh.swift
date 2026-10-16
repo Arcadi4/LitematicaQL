@@ -29,8 +29,8 @@ struct MetalMeshChunk: @unchecked Sendable {
 }
 
 /// Used exclusively by a background producer. Two uploads may be in flight;
-/// the next chunk can mesh while the GPU copies the preceding chunk. Geometry
-/// becomes private GPU storage, and command completion releases staging buffers.
+/// geometry becomes private GPU storage. Metal borrows native geometry pages
+/// until the copy completes; only partial boundary pages need staging.
 final class MetalMeshUploader: @unchecked Sendable {
     let device: MTLDevice
     let queue: MTLCommandQueue
@@ -88,9 +88,7 @@ final class MetalMeshUploader: @unchecked Sendable {
         defer { if !submitted { uploads.signal() } }
         try Task.checkCancellation()
         try checkError()
-        guard let data = view.geometry,
-              let staging = device.makeBuffer(bytes: data, length: view.geometry_length, options: .storageModeShared),
-              let buffer = device.makeBuffer(length: view.geometry_length, options: .storageModePrivate),
+        guard let buffer = device.makeBuffer(length: view.geometry_length, options: .storageModePrivate),
               let command = queue.makeCommandBuffer(),
               let blit = command.makeBlitCommandEncoder() else { throw allocationError() }
         buffer.label = "Schematic chunk \(batch.info.batch_index)"
@@ -113,7 +111,7 @@ final class MetalMeshUploader: @unchecked Sendable {
                 max: SIMD3(part.max.0, part.max.1, part.max.2)
             ))
         }
-        blit.copy(from: staging, sourceOffset: 0, to: buffer, destinationOffset: 0, size: view.geometry_length)
+        try copyGeometry(view, owner: batch, to: buffer, with: blit)
         blit.endEncoding()
         command.addCompletedHandler { [self] command in
             if let error = command.error {
@@ -128,6 +126,45 @@ final class MetalMeshUploader: @unchecked Sendable {
         return MetalMeshChunk(buffer: buffer, parts: parts,
                               origin: SIMD3(view.origin.0, view.origin.1, view.origin.2),
                               extent: SIMD3(view.extent.0, view.extent.1, view.extent.2))
+    }
+
+    /// Wrap only whole pages inside the allocation, never rounded-out malloc
+    /// memory belonging to another object. The buffer's deallocator retains the
+    /// immutable native batch until Metal has finished reading those pages.
+    private func copyGeometry(
+        _ view: NQLBatchView, owner: NativeMeshBatch,
+        to buffer: MTLBuffer, with blit: MTLBlitCommandEncoder
+    ) throws {
+        guard let data = view.geometry else { throw allocationError() }
+        let length = view.geometry_length
+        let pageSize = NSPageSize()
+        let head = min((pageSize - Int(bitPattern: data) % pageSize) % pageSize, length)
+        let interior = (length - head) / pageSize * pageSize
+        let tail = length - head - interior
+        if interior > 0 {
+            guard let borrowed = device.makeBuffer(
+                bytesNoCopy: UnsafeMutableRawPointer(mutating: data.advanced(by: head)),
+                length: interior, options: .storageModeShared,
+                deallocator: { [owner] _, _ in withExtendedLifetime(owner) {} }
+            ) else { throw allocationError() }
+            blit.copy(from: borrowed, sourceOffset: 0, to: buffer,
+                      destinationOffset: head, size: interior)
+        }
+        if head + tail > 0 {
+            guard let edges = device.makeBuffer(length: head + tail, options: .storageModeShared)
+            else { throw allocationError() }
+            if head > 0 {
+                edges.contents().copyMemory(from: data, byteCount: head)
+                blit.copy(from: edges, sourceOffset: 0, to: buffer, destinationOffset: 0, size: head)
+            }
+            if tail > 0 {
+                edges.contents().advanced(by: head).copyMemory(
+                    from: data.advanced(by: head + interior), byteCount: tail
+                )
+                blit.copy(from: edges, sourceOffset: head, to: buffer,
+                          destinationOffset: head + interior, size: tail)
+            }
+        }
     }
 
     /// Copies unpadded RGBA rows into a shared staging buffer, padding each row
