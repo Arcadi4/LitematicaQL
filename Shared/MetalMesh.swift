@@ -92,27 +92,30 @@ final class MetalMeshUploader: @unchecked Sendable {
               let command = queue.makeCommandBuffer(),
               let blit = command.makeBlitCommandEncoder() else { throw allocationError() }
         buffer.label = "Schematic chunk \(batch.info.batch_index)"
-        // First-use RGBA textures upload ahead of the geometry copy, so every
-        // draw committed after this batch finds the pixels it samples.
-        for texture in UnsafeBufferPointer(start: view.textures, count: view.texture_count) {
-            try upload(texture, with: blit)
-        }
         var parts: [MetalMeshPart] = []
-        parts.reserveCapacity(view.part_count)
-        for part in UnsafeBufferPointer(start: view.parts, count: view.part_count) {
-            guard let texture = textures[part.texture_index] else {
-                throw NativeSchematicRefusal(message: "A mesh chunk is missing its block texture.")
+        do {
+            // End encoding on failure as well as before committing GPU work.
+            defer { blit.endEncoding() }
+            // First-use RGBA textures upload ahead of the geometry copy, so every
+            // draw committed after this batch finds the pixels it samples.
+            for texture in UnsafeBufferPointer(start: view.textures, count: view.texture_count) {
+                try upload(texture, with: blit)
             }
-            parts.append(MetalMeshPart(
-                vertexOffset: part.vertex_offset, indexOffset: part.index_offset,
-                indexCount: Int(part.index_count), indexType: part.index_size == 2 ? .uint16 : .uint32,
-                alphaMode: Int(part.alpha_mode), texture: texture, repeats: part.texture_index != 0,
-                min: SIMD3(part.min.0, part.min.1, part.min.2),
-                max: SIMD3(part.max.0, part.max.1, part.max.2)
-            ))
+            parts.reserveCapacity(view.part_count)
+            for part in UnsafeBufferPointer(start: view.parts, count: view.part_count) {
+                guard let texture = textures[part.texture_index] else {
+                    throw NativeSchematicRefusal(message: "A mesh chunk is missing its block texture.")
+                }
+                parts.append(MetalMeshPart(
+                    vertexOffset: part.vertex_offset, indexOffset: part.index_offset,
+                    indexCount: Int(part.index_count), indexType: part.index_size == 2 ? .uint16 : .uint32,
+                    alphaMode: Int(part.alpha_mode), texture: texture, repeats: part.texture_index != 0,
+                    min: SIMD3(part.min.0, part.min.1, part.min.2),
+                    max: SIMD3(part.max.0, part.max.1, part.max.2)
+                ))
+            }
+            try copyGeometry(view, owner: batch, to: buffer, with: blit)
         }
-        try copyGeometry(view, owner: batch, to: buffer, with: blit)
-        blit.endEncoding()
         command.addCompletedHandler { [self] command in
             if let error = command.error {
                 errorLock.lock()
