@@ -44,7 +44,9 @@ brew install --cask arcadi4/tap/litematicaql
 预览采用原生 Metal、分块流式网格生成、压缩顶点缓冲区和按需绘制。
 共享的 [LitematicaPreview Core](https://github.com/Arcadi4/litematica-preview-core)
 负责生成经过校验的顶点与索引缓冲区，并在纹理首次使用时提供 RGBA 像素；
-原生宿主直接将这些数据上传到 Metal。
+原生宿主将这些数据上传到 Metal 的 GPU 专用缓冲区。几何数据上传时直接借用原生内存中
+完整对齐的页，只暂存首尾不足一页的部分。原生批次会保留到 Metal 读取完成，
+同时最多有两个上传任务在执行。
 
 > [!NOTE]
 > 如果预览没有出现，请在 **系统设置 → 通用 → 登录项与扩展 → 快速查看** 中启用 LitematicaQL。
@@ -84,6 +86,7 @@ just
 | `just build`               | 构建临时签名（ad-hoc）的 Apple 芯片与 Intel 版本                                    |
 | `just run`                 | 构建并打开应用                                                                      |
 | `just test`                | 运行 Swift 文件校验测试与 Rust 桥接测试                                             |
+| `just test-metal`          | 检查实际 Metal 上传与原生内存生命周期（需要支持 Metal 的 Mac）                       |
 | `just check`               | 对 Rust 桥接层做类型检查                                                            |
 | `just clean`               | 删除全部构建产物                                                                    |
 | `just ci`                  | 在本地复现 CI 流程                                                                  |

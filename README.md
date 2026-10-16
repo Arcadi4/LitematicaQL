@@ -44,7 +44,10 @@ This app requires macOS 13 Ventura or later and a Metal-capable GPU.
 Previews use native Metal with streamed chunk meshing, compact GPU buffers,
 and on-demand drawing. The shared [LitematicaPreview Core](https://github.com/Arcadi4/litematica-preview-core)
 prepares validated vertex/index buffers and first-use RGBA textures; the native
-hosts upload them directly to Metal.
+hosts upload them to GPU-private Metal buffers. Geometry uploads borrow the
+native allocation's whole pages without a staging copy; only partial boundary
+pages are copied. Native batches remain alive until Metal finishes reading them,
+and at most two uploads are in flight.
 
 > [!NOTE]
 > If the preview doesn't show up, enable LitematicaQL under **System Settings → General → Login Items & Extensions → Quick Look**.
@@ -85,6 +88,7 @@ just
 | `just build`               | Build the ad-hoc signed app for Apple silicon and Intel                                       |
 | `just run`                 | Build the app and open it                                                                     |
 | `just test`                | Run the Swift file-validation tests and the Rust bridge tests                                 |
+| `just test-metal`           | Check real Metal uploads and native-memory lifetimes (requires a Metal-capable Mac)           |
 | `just check`               | Type-check the Rust bridge                                                                    |
 | `just clean`               | Delete every generated build artifact                                                         |
 | `just ci`                  | Reproduce the CI pipeline locally                                                             |
