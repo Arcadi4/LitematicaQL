@@ -31,8 +31,9 @@ test -f "$candidate"
 work_dir=$(mktemp -d "${RUNNER_TEMP:-${TMPDIR:-/tmp}}/litematicaql-sign.XXXXXX")
 trap 'rm -rf "$work_dir"' EXIT
 
-# Downloaded artifacts belong to this workflow run. Their checksum is checked
-# again before extraction, and the original ZIP is replaced only on success.
+# The downloaded artifacts belong to this workflow run. The script checks the
+# checksum again before extraction. It replaces the original ZIP only when
+# every later step succeeds.
 (cd "$release_dir" && shasum -a 256 -c "$filename.sha256")
 ditto -x -k "$candidate" "$work_dir"
 app="$work_dir/LitematicaQL.app"
@@ -51,8 +52,9 @@ check_bundle "$extension" moe.arcadia.LitematicaQL.PreviewExtension LitematicaQL
 test "$(/usr/libexec/PlistBuddy -c 'Print :CFBundleVersion' "$app/Contents/Info.plist")" = \
   "$(/usr/libexec/PlistBuddy -c 'Print :CFBundleVersion' "$extension/Contents/Info.plist")"
 
-# Select exactly one Developer ID Application identity for the intended team.
-# A development certificate or an identity for another team must not be used.
+# The script selects exactly one Developer ID Application identity for the
+# intended team. It must not use a development certificate or an identity
+# from another team.
 identities=$(security find-identity -v -p codesigning | \
   awk -v team="($APPLE_TEAM_ID)" '/"Developer ID Application:/ && index($0, team) { print $2 }')
 if [[ -z "$identities" || "$(printf '%s\n' "$identities" | wc -l | tr -d ' ')" != 1 ]]; then
@@ -60,8 +62,8 @@ if [[ -z "$identities" || "$(printf '%s\n' "$identities" | wc -l | tr -d ' ')" !
   exit 1
 fi
 
-# The Rust bridge is statically linked into these two executables. If new
-# nested code is added, extend this explicit signing order before releasing.
+# The Rust bridge is statically linked into these two executables. If you add
+# new nested code, extend this signing order before a release.
 codesign --force --sign "$identities" --options runtime --timestamp \
   --entitlements PreviewExtension/LitematicaQLPreview.entitlements "$extension"
 codesign --force --sign "$identities" --options runtime --timestamp \
@@ -74,8 +76,9 @@ for bundle in "$extension" "$app"; do
 done
 
 if [[ "$dry_run" == false ]]; then
-  # Apple credentials are supplied through environment variables, not shell
-  # interpolation in YAML. --wait alone is insufficient: require Accepted.
+  # The workflow supplies the Apple credentials through environment variables,
+  # not through interpolation in YAML. `--wait` alone is not enough. The
+  # script continues only when the status is Accepted.
   submission="$work_dir/submission.zip"
   ditto -c -k --keepParent "$app" "$submission"
   xcrun notarytool submit "$submission" \
@@ -95,7 +98,8 @@ else
   echo "Dry run: signed only; not notarized, stapled, or approved by Gatekeeper."
 fi
 
-# Staple the app, then zip it again: ZIPs cannot themselves be stapled.
+# The script staples the app, and then it zips the app again. The stapler
+# cannot staple a ZIP file.
 ditto -c -k --keepParent "$app" "$work_dir/$filename"
 (cd "$work_dir" && shasum -a 256 "$filename" > "$filename.sha256")
 mv "$work_dir/$filename" "$candidate"

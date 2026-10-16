@@ -9,7 +9,7 @@ use std::sync::Arc;
 
 pub mod stream;
 
-// Preview limits. One metric per orthogonal attribution.
+// Preview limits.
 const MAX_DECOMPRESSED_BYTES: usize = 4 * 1_024 * 1_024 * 1_024;
 const MAX_AXIS_LENGTH: usize = 8_192;
 const MAX_VOLUME: usize = 2048 * 2048 * 2048;
@@ -18,13 +18,13 @@ const MAX_PALETTE_ENTRIES: usize = 32_768;
 const MAX_NBT_DEPTH: usize = 64;
 const MAX_NBT_NODES: usize = 4_194_304;
 const MAX_MESH_BLOCKS: i64 = 512 * 512 * 512;
-/// Preview ceiling on one side of the shared texture atlas, in texels. Only
-/// the ceiling: the builder grows an atlas to what a palette needs, so builds
-/// with fewer distinct tiles keep the smaller atlases they have always had.
+/// Maximum side of the shared texture atlas, in texels. The atlas builder
+/// grows the atlas only as far as the palette needs, so a palette with fewer
+/// distinct tiles gets a smaller atlas.
 const MAX_ATLAS_SIDE: u32 = 2048;
-/// Override ceiling on the same atlas, reached only after the user agreed to
-/// the graphics-memory cost. 8192² of RGBA is 256 MB of host pixels while the
-/// tiles are placed, on top of the atlas the device then keeps.
+/// Atlas side for the override tier. The builder holds 256 MB of host pixels
+/// while it places the tiles, and the device keeps the finished atlas after
+/// that. Only the override tier uses this side.
 const OVERRIDE_ATLAS_SIDE: u32 = 8192;
 
 // Status codes shared with the Swift bridge through the C header.
@@ -41,13 +41,13 @@ pub mod status {
     pub const DONE: i32 = 9;
 }
 
-/// An application-owned decoded preview. Opaque to C callers.
+/// A decoded preview that the host owns. Opaque to C callers.
 pub struct NQLSchematic {
     source: DecodedSchematic,
     cancelled: Arc<AtomicBool>,
 }
 
-/// A parsed immutable resource pack that may be reused by sequential previews.
+/// A parsed immutable resource pack. Sequential previews can reuse it.
 pub struct NQLResourcePack(ResourcePackSource);
 
 #[repr(C)]
@@ -106,7 +106,8 @@ fn preview_limits() -> DecodeLimits {
         max_regions: MAX_REGIONS,
         max_palette_entries: MAX_PALETTE_ENTRIES,
         // Entities and block entities are top-level collections inside the NBT
-        // node budget above; string payloads and collection items likewise.
+        // node budget, MAX_NBT_NODES. String payloads and collection items count
+        // toward it too.
         max_entities: usize::MAX,
         max_block_entities: usize::MAX,
         max_nbt_depth: MAX_NBT_DEPTH,
@@ -116,10 +117,8 @@ fn preview_limits() -> DecodeLimits {
     }
 }
 
-/// No preview quotas: only the formats' own width limits stand between the
-/// readers and the file's content. Reached solely from the override entry
-/// points after the user asked to render despite a limit hit, so the caller
-/// owns everything this admits.
+/// No preview quotas. The format readers apply only their own width limits.
+/// Only the override entry points call this function.
 fn override_limits() -> DecodeLimits {
     DecodeLimits {
         max_input_bytes: usize::MAX,
@@ -137,12 +136,11 @@ fn override_limits() -> DecodeLimits {
     }
 }
 
-/// Mesher configuration, with the atlas ceiling the caller chose.
+/// Mesher configuration, with the atlas side from the tier's [`MeshQuotas`].
 ///
-/// `litematica_preview_core::mesh_config()` fixes the atlas ceiling at 2048
-/// texels and takes no argument, so the preview's two mesh-stage quotas are
-/// expressed here instead of being limited to whichever ceiling upstream
-/// happens to prefer.
+/// `litematica_preview_core::mesh_config()` hard-codes the atlas side and takes
+/// no argument. This function sets the side itself, so the preview and override
+/// tiers can use different sizes.
 fn mesh_config(atlas_max_side: u32) -> MeshConfig {
     MeshConfig::new()
         .with_greedy_meshing(true)
@@ -150,20 +148,17 @@ fn mesh_config(atlas_max_side: u32) -> MeshConfig {
         .with_atlas_max_size(atlas_max_side)
 }
 
-/// Mesh-stage quotas. One metric per orthogonal attribution: how many blocks
-/// the stream may describe, and how much tile area their textures may occupy.
-/// Both are preview quotas that the override entry lifts.
+/// Mesh-stage quotas. `block_budget` is the maximum block count that the
+/// stream can describe. `atlas_max_side` is the maximum side of the shared
+/// texture atlas.
 #[derive(Clone, Copy)]
 pub(crate) struct MeshQuotas {
     pub(crate) block_budget: i64,
     pub(crate) atlas_max_side: u32,
 }
 
-/// Which of the two quota sets a mesh stream is being opened at.
-///
-/// The preview tier protects a preview from a palette whose tiles do not fit
-/// the shared atlas. The override tier is what the preview tier's refusal buys
-/// with the user's agreement, and levies nothing more.
+/// The quota set that a mesh stream open uses: the preview tier, or the
+/// override tier that the `*_override` entry points select.
 #[derive(Clone, Copy, PartialEq, Eq)]
 pub(crate) enum MeshTier {
     Preview,
@@ -185,11 +180,10 @@ impl MeshTier {
     }
 }
 
-/// Meshing concurrency. Each worker meshes one chunk batch and every finished
-/// batch is held whole until the host pulls it, so this cap is also the
-/// preview's peak-geometry window: a deeper window bought no measurable
-/// streaming throughput while holding another full chunk batch live, which
-/// `Core/tests/large_builds.rs` pins.
+/// Meshing concurrency. Each worker meshes one chunk batch, and the stream
+/// holds each finished batch whole until the host pulls it. This cap also
+/// bounds the geometry in memory. A deeper cap gave no measurable streaming
+/// gain, and `Core/tests/large_builds.rs` pins that.
 fn worker_count() -> usize {
     std::thread::available_parallelism().map_or(2, |count| count.get().min(2).max(1))
 }
@@ -202,7 +196,8 @@ fn decode_worker_count() -> usize {
 pub enum MeshFailure {
     Pack(String),
     NoBlocks,
-    /// A preview quota refused the mesh; recoverable by an override open.
+    /// A preview quota refused the mesh. The host can recover with an override
+    /// entry point.
     Limit(String),
     Mesh(String),
     Cancelled,
@@ -315,9 +310,9 @@ pub unsafe extern "C" fn nql_schematic_open(
     open_schematic(data, len, out, err_out, &preview_limits())
 }
 
-/// Reads a schematic with no preview quotas, for schematics whose limit hit
-/// the caller has already surfaced to the user with an offer to render
-/// anyway. Every admission decision moves to the caller from here on.
+/// Reads a schematic with no preview quotas. The host shows the limit hit to
+/// the user, with an offer to render anyway, before it calls this function.
+/// The host then owns every admission decision.
 #[no_mangle]
 pub unsafe extern "C" fn nql_schematic_open_override(
     data: *const u8,
@@ -335,8 +330,8 @@ pub unsafe extern "C" fn nql_schematic_free(schematic: *mut NQLSchematic) {
     }
 }
 
-/// Cooperatively cancel decoding-derived meshing while retaining the handle.
-/// Cancellation is monotonic; a cancelled handle cannot publish later geometry.
+/// Cancels meshing for this schematic and keeps the handle valid. Cancellation
+/// is monotonic. A cancelled handle cannot publish later geometry.
 #[no_mangle]
 pub unsafe extern "C" fn nql_schematic_cancel(schematic: *const NQLSchematic) -> i32 {
     if schematic.is_null() {
@@ -508,16 +503,13 @@ unsafe fn start_mesh_stream(
             if tier != MeshTier::Preview {
                 return mesh_failure(err_out, error);
             }
-            // The atlas ceiling is the last quota the preview tier can lift, so
-            // the probe moves exactly that field and leaves the block budget
-            // where the preview tier put it. A different outcome can then only
-            // be the ceiling: the tiles did not fit, the host has a quota to
-            // offer, and the override atlas's side states the price. Its stream
-            // is dropped again, so nothing is built at that cost until the user
-            // has agreed to it. Every other refusal — the block budget, a
-            // genuinely unreadable build — fails the probe too, because the
-            // probe raises nothing but the ceiling, and so keeps its own
-            // status and message.
+            // The probe lifts only the atlas side, to OVERRIDE_ATLAS_SIDE, and
+            // keeps the preview block budget. If the probe opens a stream, the
+            // tiles did not fit the preview atlas. The host then gets the limit
+            // message with the override price. The code drops the probe stream,
+            // so it builds nothing at the override cost before the user agrees
+            // to it. Any other refusal fails the probe too, and the code then
+            // reports the original preview failure with its status and message.
             let atlas_probe = MeshQuotas {
                 block_budget: tier.quotas().block_budget,
                 atlas_max_side: OVERRIDE_ATLAS_SIDE,
@@ -592,10 +584,9 @@ pub unsafe extern "C" fn nql_mesh_stream_open(
     )
 }
 
-/// Lifts the render-stage block budget and the shared texture atlas's ceiling,
-/// for schematics whose quota the caller has already surfaced to the user with
-/// an offer to render anyway. The notice that earns the offer stays the
-/// caller's to state before asking.
+/// Lifts the render-stage block budget and the shared texture atlas ceiling
+/// for the override tier, under the precondition at
+/// [`nql_schematic_open_override`].
 #[no_mangle]
 pub unsafe extern "C" fn nql_mesh_stream_open_override(
     schematic: *const NQLSchematic,
@@ -620,8 +611,8 @@ pub unsafe extern "C" fn nql_mesh_stream_open_override(
     )
 }
 
-/// The stream borrows schematic and pack; both must outlive it. A returned
-/// batch owns its storage independently and remains valid until batch_free.
+/// The stream borrows the schematic and the pack, and both must outlive it. A
+/// returned batch owns its storage and is valid until [`nql_mesh_batch_free`].
 #[no_mangle]
 pub unsafe extern "C" fn nql_mesh_stream_next(
     stream: *mut stream::NQLMeshStream<'_>,
@@ -683,7 +674,7 @@ pub unsafe extern "C" fn nql_mesh_stream_free(stream: *mut stream::NQLMeshStream
     }
 }
 
-/// Thousands separators for the numbers describe_limit surfaces.
+/// Thousands separators for the numbers in the user-facing limit messages.
 pub(crate) fn grouped(value: u64) -> String {
     let digits = value.to_string();
     let mut out = String::with_capacity(digits.len() + digits.len() / 3);
@@ -696,9 +687,9 @@ pub(crate) fn grouped(value: u64) -> String {
     out
 }
 
-/// A byte count in binary units, for the atlas price an override offer states.
-/// The host renders its own size strings elsewhere; this one only has to say
-/// how much graphics memory the atlas costs.
+/// A byte count in binary units, for the atlas price in an override offer. The
+/// host renders its own size strings elsewhere. This type only states the
+/// graphics-memory cost of the atlas.
 struct ByteCount(u64);
 
 impl std::fmt::Display for ByteCount {
@@ -719,8 +710,8 @@ impl std::fmt::Display for ByteCount {
     }
 }
 
-/// Names the dimension a quota broke and the exact number, so hosts can show
-/// figures instead of the engine's terse refusal. Anything unrecognized
+/// Names the dimension that hit a limit and states its number, so the host can
+/// show figures instead of the engine's terse refusal. An unrecognized message
 /// passes through unchanged.
 fn describe_limit(message: &str) -> String {
     let quota = if message.contains("palette") || message.contains("block-entry") {

@@ -138,7 +138,8 @@ struct ContentView: View {
 }
 
 private struct AppIconMark: View {
-    // Let macOS compose the icon, including its Icon Composer layers.
+    // The workspace icon lets macOS compose the icon, including its Icon
+    // Composer layers.
     private let icon = NSWorkspace.shared.icon(forFile: Bundle.main.bundlePath)
 
     var body: some View {

@@ -1,10 +1,9 @@
 # LitematicaQL toolchain.
 #
 # `just` is the only command to type. Run it with no arguments for the recipe
-# list. Xcode, SwiftPM, cargo, XcodeGen, codesign and the demo generator are
-# invoked by these recipes, so a laptop build, a CI run and a release archive
-# execute the same commands. Signing CI calls the sign-release script directly
-# so its credential-bearing runner needs only the shell and Apple's tools.
+# list. These recipes invoke Xcode, SwiftPM, cargo, XcodeGen, codesign and the
+# demo generator. A laptop build, a CI run and a release archive therefore run
+# the same commands.
 
 set shell := ["bash", "-euo", "pipefail", "-c"]
 
@@ -17,8 +16,8 @@ preview_extension_id := "moe.arcadia.LitematicaQL.PreviewExtension"
 
 # Output directories
 #
-# Everything generated lands under build/ so `just clean` is a single removal.
-# The XcodeGen project stays the only tracked build input.
+# Everything generated goes under build/, so `just clean` is one removal.
+# The XcodeGen project is the only tracked build input.
 
 build_dir := justfile_directory() / "build"
 derived_data := build_dir / "DerivedData"
@@ -27,39 +26,34 @@ app_bundle := derived_data / "Build" / "Products" / configuration / (app_name + 
 
 # Overridable build settings
 #
-# Read from the environment so the CI workflow and the release matrix drive
-# these same recipes instead of retyping xcodebuild invocations.
+# Read from the environment, so CI and the release matrix set these values
+# for the same recipes instead of repeating xcodebuild invocations.
 
 configuration := env_var_or_default("CONFIGURATION", "Debug")
 build_archs := env_var_or_default("ARCHS", "arm64 x86_64")
 project_version := env_var_or_default("CURRENT_PROJECT_VERSION", "1")
 
-# The project carries an empty DEVELOPMENT_TEAM and builds ad-hoc signed, so
-# every invocation signs with "-" rather than depending on a machine's
-# identities. This is what makes an unsigned checkout buildable at all.
+# DEVELOPMENT_TEAM is empty, so every build signs ad-hoc with "-". No machine
+# identity is needed, and an unsigned checkout builds.
 signing := "CODE_SIGN_STYLE=Manual CODE_SIGN_IDENTITY=- CODE_SIGNING_REQUIRED=YES CODE_SIGNING_ALLOWED=YES DEVELOPMENT_TEAM="
 
-# Xcode's manual-signing resolver refuses ad-hoc builds whose entitlements
-# claim the app-group capability ("requires a provisioning profile"), although
-# ad-hoc signatures work fine with group containers at runtime. xcodebuild
-# therefore embeds a stripped copy, and codesign replaces the signature with
-# the real entitlements afterward — the same re-signing order sign-release.sh
-# uses for releases: extension first, then the app.
+# Xcode refuses ad-hoc signatures for entitlements with the app-group
+# capability. xcodebuild therefore embeds a stripped copy, and codesign
+# re-signs with the real entitlements after the build. The order is extension
+# first, then the app, the same order sign-release.sh uses.
 adhoc_entitlements := build_dir / "adhoc" / "entitlements.plist"
 codesign_entitlements := "CODE_SIGN_ENTITLEMENTS=" + adhoc_entitlements
 
 # Recipes
 #
 # A `[script]` recipe runs as a plain file, so `set shell` does not apply to
-# it and every one of these bodies turns on `set -euo pipefail` itself. A
-# recipe that keeps going after a failed xcodebuild is how a release job once
-# published a tag with no builds attached.
+# it. Every one of these bodies turns on `set -euo pipefail` itself.
 #
-# `just --list` prints the last line of each recipe's doc comment, so every
-# doc comment is exactly one line and the longer notes sit above it as
+# `just --list` prints the last line of each recipe's doc comment. Every doc
+# comment is therefore one line, and the longer notes sit above it as
 # ordinary comments.
 
-# List every recipe; this is what a bare `just` runs.
+# List every recipe. A bare `just` runs this one.
 default:
     @just --list
 
@@ -83,9 +77,11 @@ build: generate native prepare-adhoc-entitlements
       --entitlements App/LitematicaQL.entitlements \
       "{{ app_bundle }}"
 
-# Write the app-group-free entitlements xcodebuild embeds; the codesign step
-# in `build` applies the real files. PlistBuddy deletes the literal dotted key
-# without touching the tracked source.
+# Write the entitlements copy that xcodebuild embeds. The codesign step in
+# `build` applies the real files. PlistBuddy deletes the app-group key from
+# the copy only. The tracked source keeps the real entitlements.
+
+# Write the app-group-free entitlements copy for xcodebuild.
 prepare-adhoc-entitlements:
     mkdir -p {{ build_dir }}/adhoc
     cp App/LitematicaQL.entitlements {{ adhoc_entitlements }}
@@ -107,21 +103,21 @@ test-metal: native
     swiftc -O -I Core/include Shared/NativeSchematic.swift Shared/MetalMesh.swift Tests/MetalTests/main.swift "Core/build/liblitematicaql_native_$(uname -m).a" -framework Metal -framework Foundation -o {{ build_dir }}/metal-tests/test-metal
     {{ build_dir }}/metal-tests/test-metal
 
-# Keep Cargo invocations sequential so they reuse one target directory without
-# competing for its lock. SwiftPM has independent outputs and can overlap them.
+# Keep the cargo invocations sequential. They share one target directory, and
+# concurrent runs compete for its lock. SwiftPM outputs are independent, so
+# the SwiftPM test can run in parallel.
 _native-test: native rust-test
 
 # Run the Swift file-validation tests.
 swift-test:
     swift test --parallel
 
+# The tests build for the host triple on purpose. `native` builds the same
+# triple into the same target directory, so both recipes use one release
+# build of the dependency tree. If the two invocations resolve
+# different toolchains, cargo rebuilds and does not reuse the artifacts.
+
 # Run the Rust bridge tests.
-#
-# The tests are built for the host triple on purpose. `native` builds that same
-# triple into the same target directory, so one release compilation of the
-# whole dependency tree serves both instead of being repeated under
-# `target/release`. When the two invocations resolve different toolchains they
-# simply do not share, because cargo rebuilds rather than reuses.
 rust-test:
     ./Core/cargo.sh test --release --target "$(rustc -vV | sed -n 's/^host: //p')" --manifest-path Core/Cargo.toml
 
@@ -151,16 +147,16 @@ ci: test build
 generate:
     xcodegen generate
 
-# Xcode's pre-build phase runs Core/build.sh itself so a project opened in
-# Xcode still compiles the bridge; this recipe is the same script for the
-# command line, and takes its architectures from $ARCHS.
+# The Xcode pre-build phase runs Core/build.sh, so a project opened in Xcode
+# also compiles the bridge. This recipe runs the same script on the command
+# line and takes its architectures from $ARCHS.
 
 # Build the Rust static libraries into Core/build/.
 native:
     ./Core/build.sh {{ build_archs }}
 
-# Archives a single architecture, the way the release matrix ships, then
-# verifies the bundle and packages it. Produces
+# Archives one architecture, because the release matrix builds one
+# architecture per job. Verifies the bundle and packages it. Produces
 # build/release/LitematicaQL-VERSION-ARCH.zip with a .sha256 sidecar.
 # CURRENT_PROJECT_VERSION comes from $CURRENT_PROJECT_VERSION.
 
@@ -209,18 +205,16 @@ release version arch="arm64": generate prepare-adhoc-entitlements
 
     echo "packaged $zip_path"
 
-# Sign a packaged candidate; dry_run=true skips notarization for testing.
+# Sign a packaged candidate. dry_run=true skips notarization for testing.
 sign-release version arch dry_run="false":
     ./scripts/sign-release.sh "{{ version }}" "{{ arch }}" "{{ dry_run }}"
 
 # Tags a release: bump the version, commit, and tag.
 #
-# Takes the component to raise, so the current version never has to be looked
-# up: a bare `just bump` and `just bump patch` both give 1.2.6 from 1.2.5,
-# `just bump minor` gives 1.3.0, and `just bump major` gives 2.0.0. Runs only
-# on main from a clean workspace, so the tag always names exactly what was
-# reviewed. Push the commit and the tag yourself; the release workflow fires
-# on the tag.
+# The argument is the component to raise. patch is the default, and minor and
+# major are also valid. The recipe runs only on main from a clean workspace,
+# so the tag names exactly the reviewed code. Push the commit and the tag
+# yourself. The release workflow starts on the tag.
 
 # Bump major, minor, or patch, then commit and tag it.
 [script("bash")]
@@ -265,9 +259,9 @@ bump level="patch":
     xcodegen generate
     grep -q "MARKETING_VERSION = $next;" "{{ project_file }}/project.pbxproj"
 
-    # The workspace was clean on entry, so only the version and the project
-    # XcodeGen regenerates from it may differ. Anything else is a surprise a
-    # release should not carry, so stop before committing it.
+    # The workspace was clean on entry, so only project.yml and the project
+    # file that XcodeGen regenerates from it can differ. Stop before the
+    # commit if anything else changed.
     changed=$(git diff --name-only | LC_ALL=C sort)
     expected=$(printf '%s\n%s' "{{ project_file }}/project.pbxproj" project.yml | LC_ALL=C sort)
     if [[ "$changed" != "$expected" ]]; then
@@ -283,11 +277,11 @@ bump level="patch":
     echo "bumped $current to $next, committed and tagged v$next"
     echo "publish with: git push origin main v$next"
 
-# macOS keeps every copy of the appex it has ever seen, and Quick Look may
-# answer from an old DerivedData build. Set LITEMATICAQL_KEEP_EXTENSION_PATH to
-# protect a copy other than the one in /Applications.
+# macOS keeps every registered copy of the appex, and Quick Look can use an
+# old DerivedData build. Set LITEMATICAQL_KEEP_EXTENSION_PATH to keep a copy
+# other than the installed app.
 
-# Unregister stale Quick Look preview extensions, keeping the installed app.
+# Unregister stale Quick Look preview extensions. The installed app stays registered.
 [script("bash")]
 unregister:
     #!/usr/bin/env bash
@@ -317,14 +311,14 @@ unregister:
     )
 
 # The generator refuses to write a file it cannot read back, so a file format
-# whose encoding drifts fails the run instead of shipping. This is optional
-# authoring tooling, not part of the app build.
+# whose encoding drifts fails the run. This tooling is optional and is not
+# part of the app build.
 #
-# Install with --ignore-scripts so no dependency postinstall runs: pnpm blocks
-# esbuild's until the approval is recorded, and records it by writing a
-# pnpm-workspace.yaml stub that the next install overwrites again. tsx resolves
-# the esbuild binary from its platform package at runtime, so the script is not
-# needed.
+# The install uses --ignore-scripts, so no dependency postinstall runs. pnpm
+# blocks the esbuild postinstall until the user approves it, and it records
+# the approval as a pnpm-workspace.yaml stub that the next install
+# overwrites. tsx resolves the esbuild binary from its platform package at
+# runtime, so the script is not needed.
 
 # Regenerate the bundled demo schematics in Fixtures/Demos.
 demos:
@@ -343,8 +337,8 @@ clean:
       {{ justfile_directory() }}/.build
     echo "removed build outputs; run `just build` to recreate them"
 
-# The prerequisite check lives at the end of the file so the recipes read in
-# the order a contributor uses them.
+# This check is last so the recipes appear in the order a contributor uses
+# them.
 
 # Check that the toolchain prerequisites are installed.
 [script("bash")]

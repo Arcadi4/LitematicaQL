@@ -17,10 +17,7 @@ final class SchematicMetalRenderer: NSObject, MTKViewDelegate {
     private var chunks: [MetalMeshChunk] = []
     private var low = SIMD3<Float>(repeating: .infinity)
     private var high = SIMD3<Float>(repeating: -.infinity)
-    // The camera frames this box, not the geometry bounds. It is seeded from
-    // the decoded schematic's occupied-block bounds, so streaming batches never
-    // move the camera; the box only grows to admit geometry that reaches past
-    // those bounds, and the camera is re-fit once when loading settles.
+    // The camera frames this box, not the geometry bounds.
     private var frameLow = SIMD3<Float>(repeating: .infinity)
     private var frameHigh = SIMD3<Float>(repeating: -.infinity)
     private var framingPinned = false
@@ -107,14 +104,14 @@ final class SchematicMetalRenderer: NSObject, MTKViewDelegate {
         requestDraw()
     }
 
-    /// Pins the camera frame to the schematic's occupied-block bounds, which
-    /// are known before meshing starts. Without this the frame would follow the
-    /// growing geometry bounds and the view would drift as chunks stream in.
+    /// Pins the camera frame to the schematic's occupied-block bounds. These
+    /// bounds are known before meshing starts, so streamed chunks do not move
+    /// the camera.
     func setContentBounds(min: SIMD3<Int>, size: SIMD3<Int>) {
         let origin = SIMD3<Float>(Float(min.x), Float(min.y), Float(min.z))
         let extent = SIMD3<Float>(Float(size.x), Float(size.y), Float(size.z))
-        // Geometry is authored in block-center coordinates, so a block at `p`
-        // spans [p - 0.5, p + 0.5]. Pad the block box to keep that margin.
+        // Geometry uses block-center coordinates, so a block at `p` spans
+        // [p - 0.5, p + 0.5]. The 0.5 padding keeps that margin in the frame.
         frameLow = simd_min(frameLow, origin - 0.5)
         frameHigh = simd_max(frameHigh, origin + extent - 0.5)
         framingPinned = true
@@ -122,8 +119,8 @@ final class SchematicMetalRenderer: NSObject, MTKViewDelegate {
         requestDraw()
     }
 
-    /// Re-frames once all geometry has arrived, so entities rendered outside
-    /// the block bounds still sit inside the view.
+    /// Fits the camera once, after all geometry arrives. Entities rendered
+    /// outside the block bounds then stay in view.
     func settleFraming() {
         guard framingPinned, !cameraMoved else { return }
         fit()
@@ -134,8 +131,8 @@ final class SchematicMetalRenderer: NSObject, MTKViewDelegate {
         chunks.append(chunk)
         low = simd_min(low, chunk.origin)
         high = simd_max(high, chunk.origin + chunk.extent)
-        // Geometry may reach past the block bounds. Admit it to the frame, but
-        // hold the camera still until loading settles so the view never drifts.
+        // Geometry past the block bounds grows the frame, but the camera holds
+        // still until loading settles.
         frameLow = simd_min(frameLow, chunk.origin)
         frameHigh = simd_max(frameHigh, chunk.origin + chunk.extent)
         if !framingPinned, !cameraMoved { fit() }
@@ -225,8 +222,9 @@ final class SchematicMetalRenderer: NSObject, MTKViewDelegate {
         var projection = viewProjection(size: view.drawableSize)
         encoder.setVertexBytes(&projection, length: MemoryLayout<simd_float4x4>.stride, index: 1)
         encoder.setFrontFacing(.counterClockwise)
-        // Cull chunk AABBs before encoding any material draws. Sort once near
-        // to far for opaque early depth rejection, then reverse for blending.
+        // Cull chunk AABBs before any material draws. The near-to-far sort
+        // gives opaque draws early depth rejection, and the blend pass
+        // reverses the order.
         let planes = frustumPlanes(projection)
         let eye = self.eye
         let visible = chunks.filter { chunk in
@@ -257,9 +255,9 @@ final class SchematicMetalRenderer: NSObject, MTKViewDelegate {
         command.commit()
     }
 
-    /// True when an axis-aligned box survives the frustum. The test is the
-    /// same corner-distance one the chunk cull uses, so per-part boxes and the
-    /// chunk box agree at the boundary.
+    /// Reports whether an axis-aligned box intersects the frustum. The chunk
+    /// cull and the per-part cull call this same test, so they agree at the
+    /// boundary.
     private func boxVisible(_ planes: [SIMD4<Float>], center: SIMD3<Float>, half: SIMD3<Float>) -> Bool {
         planes.allSatisfy { plane in
             let n = SIMD3(plane.x, plane.y, plane.z)
@@ -272,9 +270,8 @@ final class SchematicMetalRenderer: NSObject, MTKViewDelegate {
     ) {
         var transform = (SIMD4(chunk.origin, 0), SIMD4(chunk.extent, 0))
         encoder.setVertexBytes(&transform, length: 32, index: 2)
-        // A chunk box can span the whole viewport while a single part sits
-        // outside it, so each part is tested against its own bounds before any
-        // of its draws is encoded.
+        // A chunk box can cover the whole viewport while one part sits outside
+        // it, so each part passes its own frustum test.
         for part in chunk.parts where part.alphaMode == alpha
             && boxVisible(planes, center: part.center, half: part.halfExtent) {
             encoder.setVertexBuffer(chunk.buffer, offset: part.vertexOffset, index: 0)
@@ -295,8 +292,8 @@ final class SchematicMetalRenderer: NSObject, MTKViewDelegate {
             SIMD4(x.x, y.x, z.x, 0), SIMD4(x.y, y.y, z.y, 0), SIMD4(x.z, y.z, z.z, 0),
             SIMD4(-simd_dot(x, eye), -simd_dot(y, eye), -simd_dot(z, eye), 1)
         ))
-        // Measure the scene against the same pinned frame the camera uses, so
-        // depth precision does not shift as batches stream in.
+        // The near and far planes use the pinned frame, so depth precision does
+        // not change as batches stream in.
         let sceneCenter = frameLow.x.isFinite ? (frameLow + frameHigh) * 0.5 : target
         let sceneDistance = chunks.isEmpty ? distance : simd_length(eye - sceneCenter)
         let near = max(0.01, sceneDistance - radius * 1.1)

@@ -123,7 +123,6 @@ struct TexturePackLibraryTests {
         try library.select(nil)
         #expect(TexturePackLibrary.sharedSelectedFileURL(directory: fixture.directory) == nil)
 
-        // A selection whose archive vanished resolves to nil, not to an error.
         try library.select(pack.id)
         try FileManager.default.removeItem(at: library.fileURL(for: pack.id))
         #expect(TexturePackLibrary.sharedSelectedFileURL(directory: fixture.directory) == nil)
@@ -172,7 +171,8 @@ struct TexturePackLibraryTests {
         #expect(!FileManager.default.fileExists(atPath: legacyDirectory.path))
         #expect(legacyDefaults.data(forKey: "texturePackLibrary") == nil)
 
-        // A second run is a no-op; the destination is already the source of truth.
+        // A second migration run does nothing. The shared destination is
+        // already the source of truth.
         try migrated.select(nil)
         #expect(TexturePackLibrary.migrateLegacyState(
             from: legacyDefaults, legacyDirectory: legacyDirectory,

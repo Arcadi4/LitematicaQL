@@ -30,15 +30,15 @@ const decodeLimits = JSON.stringify({
 
 type Position = readonly [number, number, number];
 
-/** Splits an `"x,y,z"` key back into coordinates; keys only come from `Model.set`. */
+/** Splits an `"x,y,z"` key back into coordinates. Keys only come from `Model.set`. */
 function keyToPosition(key: string): Position {
   const [x, y, z] = key.split(",");
   return [Number(x), Number(y), Number(z)];
 }
 
 /**
- * A sparse voxel model keyed by position, holding the block state string a
- * player would write. Coordinates are absolute within the model's own box.
+ * A sparse voxel model keyed by position. It stores the block state string
+ * that a player writes. Coordinates are absolute within the model's own box.
  */
 class Model {
   blocks = new Map<string, string>();
@@ -68,7 +68,7 @@ class Model {
     return this.blocks.keys();
   }
 
-  /** Fills inclusive bounds; later writes overwrite earlier blocks. */
+  /** Fills the inclusive bounds. Later writes overwrite earlier blocks. */
   box([x0, y0, z0]: Position, [x1, y1, z1]: Position, state: string): this {
     for (let x = x0; x <= x1; x += 1) {
       for (let y = y0; y <= y1; y += 1) {
@@ -109,11 +109,11 @@ class Model {
   }
 
   /**
-   * A gable roof over a rectangle: one course per level, each inset by one
-   * along the short axis so the two slopes meet at a ridge.
+   * A gable roof over a rectangle: one course per level. Each course is
+   * inset by one along the short axis, so the two slopes meet at a ridge.
    *
-   * `courses` caps how tall the roof gets. Without it the roof rises until the
-   * slopes meet, which over a wide building buries the walls entirely.
+   * `courses` caps the roof height. Without it, the roof rises until the
+   * slopes meet. A wide building then gets a very tall roof.
    */
   gable(
     [x0, y0, z0]: Position,
@@ -126,7 +126,7 @@ class Model {
     let level = 0;
     while (low <= high && level < courses) {
       const y = y0 + level;
-      // Past the cap the ridge is a flat run, so the last course is solid.
+      // At the course cap, the last course fills the full remaining width.
       const closed = level === courses - 1 && low < high;
       if (ridgeAxis === "x") {
         this.box([x0, y, low], [x1, y, closed ? high : low], state);
@@ -146,7 +146,7 @@ class Model {
     return this;
   }
 
-  /** A regular octagon, the closest a voxel cylinder gets to round. */
+  /** A regular octagon, the closest that a voxel cylinder gets to a circle. */
   cylinder(
     cx: number,
     cz: number,
@@ -160,7 +160,7 @@ class Model {
       for (let z = cz - radius; z <= cz + radius; z += 1) {
         const dx = x - cx;
         const dz = z - cz;
-        // A slightly generous radius reads as round at these sizes.
+        // The slightly generous radius makes the shape look round at these sizes.
         if (dx * dx + dz * dz > radius * radius + radius) {
           continue;
         }
@@ -175,7 +175,10 @@ class Model {
     return this;
   }
 
-  /** A hollow ball of leaves, thinned at the poles so canopies do not look cubic. */
+  /**
+   * A solid ball of leaves. It uses the same slightly generous radius test as
+   * `cylinder`.
+   */
   canopy(cx: number, cy: number, cz: number, radius: number, state: string): this {
     for (let x = cx - radius; x <= cx + radius; x += 1) {
       for (let y = cy - radius; y <= cy + radius; y += 1) {
@@ -194,7 +197,10 @@ class Model {
     return this;
   }
 
-  /** A stepped pyramid whose base is a full square and whose top is `1 × 1`. */
+  /**
+   * A stepped pyramid. Each level is a full square, one block narrower on
+   * each side. An odd base side gives a top of `1 by 1`.
+   */
   pyramid(
     [x0, z0]: readonly [number, number],
     [x1, z1]: readonly [number, number],
@@ -256,7 +262,7 @@ const sprucFence = "minecraft:spruce_fence";
 
 function cottage(): Model {
   const model = new Model();
-  // A depth of 9 closes six gable courses, so the roof reaches a ridge at y=10.
+  // A depth of 9 gives six gable courses, so the roof reaches a ridge at y=10.
   model.box([0, 0, 0], [12, 0, 8], stoneBrick);
 
   model.shell([0, 1, 0], [12, 4, 8], oak);
@@ -283,7 +289,6 @@ function cottage(): Model {
     model.clear(x, 2, 0);
   }
 
-  // Six courses bring the overhanging roof slopes to a ridge at y=10.
   model.gable([-1, 5, -1], [13, 9], spruce);
   model.gable([-1, 5, -1], [13, 9], spruceLog);
 
@@ -297,7 +302,8 @@ function cottage(): Model {
 }
 
 /**
- * The opening stays nine blocks wide so it remains the model's visual subject.
+ * The opening stays nine blocks wide because it is the main feature of this
+ * demo.
  */
 function archway(): Model {
   const model = new Model();
@@ -354,7 +360,7 @@ function bloom(): Model {
     model.set(x, 1, z, "minecraft:oak_log[axis=y]");
   }
 
-  // The smaller crown prevents the canopy from reading as a sphere on a stick.
+  // The smaller upper canopy stops the crown from looking like one sphere.
   model.canopy(5, 9, 5, 3, oakLeaf);
   model.canopy(5, 11, 5, 2, oakLeaf);
   model.set(5, 12, 5, oakLeaf);
@@ -420,7 +426,7 @@ function pyramid(): Model {
   model.box([0, 0, 0], [14, 0, 14], smoothSandstone);
   model.pyramid([0, 0], [14, 14], 0, sandstone);
 
-  // Alternating materials keep the pyramid's tiers legible in 3D.
+  // The alternating materials make the tiers visible in 3D.
   for (let level = 1; level < 7; level += 2) {
     const inset = level;
     model.box([inset, level, inset], [14 - inset, level, 14 - inset], cutSandstone);
@@ -632,8 +638,9 @@ const intList = (values: readonly number[]): NbtTag => ({
 });
 
 /**
- * Encodes a Java structure `.nbt`: a palette of block-state compounds, a flat
- * list of placed blocks, and the enclosing size, everything gzipped.
+ * Encodes a Java structure `.nbt`. The file holds a palette of block-state
+ * compounds, a flat list of placed blocks, and the model size. gzipSync
+ * compresses all of it.
  */
 function encodeStructure(model: Model): Uint8Array {
   const palette: string[] = [];
@@ -692,7 +699,7 @@ function structurePaletteEntry(state: string): NbtTag {
 
 /**
  * Nucleation's SNBT writer pads regions to their full bounding box. This
- * encoder emits only placed blocks so sparse models retain their shape.
+ * encoder writes only the placed blocks, so sparse models keep their shape.
  */
 function encodeStructureSnbt(model: Model): Uint8Array {
   const palette = new Map<string, number>();
@@ -724,9 +731,9 @@ function byPosition([left]: [string, string], [right]: [string, string]): number
 }
 
 /**
- * MCEdit accepts only legacy numeric block ids and metadata. Wooden planks are
- * excluded because Nucleation's `wood_variant` ignores the suffix and decodes
- * id 5 as `minecraft:oak`.
+ * MCEdit accepts only legacy numeric block ids and metadata. This map excludes
+ * wooden planks because Nucleation's `wood_variant` ignores the suffix and
+ * decodes id 5 as `minecraft:oak`.
  */
 const legacyBlocks: Record<string, [number, number]> = {
   "minecraft:cobblestone": [4, 0],
@@ -740,7 +747,7 @@ const legacyBlocks: Record<string, [number, number]> = {
   "minecraft:glass_pane": [102, 0],
 };
 
-/** A separate model constrains this demo to blocks MCEdit can express. */
+/** A separate model limits this demo to blocks that MCEdit can express. */
 function legacyTower(): Model {
   const model = new Model();
   const centre = 4;
@@ -881,7 +888,8 @@ const demos: Demo[] = [
     file: "Archway.schem",
     format: "sponge",
     model: archway(),
-    // Sponge v3 exercises the writer; the v2 reader has dedicated format fixtures.
+    // This demo tests the Sponge v3 writer. Separate fixtures cover the v2
+    // reader.
     encode: (model) =>
       Buffer.from(
         toNucleation(model, { ...common, name: "Archway" }).saveAsB64("schematic", "v3", ""),
@@ -923,9 +931,9 @@ const demos: Demo[] = [
 ];
 
 /**
- * Reads structure NBT into positions and block states. Nucleation cannot import
- * this format, so the minimal reader validates the encoder and catches malformed
- * tags or palettes before generation succeeds.
+ * Reads structure NBT into positions and block states. Nucleation cannot
+ * import this format. This minimal reader validates the encoder, and it
+ * catches malformed tags or palettes before generation succeeds.
  */
 function readStructureNbt(compressed: Uint8Array): Map<string, string> {
   const bytes = gunzipSync(compressed);
@@ -999,8 +1007,8 @@ function readStructureNbt(compressed: Uint8Array): Map<string, string> {
   name();
   const root = payload(10) as ParsedCompound;
 
-  // A parsed list holds bare payloads, so palette entries arrive as maps
-  // rather than the {tag, value} envelopes a compound's children carry.
+  // A parsed list holds bare payloads. Palette entries therefore arrive as
+  // maps, not as the {tag, value} pairs that a compound's children carry.
   const palette = (root.get("palette")!.value as ParsedCompound[]).map((entry) => {
     const blockName = entry.get("Name")!.value as string;
     const properties = entry.get("Properties");
@@ -1029,7 +1037,7 @@ interface ParsedTag {
   value: NbtValue;
 }
 
-/** Everything the minimal reader can produce; lists hold bare payloads. */
+/** Every value that the minimal reader can produce. */
 type NbtValue = number | bigint | string | Int8Array | NbtValue[] | ParsedCompound;
 
 mkdirSync(outputDirectory, { recursive: true });
@@ -1058,8 +1066,8 @@ if (mismatches > 0) {
 console.log(`\nWrote and verified ${demos.length} demos in ${outputDirectory}`);
 
 function decodeBlocks(bytes: Uint8Array): Map<string, string> {
-  // Nucleation's declarations type byte inputs as `Array<number>` even though
-  // the runtime accepts typed arrays; casting avoids copying the buffer.
+  // Nucleation's declarations type byte inputs as `Array<number>`, but the
+  // runtime accepts typed arrays. The cast avoids a copy of the buffer.
   const schematic = Schematic.fromDataBounded(bytes as unknown as Array<number>, decodeLimits);
   const decoded = new Map<string, string>();
   for (const block of JSON.parse(schematic.getNonAirBlocksJson()) as Array<{
@@ -1069,8 +1077,7 @@ function decodeBlocks(bytes: Uint8Array): Map<string, string> {
     name: string;
     properties: [string, string][];
   }>) {
-    // `properties` arrives as [key, value] pairs, which are rewritten into the
-    // same `key=value` form the models are written in.
+    // The joined form must match the `key=value` form that the models use.
     const properties = block.properties
       .map(([key, value]) => `${key}=${value}`)
       .sort((left, right) => left.localeCompare(right))
@@ -1102,8 +1109,9 @@ function parseState(state: string): { name: string; properties: Map<string, stri
 
 /**
  * Returns a mismatch description, or `undefined` when the decoded name and all
- * authored properties match. Decoder-supplied default properties are allowed;
- * Nucleation expands partial states to each block's full legal property set.
+ * authored properties match. The decoder can supply default properties,
+ * because Nucleation expands partial states to each block's full legal
+ * property set.
  */
 function compare(decoded: string | undefined, authored: string): string | undefined {
   if (decoded === undefined) {

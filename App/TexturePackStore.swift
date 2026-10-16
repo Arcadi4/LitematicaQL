@@ -15,11 +15,12 @@ final class TexturePackStore: ObservableObject {
 
     @Published private(set) var alert: Alert?
 
-    /// The pack whose textures are on screen, or the one being parsed. Nothing
-    /// loaded means nothing claimed, even while a saved choice is still pending.
+    /// The pack whose textures are on screen, or the pack with a load in
+    /// progress. No load and no textures means no active pack, even while a
+    /// saved choice is pending.
     var activeID: UUID? { loadingID ?? (resourcePack == nil ? nil : selectedID) }
 
-    /// Loads started under an older intent are dropped rather than applied late.
+    /// A load that a newer selection supersedes is dropped, not applied late.
     private var revision = UUID()
     private var packLoadTask: Task<Void, Never>?
 
@@ -37,7 +38,7 @@ final class TexturePackStore: ObservableObject {
         }
     }
 
-    /// Cancelling the panel is not a failure worth an alert.
+    /// A cancelled file panel is not a failure and does not show an alert.
     func reportImportFailure(_ error: any Error) {
         let failure = error as NSError
         guard failure.domain != NSCocoaErrorDomain || failure.code != NSUserCancelledError else { return }
@@ -48,7 +49,8 @@ final class TexturePackStore: ObservableObject {
 
     func selectPack(_ id: UUID?) {
         guard let library, id == nil || library.packs.contains(where: { $0.id == id }) else { return }
-        // Re-picking the pack already on screen would rebuild identical geometry.
+        // A re-pick of the pack already on screen rebuilds identical
+        // geometry, so this guard stops it.
         guard id != selectedID || loadingID != nil || resourcePack == nil else { return }
         revision = UUID()
         alert = nil
@@ -66,7 +68,8 @@ final class TexturePackStore: ObservableObject {
         packLoadTask = Task { [weak self] in await self?.load(id, revision: snapshot) }
     }
 
-    /// Parses one saved archive off-thread while it is still the newest choice.
+    /// Parses one saved archive off the main thread while it is the newest
+    /// choice.
     private func load(_ id: UUID, revision: UUID) async {
         guard let entry = library?.packs.first(where: { $0.id == id }),
               let url = library?.fileURL(for: id) else { return }
@@ -130,7 +133,8 @@ final class TexturePackStore: ObservableObject {
             }
         }
 
-        // Choosing or removing a pack during import takes precedence over auto-selection.
+        // A pack choice or removal during import takes precedence over
+        // auto-selection.
         if snapshot == self.revision, let (entry, pack) = lastImported {
             saveSelection(entry.id)
             packLoadTask?.cancel()
@@ -159,15 +163,15 @@ final class TexturePackStore: ObservableObject {
             alert = Alert(title: "Unable to Remove Texture Pack", message: error.localizedDescription)
             return
         }
-        // Deleting the archive can block; the index is already updated on the
-        // main actor, so the file removal runs detached.
+        // Deleting the archive can block. The index is updated on the main
+        // actor first, so the file removal runs detached.
         Task.detached(priority: .utility) {
             try? FileManager.default.removeItem(at: url)
         }
     }
 
-    /// The Add button stays enabled when saved state is unreadable, so a fresh
-    /// library is the recovery path instead of a dead-end disabled panel.
+    /// The Add button stays enabled when the saved library is unreadable.
+    /// The recovery path discards the saved state and opens a new library.
     @discardableResult
     private func ensureLibrary() -> Bool {
         if library != nil { return true }
