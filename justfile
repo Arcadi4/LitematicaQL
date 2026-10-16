@@ -101,6 +101,12 @@ run: build
 test: swift-test _native-test
     @echo "all test suites passed"
 
+# Run opt-in Metal readback and borrowed-batch lifetime tests.
+test-metal: native
+    mkdir -p {{ build_dir }}/metal-tests
+    swiftc -O -I Core/include Shared/NativeSchematic.swift Shared/MetalMesh.swift Tests/MetalTests/main.swift "Core/build/liblitematicaql_native_$(uname -m).a" -framework Metal -framework Foundation -o {{ build_dir }}/metal-tests/test-metal
+    {{ build_dir }}/metal-tests/test-metal
+
 # Keep Cargo invocations sequential so they reuse one target directory without
 # competing for its lock. SwiftPM has independent outputs and can overlap them.
 _native-test: native rust-test
