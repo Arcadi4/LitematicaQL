@@ -805,3 +805,133 @@ pub unsafe extern "C" fn nql_buffer_free(buffer: *mut u8, len: usize) {
         drop(Vec::from_raw_parts(buffer, len, len));
     }
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    fn crc32(bytes: &[u8]) -> u32 {
+        let mut crc = 0xFFFF_FFFF_u32;
+        for &byte in bytes {
+            crc ^= u32::from(byte);
+            for _ in 0..8 {
+                let mask = (crc & 1).wrapping_neg();
+                crc = (crc >> 1) ^ (0xEDB8_8320 & mask);
+            }
+        }
+        !crc
+    }
+
+    fn zip(entries: &[(&str, &[u8])]) -> Vec<u8> {
+        let mut output = Vec::new();
+        let mut central = Vec::new();
+        for (name, data) in entries {
+            let offset = output.len() as u32;
+            let crc = crc32(data);
+            let size = data.len() as u32;
+            let name_len = name.len() as u16;
+            output.extend_from_slice(&0x0403_4b50_u32.to_le_bytes());
+            output.extend_from_slice(&20_u16.to_le_bytes());
+            output.extend_from_slice(&0_u16.to_le_bytes());
+            output.extend_from_slice(&0_u16.to_le_bytes());
+            output.extend_from_slice(&0_u16.to_le_bytes());
+            output.extend_from_slice(&0x0021_u16.to_le_bytes());
+            output.extend_from_slice(&crc.to_le_bytes());
+            output.extend_from_slice(&size.to_le_bytes());
+            output.extend_from_slice(&size.to_le_bytes());
+            output.extend_from_slice(&name_len.to_le_bytes());
+            output.extend_from_slice(&0_u16.to_le_bytes());
+            output.extend_from_slice(name.as_bytes());
+            output.extend_from_slice(data);
+
+            central.extend_from_slice(&0x0201_4b50_u32.to_le_bytes());
+            central.extend_from_slice(&20_u16.to_le_bytes());
+            central.extend_from_slice(&20_u16.to_le_bytes());
+            central.extend_from_slice(&0_u16.to_le_bytes());
+            central.extend_from_slice(&0_u16.to_le_bytes());
+            central.extend_from_slice(&0_u16.to_le_bytes());
+            central.extend_from_slice(&0x0021_u16.to_le_bytes());
+            central.extend_from_slice(&crc.to_le_bytes());
+            central.extend_from_slice(&size.to_le_bytes());
+            central.extend_from_slice(&size.to_le_bytes());
+            central.extend_from_slice(&name_len.to_le_bytes());
+            central.extend_from_slice(&0_u16.to_le_bytes());
+            central.extend_from_slice(&0_u16.to_le_bytes());
+            central.extend_from_slice(&0_u16.to_le_bytes());
+            central.extend_from_slice(&0_u16.to_le_bytes());
+            central.extend_from_slice(&0_u32.to_le_bytes());
+            central.extend_from_slice(&offset.to_le_bytes());
+            central.extend_from_slice(name.as_bytes());
+        }
+        let central_offset = output.len() as u32;
+        let central_size = central.len() as u32;
+        let count = entries.len() as u16;
+        output.extend_from_slice(&central);
+        output.extend_from_slice(&0x0605_4b50_u32.to_le_bytes());
+        output.extend_from_slice(&0_u16.to_le_bytes());
+        output.extend_from_slice(&0_u16.to_le_bytes());
+        output.extend_from_slice(&count.to_le_bytes());
+        output.extend_from_slice(&count.to_le_bytes());
+        output.extend_from_slice(&central_size.to_le_bytes());
+        output.extend_from_slice(&central_offset.to_le_bytes());
+        output.extend_from_slice(&0_u16.to_le_bytes());
+        output
+    }
+
+    fn pack(marker_parent: &str, lower_only: bool) -> Vec<u8> {
+        let metadata: &[u8] = br#"{"pack":{"pack_format":34,"description":"test"}}"#;
+        let marker = format!(r#"{{"parent":"minecraft:{marker_parent}"}}"#);
+        let mut entries = vec![
+            ("pack.mcmeta", metadata),
+            (
+                "assets/minecraft/models/block/stack_marker.json",
+                marker.as_bytes(),
+            ),
+        ];
+        let fallback = r#"{"parent":"minecraft:block/lower_only"}"#;
+        if lower_only {
+            entries.push((
+                "assets/minecraft/models/block/lower_only.json",
+                fallback.as_bytes(),
+            ));
+        }
+        zip(&entries)
+    }
+
+    fn layer(bytes: &[u8], name: &[u8]) -> NQLPackLayer {
+        NQLPackLayer {
+            data: bytes.as_ptr(),
+            len: bytes.len(),
+            name: name.as_ptr(),
+            name_len: name.len(),
+        }
+    }
+
+    #[test]
+    fn stack_overlays_lowest_first_and_keeps_lower_entries() {
+        let lower = pack("block/lower", true);
+        let higher = pack("block/higher", false);
+        let base = NQLResourcePack(ResourcePackSource::from_resource_pack(Default::default()));
+        let low = layer(&lower, b"Lower");
+        let high = layer(&higher, b"Higher");
+
+        let composed = resource_pack_stack(&base, &[low, high]).expect("composes");
+        let marker = composed
+            .0
+            .get_model_json("minecraft:block/stack_marker")
+            .expect("marker model");
+        assert!(marker.contains("block/higher"), "{marker}");
+        let fallback = composed
+            .0
+            .get_model_json("minecraft:block/lower_only")
+            .expect("lower model");
+        assert!(fallback.contains("block/lower_only"), "{fallback}");
+
+        let reversed = resource_pack_stack(&base, &[high, low]).expect("composes");
+        let marker = reversed
+            .0
+            .get_model_json("minecraft:block/stack_marker")
+            .expect("marker model");
+        assert!(marker.contains("block/lower"), "{marker}");
+    }
+}

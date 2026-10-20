@@ -4,9 +4,10 @@ use std::path::PathBuf;
 
 use litematicaql_native::{
     nql_buffer_free, nql_mesh_batch_free, nql_mesh_stream_free, nql_mesh_stream_next,
-    nql_mesh_stream_open, nql_resource_pack_free, nql_resource_pack_open, nql_schematic_cancel,
-    nql_schematic_free, nql_schematic_info, nql_schematic_open, nql_schematic_warnings, status,
-    NQLAtlasInfo, NQLBatchInfo, NQLError, NQLMeshInfo, NQLSchematicInfo,
+    nql_mesh_stream_open, nql_resource_pack_compose, nql_resource_pack_free,
+    nql_resource_pack_open, nql_schematic_cancel, nql_schematic_free, nql_schematic_info,
+    nql_schematic_open, nql_schematic_warnings, status, NQLAtlasInfo, NQLBatchInfo, NQLError,
+    NQLMeshInfo, NQLPackLayer, NQLSchematicInfo,
 };
 
 fn repo_root() -> PathBuf {
@@ -572,6 +573,27 @@ fn pack_failures_keep_stable_status_codes() {
     };
     assert_eq!(result, status::ERR_PACK);
     take_error(&mut failure);
+}
+
+#[test]
+fn composed_pack_failures_name_the_layer_and_publish_nothing() {
+    let base = open_pack(&pack_bytes());
+    let bad_pack = b"not a zip";
+    let name = b"Broken pack";
+    let layer = NQLPackLayer {
+        data: bad_pack.as_ptr(),
+        len: bad_pack.len(),
+        name: name.as_ptr(),
+        name_len: name.len(),
+    };
+    let mut pack = std::ptr::null_mut();
+    let mut failure = error();
+    let result = unsafe { nql_resource_pack_compose(base, &layer, 1, &mut pack, &mut failure) };
+    let message = take_error(&mut failure);
+    unsafe { nql_resource_pack_free(base) };
+    assert_eq!(result, status::ERR_PACK);
+    assert!(pack.is_null());
+    assert!(message.contains("Broken pack"), "{message}");
 }
 
 #[test]
