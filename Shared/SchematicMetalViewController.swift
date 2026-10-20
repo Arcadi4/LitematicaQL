@@ -13,6 +13,10 @@ final class SchematicMetalViewController: NSViewController {
     /// refusal re-reads this exact pair.
     private var retryURL: URL?
     private var retryPack: NativeResourcePack?
+    /// A texture-pack problem that the host names while it renders with the
+    /// bundled base. The retry keeps the same notice.
+    private var packWarning: String?
+    private var retryPackWarning: String?
     private let status = NSTextField(wrappingLabelWithString: "")
     private let details = NSTextField(wrappingLabelWithString: "")
     private let progress = NSProgressIndicator()
@@ -110,6 +114,7 @@ final class SchematicMetalViewController: NSViewController {
     }
 
     func preparePreview(of url: URL, resourcePack: NativeResourcePack? = nil,
+                        texturePackWarning: String? = nil,
                         overridesPreviewLimits: Bool = false) throws {
         _ = view
         try Task.checkCancellation()
@@ -118,6 +123,8 @@ final class SchematicMetalViewController: NSViewController {
         cancelNativeLoad()
         retryURL = url
         retryPack = resourcePack
+        retryPackWarning = texturePackWarning
+        packWarning = texturePackWarning
         renderer.clear()
         let current = generation
         let session = NativeSchematicSession(
@@ -223,8 +230,9 @@ final class SchematicMetalViewController: NSViewController {
         renderer?.settleFraming()
         let size = renderer?.dimensions ?? .zero
         status.stringValue = "\(facts.blockCount.formatted()) blocks · \(size.x) × \(size.y) × \(size.z)"
-        details.stringValue = facts.warnings.joined(separator: "\n")
-        details.isHidden = facts.warnings.isEmpty
+        let notices = ([packWarning].compactMap { $0 } + facts.warnings)
+        details.stringValue = notices.joined(separator: "\n")
+        details.isHidden = notices.isEmpty
         progress.isHidden = true
         nativeSession = nil
         nativeLoad = nil
@@ -260,6 +268,7 @@ final class SchematicMetalViewController: NSViewController {
             guard response == .alertFirstButtonReturn else { return }
             do {
                 try self.preparePreview(of: url, resourcePack: self.retryPack,
+                                        texturePackWarning: self.retryPackWarning,
                                         overridesPreviewLimits: true)
             } catch {
                 self.showFailure(error.localizedDescription)
@@ -269,7 +278,7 @@ final class SchematicMetalViewController: NSViewController {
 
     private func showFailure(_ message: String) {
         status.stringValue = "Unable to preview schematic"
-        details.stringValue = message
+        details.stringValue = ([packWarning].compactMap { $0 } + [message]).joined(separator: "\n")
         details.isHidden = false
         progress.isHidden = true
     }

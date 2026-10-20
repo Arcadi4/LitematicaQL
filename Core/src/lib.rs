@@ -50,6 +50,17 @@ pub struct NQLSchematic {
 /// A parsed immutable resource pack. Sequential previews can reuse it.
 pub struct NQLResourcePack(ResourcePackSource);
 
+/// One layer of a composed resource pack. `layers[0]` has the lowest priority.
+/// `name` is UTF-8 and names this layer in a failure message.
+#[repr(C)]
+#[derive(Clone, Copy)]
+pub struct NQLPackLayer {
+    pub data: *const u8,
+    pub len: usize,
+    pub name: *const u8,
+    pub name_len: usize,
+}
+
 #[repr(C)]
 pub struct NQLSchematicInfo {
     pub block_count: i64,
@@ -229,13 +240,42 @@ fn resource_pack(bytes: &[u8]) -> Result<NQLResourcePack, MeshFailure> {
         .map_err(|error| MeshFailure::Pack(error.to_string()))
 }
 
-fn resource_pack_overlay(
+unsafe fn pack_layer_name(layer: &NQLPackLayer) -> String {
+    if layer.name.is_null() || layer.name_len == 0 {
+        return String::from("Texture pack");
+    }
+    String::from_utf8_lossy(slice::from_raw_parts(layer.name, layer.name_len)).into_owned()
+}
+
+/// Clones the base once, then moves each validated custom pack into it. Each
+/// layer parses against an empty pack through the published core validator, so
+/// the limits have one home and the accumulated stack is never cloned.
+fn resource_pack_stack(
     base: &NQLResourcePack,
-    bytes: &[u8],
+    layers: &[NQLPackLayer],
 ) -> Result<NQLResourcePack, MeshFailure> {
-    litematica_preview_core::resource_pack_overlay(&base.0, bytes)
-        .map(NQLResourcePack)
-        .map_err(MeshFailure::Pack)
+    let empty = ResourcePackSource::from_resource_pack(Default::default());
+    let mut merged = base.0.pack().clone();
+    for layer in layers {
+        let name = unsafe { pack_layer_name(layer) };
+        if layer.len == 0 {
+            return Err(MeshFailure::Pack(format!(
+                "“{name}” is empty. Choose a Minecraft Java resource-pack ZIP."
+            )));
+        }
+        if layer.data.is_null() {
+            return Err(MeshFailure::Pack(format!("“{name}” has no readable data.")));
+        }
+        let bytes = unsafe { slice::from_raw_parts(layer.data, layer.len) };
+        let mut custom =
+            litematica_preview_core::resource_pack_overlay(&empty, bytes).map_err(|message| {
+                MeshFailure::Pack(format!("“{name}” could not be loaded. {message}"))
+            })?;
+        merged.overlay(std::mem::take(custom.pack_mut()));
+    }
+    Ok(NQLResourcePack(ResourcePackSource::from_resource_pack(
+        merged,
+    )))
 }
 
 fn export_bytes(bytes: Vec<u8>) -> (*mut u8, usize) {
@@ -428,15 +468,15 @@ pub unsafe extern "C" fn nql_resource_pack_free(pack: *mut NQLResourcePack) {
 }
 
 #[no_mangle]
-pub unsafe extern "C" fn nql_resource_pack_overlay(
+pub unsafe extern "C" fn nql_resource_pack_compose(
     base: *const NQLResourcePack,
-    data: *const u8,
-    len: usize,
+    layers: *const NQLPackLayer,
+    layer_count: usize,
     out: *mut *mut NQLResourcePack,
     err_out: *mut NQLError,
 ) -> i32 {
     init_error(err_out);
-    if base.is_null() || data.is_null() || out.is_null() {
+    if base.is_null() || out.is_null() || (layer_count > 0 && layers.is_null()) {
         return fail(
             err_out,
             status::ERR_NULL,
@@ -444,9 +484,12 @@ pub unsafe extern "C" fn nql_resource_pack_overlay(
         );
     }
     *out = std::ptr::null_mut();
-    match catch_unwind(AssertUnwindSafe(|| {
-        resource_pack_overlay(&*base, slice::from_raw_parts(data, len))
-    })) {
+    let layers = if layer_count == 0 {
+        &[]
+    } else {
+        slice::from_raw_parts(layers, layer_count)
+    };
+    match catch_unwind(AssertUnwindSafe(|| resource_pack_stack(&*base, layers))) {
         Ok(Ok(pack)) => {
             *out = Box::into_raw(Box::new(pack));
             status::OK
@@ -455,7 +498,7 @@ pub unsafe extern "C" fn nql_resource_pack_overlay(
         _ => fail(
             err_out,
             status::ERR_INTERNAL,
-            "Unable to read this texture pack. Try another Minecraft Java resource pack.",
+            "Something went wrong while composing the texture packs.",
         ),
     }
 }

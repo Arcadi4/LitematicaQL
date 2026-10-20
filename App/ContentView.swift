@@ -28,6 +28,7 @@ struct ContentView: View {
         }
         .frame(minWidth: 680, minHeight: 480)
         .background(Color(nsColor: .windowBackgroundColor))
+        .overlay(alignment: .top) { texturePackFailure }
         .fileImporter(
             isPresented: $isImporterPresented,
             allowedContentTypes: UTType.schematicFileTypes,
@@ -52,6 +53,24 @@ struct ContentView: View {
                 .keyboardShortcut("o")
                 .help("Open a Minecraft schematic")
             }
+        }
+    }
+
+    @ViewBuilder
+    private var texturePackFailure: some View {
+        if let failure = texturePacks.failureMessage {
+            Label(failure, systemImage: "paintpalette.fill")
+                .font(.callout)
+                .foregroundStyle(.white)
+                .lineLimit(3)
+                .multilineTextAlignment(.leading)
+                .padding(.horizontal, 14)
+                .padding(.vertical, 10)
+                .background(.orange.opacity(0.92), in: RoundedRectangle(cornerRadius: 10))
+                .padding(.top, 12)
+                .padding(.horizontal, 20)
+                .help(failure)
+                .accessibilityLabel("Texture pack problem: \(failure)")
         }
     }
 
