@@ -56,6 +56,10 @@ and at most two uploads are in flight.
 
 Open **LitematicaQL → Settings…** (`⌘ + ,`) and choose **Add Texture Packs…** to import Minecraft Java resource-pack ZIPs.
 
+Enable packs in the inline list. Drag enabled rows or use the arrow buttons to set their priority: the top pack wins. Missing textures, models, and blockstates fall back to lower packs, then bundled vanilla.
+
+Changes reload open app previews and apply to subsequent Quick Look previews. Existing single-pack selections are preserved. Removing a saved pack keeps the original ZIP.
+
 ## Preview Limits
 
 Very large schematics are refused with an offer to render them anyway. To skip the warning and always render them, enable **Render oversized schematics without asking** under **LitematicaQL → Settings…** (`⌘ + ,`). The choice applies to the app and Quick Look; oversized previews may take a long time or exhaust memory.
