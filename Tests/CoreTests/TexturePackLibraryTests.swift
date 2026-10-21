@@ -140,6 +140,25 @@ struct TexturePackLibraryTests {
         #expect(fixture.defaults.data(forKey: "texturePackLibrary") == data)
     }
 
+    @Test("A directory without write access is rejected")
+    func rejectsReadOnlyDirectory() throws {
+        let directory = FileManager.default.temporaryDirectory
+            .appendingPathComponent("read-only-\(UUID().uuidString)", isDirectory: true)
+        try FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
+        defer {
+            try? FileManager.default.setAttributes(
+                [.posixPermissions: 0o755], ofItemAtPath: directory.path
+            )
+            try? FileManager.default.removeItem(at: directory)
+        }
+        try FileManager.default.setAttributes(
+            [.posixPermissions: 0o555], ofItemAtPath: directory.path
+        )
+
+        #expect(!TexturePackLibrary.isWritable(directory))
+        #expect(try FileManager.default.contentsOfDirectory(atPath: directory.path).isEmpty)
+    }
+
     @Test("Publishes the enabled stack for Quick Look in composition order")
     func publishesSelectionFile() throws {
         let fixture = try LibraryFixture()
