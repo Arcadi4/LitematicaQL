@@ -108,18 +108,46 @@ struct TexturePackLibrary {
     private var lastPersistedEnabledIDs: [UUID]
     private(set) var needsMigration: Bool
 
+    /// The app-group path exists even when the process cannot use it. A write
+    /// probe tells a usable group from a path only. Ad-hoc builds without a
+    /// validated entitlement then use their own container.
+    private static let groupDirectory: URL? = {
+        guard let group = FileManager.default.containerURL(
+            forSecurityApplicationGroupIdentifier: groupIdentifier
+        ) else { return nil }
+        let directory = group.appendingPathComponent("Texture Packs", isDirectory: true)
+        guard isWritable(directory) else { return nil }
+        return directory
+    }()
+
+    /// Whether a directory is writable, which a sandbox can deny.
+    static func isWritable(_ directory: URL) -> Bool {
+        let probe = directory.appendingPathComponent(".probe-\(UUID().uuidString)")
+        do {
+            try FileManager.default.createDirectory(
+                at: directory, withIntermediateDirectories: true
+            )
+            try Data().write(to: probe)
+            try FileManager.default.removeItem(at: probe)
+            return true
+        } catch {
+            return false
+        }
+    }
+
     /// The defaults suite for the library, shared through the app-group
     /// container when it is available. The SwiftPM package and tests run
     /// outside the sandbox and get standard defaults.
     static func sharedDefaults() -> UserDefaults {
-        UserDefaults(suiteName: groupIdentifier) ?? .standard
+        guard sharedDirectory() != nil else { return .standard }
+        return UserDefaults(suiteName: groupIdentifier) ?? .standard
     }
 
-    /// The group container directory, or nil outside an entitled process.
+    /// The group container directory when this process can write it, or nil
+    /// outside an entitled process. Tests and ad-hoc builds then work without
+    /// the entitlement.
     static func sharedDirectory() -> URL? {
-        FileManager.default.containerURL(
-            forSecurityApplicationGroupIdentifier: groupIdentifier
-        )?.appendingPathComponent("Texture Packs", isDirectory: true)
+        groupDirectory
     }
 
     /// Publishes the enabled stack where the Quick Look extension reads it.
