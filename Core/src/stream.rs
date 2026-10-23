@@ -11,9 +11,7 @@ use std::sync::{
 };
 
 use crate::{MeshFailure, NQLAtlasInfo, NQLBatchInfo, NQLMeshInfo};
-use litematica_preview_core::{MeshBatch, MeshStream};
-
-pub use litematica_preview_core::{MeshPart as NQLMeshPart, VERTEX_STRIDE};
+use litematica_preview_core::{MeshBatch, MeshPart, MeshStream};
 
 /// One first-use RGBA8 sRGB texture. The pixels come from the batch that
 /// introduced them and stay valid until the host frees that batch. Texture zero
@@ -34,7 +32,7 @@ pub struct NQLBatchTexture {
 pub struct NQLBatchView {
     pub geometry: *const u8,
     pub geometry_length: usize,
-    pub parts: *const NQLMeshPart,
+    pub parts: *const MeshPart,
     pub part_count: usize,
     /// Textures that this batch introduces.
     pub textures: *const NQLBatchTexture,

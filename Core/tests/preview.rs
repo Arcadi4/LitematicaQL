@@ -132,7 +132,7 @@ impl OwnedBatch {
         let view = self.view();
         unsafe { std::slice::from_raw_parts(view.geometry, view.geometry_length) }
     }
-    fn parts(&self) -> &[litematicaql_native::stream::NQLMeshPart] {
+    fn parts(&self) -> &[litematica_preview_core::MeshPart] {
         let view = self.view();
         unsafe { std::slice::from_raw_parts(view.parts, view.part_count) }
     }
@@ -325,7 +325,7 @@ fn deterministic_fixture() -> Vec<u8> {
 /// suite instead of misreading part bounds.
 #[test]
 fn native_part_layout_matches_the_c_header() {
-    use litematicaql_native::stream::NQLMeshPart;
+    use litematica_preview_core::MeshPart as NQLMeshPart;
     use std::mem::{offset_of, size_of};
 
     assert_eq!(size_of::<NQLMeshPart>(), 64);
