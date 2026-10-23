@@ -590,9 +590,8 @@ checksum = "3eaf3ede3fee6db1a4c2ee091bf8a8b4dccdc6d17f656fb07896ee72867612f2"
 
 [[package]]
 name = "litematica-preview-core"
-version = "0.1.4"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "7ee49b1227cb3960ba608a78b5de192a24e5222a4d67a960c71e2a43617c0e87"
+version = "0.1.5"
+source = "git+https://github.com/Arcadi4/litematica-preview-core?rev=87838a6dcca60010f2af63dd6c733a5010ec6a27#87838a6dcca60010f2af63dd6c733a5010ec6a27"
 dependencies = [
  "flate2",
  "image",
@@ -685,14 +684,15 @@ dependencies = [
 
 [[package]]
 name = "nucleation"
-version = "0.10.14"
+version = "0.11.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "0bb69a5a7f9233889ae74a3c9ce5ad840eb52172b801ccbcb7d8ce28e4a55ecb"
+checksum = "89e8128269ca74b1b1bf5c2d4803764d3c57c2ed8bdcdbc0537ecef1247bd545"
 dependencies = [
  "anyhow",
  "bincode",
  "blake3",
  "bytemuck",
+ "cesu8",
  "chrono",
  "console",
  "flate2",
@@ -1052,8 +1052,7 @@ checksum = "cf54715a573b99ac80df0bc206da022bcd442c974952c7b9720069370852e21f"
 [[package]]
 name = "schematic-mesher"
 version = "0.2.0"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "33d55bc912ac2c63cb53dcb37b68b8ba0e7f9024f23d9ee7a9ff41449c201f3b"
+source = "git+https://github.com/Schem-at/Schematic-Mesher.git?rev=286323e472cd8a5363b66a035a3be02ecdd4f164#286323e472cd8a5363b66a035a3be02ecdd4f164"
 dependencies = [
  "glam",
  "gltf-json",

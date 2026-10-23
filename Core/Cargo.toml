@@ -27,17 +27,18 @@ lto = "fat"
 codegen-units = 1
 
 [dependencies]
-litematica-preview-core = "0.1.4"
-# 0.10.15 and later publish `meshing` with a crates.io `gltf_build` version that
-# lacks the git-only API its `glb.rs` calls. This pin keeps the feature buildable.
-nucleation = { version = "=0.10.14", default-features = false, features = [
+litematica-preview-core = { git = "https://github.com/Arcadi4/litematica-preview-core", rev = "87838a6dcca60010f2af63dd6c733a5010ec6a27" }
+nucleation = { version = "=0.11.0", default-features = false, features = [
   "meshing",
 ] }
 
 [dev-dependencies]
 quartz_nbt = { version = "0.2.9", features = ["preserve_order"] }
-nucleation = { version = "=0.10.14", default-features = false, features = [
+nucleation = { version = "=0.11.0", default-features = false, features = [
   "meshing",
 ] }
 flate2 = { version = "1", default-features = false, features = ["zlib-rs"] }
 lz4_flex = { version = "0.14", default-features = false, features = ["std"] }
+
+[patch.crates-io]
+schematic-mesher = { git = "https://github.com/Schem-at/Schematic-Mesher.git", rev = "286323e472cd8a5363b66a035a3be02ecdd4f164" }
