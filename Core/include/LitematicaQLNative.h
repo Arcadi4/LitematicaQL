@@ -12,6 +12,15 @@ extern "C" {
 typedef struct NQLSchematic NQLSchematic;
 typedef struct NQLResourcePack NQLResourcePack;
 
+// One resource-pack layer. `layers[0]` has the lowest priority. `name` is
+// UTF-8 and names this layer in a failure message.
+typedef struct {
+    const uint8_t *data;
+    size_t len;
+    const char *name;
+    size_t name_len;
+} NQLPackLayer;
+
 typedef enum {
     NQL_OK = 0,
     NQL_ERR_NULL = 1,
@@ -120,8 +129,10 @@ NQLStatus nql_schematic_cancel(const NQLSchematic *schematic);
 NQLStatus nql_schematic_info(const NQLSchematic *schematic, NQLSchematicInfo *out);
 NQLStatus nql_schematic_warnings(const NQLSchematic *schematic, uint8_t **out, size_t *out_len);
 NQLStatus nql_resource_pack_open(const uint8_t *data, size_t len, NQLResourcePack **out, NQLError *err);
-// Creates an immutable custom pack over the base and does not modify the base.
-NQLStatus nql_resource_pack_overlay(const NQLResourcePack *base, const uint8_t *data, size_t len,
+// Creates an immutable stack over the base and does not modify the base.
+// Layers apply in array order, so the last layer has the highest priority.
+NQLStatus nql_resource_pack_compose(const NQLResourcePack *base,
+                                    const NQLPackLayer *layers, size_t layer_count,
                                     NQLResourcePack **out, NQLError *err);
 void nql_resource_pack_free(NQLResourcePack *pack);
 NQLStatus nql_mesh_stream_open(const NQLSchematic *schematic,

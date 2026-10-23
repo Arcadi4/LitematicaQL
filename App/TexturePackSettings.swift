@@ -4,45 +4,36 @@ import UniformTypeIdentifiers
 struct TexturePackSettings: View {
     @EnvironmentObject private var texturePacks: TexturePackStore
     @State private var isImporterPresented = false
-    @State private var isManagerPresented = false
+    @State private var packToRemove: TexturePackLibrary.Pack?
     @State private var bypassesPreviewLimits = RenderLimits.bypassesPreviewLimits()
-    @FocusState private var isTexturePackPickerFocused: Bool
-
-    private var isBusy: Bool { texturePacks.isImporting || texturePacks.loadingID != nil }
 
     var body: some View {
         Form {
             Section {
-                Picker("Texture pack", selection: Binding(
-                    get: { texturePacks.activeID },
-                    set: { texturePacks.selectPack($0) }
-                )) {
-                    Text("Vanilla").tag(nil as UUID?)
-                    ForEach(texturePacks.packs) { pack in
-                        Text(pack.name).tag(Optional(pack.id))
-                    }
-                }
-                .pickerStyle(.menu)
-                .focused($isTexturePackPickerFocused)
-                .disabled(!texturePacks.isAvailable)
+                TexturePackStackList(packToRemove: $packToRemove)
 
                 HStack {
                     Button("Add Texture Packs…") { isImporterPresented = true }
                         .disabled(texturePacks.isImporting)
-                    Button("Manage Texture Packs…") {
-                        isManagerPresented = true
-                    }
                     Spacer()
-                    if isBusy {
+                    if texturePacks.isBusy {
                         ProgressView()
                             .controlSize(.small)
-                            .accessibilityLabel(texturePacks.isImporting ? "Adding packs" : "Loading textures")
+                            .accessibilityLabel(texturePacks.isImporting
+                                                ? "Adding packs"
+                                                : "Loading texture pack stack")
                     }
                 }
             } header: {
                 Text("Appearance")
             } footer: {
-                Text("Add Minecraft Java resource packs to use in the preview.")
+                VStack(alignment: .leading, spacing: 6) {
+                    if let failure = texturePacks.failureMessage {
+                        Label(failure, systemImage: "exclamationmark.triangle.fill")
+                            .foregroundStyle(.orange)
+                    }
+                    Text("Enabled packs apply from top to bottom. Bundled vanilla is always the lowest-priority base.")
+                }
             }
 
             Section {
@@ -62,15 +53,6 @@ struct TexturePackSettings: View {
         }
         .formStyle(.grouped)
         .frame(width: 520)
-        .onAppear {
-            // The Form focuses its first control when the pane appears. Wait
-            // for the key view loop, then release the picker so no control
-            // starts out focused.
-            Task { @MainActor in
-                try? await Task.sleep(nanoseconds: 150_000_000)
-                isTexturePackPickerFocused = false
-            }
-        }
         .fileImporter(isPresented: $isImporterPresented, allowedContentTypes: [.zip],
                       allowsMultipleSelection: true) { result in
             switch result {
@@ -80,15 +62,11 @@ struct TexturePackSettings: View {
                 texturePacks.reportImportFailure(error)
             }
         }
-        .sheet(isPresented: $isManagerPresented) {
-            TexturePackManager()
-        }
         .modifier(TexturePackErrorAlert())
     }
 }
 
-/// Presents the one pack failure in the store. Settings and the manager sheet
-/// both attach this modifier, so one alert site serves both.
+/// Presents the one pack failure in the store while the settings pane is open.
 private struct TexturePackErrorAlert: ViewModifier {
     @EnvironmentObject private var texturePacks: TexturePackStore
 
@@ -104,87 +82,118 @@ private struct TexturePackErrorAlert: ViewModifier {
     }
 }
 
-private struct TexturePackManager: View {
-    @EnvironmentObject private var texturePacks: TexturePackStore
-    @Environment(\.dismiss) private var dismiss
-    @State private var packToRemove: TexturePackLibrary.Pack?
-
-    var body: some View {
-        VStack(alignment: .leading, spacing: 20) {
-            VStack(alignment: .leading, spacing: 6) {
-                Text("Manage Texture Packs")
-                    .font(.title3.weight(.semibold))
-                Text("Removing a saved pack keeps the original ZIP.")
-                    .font(.callout)
-                    .foregroundStyle(.secondary)
-            }
-
-            if texturePacks.packs.isEmpty {
-                Text("No saved texture packs. Add one with “Add Texture Packs…”.")
-                    .foregroundStyle(.secondary)
-                    .frame(maxWidth: .infinity, minHeight: 80)
-            } else {
-                // The rows live in their own view so the delete confirmation
-                // and the error alert attach to different views.
-                SavedPackList(packToRemove: $packToRemove)
-                    .frame(minHeight: 80, maxHeight: 320)
-            }
-
-            HStack {
-                Spacer()
-                Button("Done") { dismiss() }
-                    .keyboardShortcut(.defaultAction)
-            }
-        }
-        .padding(24)
-        .frame(width: 480)
-        .modifier(TexturePackErrorAlert())
-    }
-}
-
-private struct SavedPackList: View {
+private struct TexturePackStackList: View {
     @EnvironmentObject private var texturePacks: TexturePackStore
     @Binding var packToRemove: TexturePackLibrary.Pack?
 
     var body: some View {
-        List {
-            ForEach(texturePacks.packs) { pack in
-                HStack(spacing: 12) {
-                    Text(pack.name)
-                        .lineLimit(2)
-                        .help(pack.name)
-                    if texturePacks.selectedID == pack.id {
-                        Text("Active")
-                            .font(.caption)
-                            .foregroundStyle(.secondary)
+        Group {
+            if texturePacks.packs.isEmpty {
+                Text("No saved texture packs.")
+                    .foregroundStyle(.secondary)
+                    .frame(maxWidth: .infinity, alignment: .leading)
+                    .padding(.vertical, 8)
+            } else {
+                List {
+                    if !texturePacks.enabledPacks.isEmpty {
+                        Section {
+                            ForEach(texturePacks.enabledPacks) { pack in
+                                row(pack, enabled: true)
+                            }
+                            .onMove { source, destination in
+                                texturePacks.moveEnabled(fromOffsets: source,
+                                                         toOffset: destination)
+                            }
+                        } header: {
+                            Text("Enabled")
+                        }
                     }
-                    Spacer(minLength: 8)
-                    ProgressView()
-                        .controlSize(.small)
-                        .opacity(texturePacks.loadingID == pack.id ? 1 : 0)
-                        .accessibilityHidden(texturePacks.loadingID != pack.id)
-                        .accessibilityLabel("Loading \(pack.name)")
-                    Button("Remove…", role: .destructive) {
-                        packToRemove = pack
+
+                    if !texturePacks.disabledPacks.isEmpty {
+                        Section {
+                            ForEach(texturePacks.disabledPacks) { pack in
+                                row(pack, enabled: false)
+                            }
+                        } header: {
+                            Text("Available")
+                        }
                     }
-                    .controlSize(.small)
                 }
-                .padding(.vertical, 2)
+                .listStyle(.bordered)
+                .frame(minHeight: 120, maxHeight: 260)
+                .accessibilityLabel("Texture pack priority")
             }
         }
-        .listStyle(.bordered)
-        .alert(packToRemove.map { "Remove “\($0.name)”?" } ?? "Remove Texture Pack?", isPresented: Binding(
-            get: { packToRemove != nil },
-            set: { if !$0 { packToRemove = nil } }
-        ), presenting: packToRemove) { pack in
+        .alert(packToRemove.map { "Remove “\($0.name)”?" } ?? "Remove Texture Pack?",
+               isPresented: Binding(
+                get: { packToRemove != nil },
+                set: { if !$0 { packToRemove = nil } }
+               ), presenting: packToRemove) { pack in
             Button("Remove", role: .destructive) {
                 texturePacks.removePack(pack.id)
             }
             Button("Cancel", role: .cancel) {}
         } message: { pack in
-            Text(texturePacks.selectedID == pack.id
-                 ? "The saved copy will be removed and previews will use Vanilla. The original ZIP is kept."
-                 : "The saved copy will be removed from LitematicaQL. The original ZIP is kept.")
+            Text(removalMessage(for: pack))
         }
+    }
+
+    private func row(_ pack: TexturePackLibrary.Pack, enabled: Bool) -> some View {
+        let enabledPacks = texturePacks.enabledPacks
+        let index = enabled ? enabledPacks.firstIndex(where: { $0.id == pack.id }) : nil
+        let canMoveUp = index.map { $0 > 0 } ?? false
+        let canMoveDown = index.map { $0 + 1 < enabledPacks.count } ?? false
+
+        return HStack(spacing: 8) {
+            Toggle(isOn: Binding(
+                get: { texturePacks.isEnabled(pack.id) },
+                set: { texturePacks.setEnabled(pack.id, $0) }
+            )) {
+                Text(pack.name)
+                    .lineLimit(1)
+            }
+            .toggleStyle(.checkbox)
+            .help(pack.name)
+
+            Spacer(minLength: 8)
+
+            if enabled {
+                Button {
+                    texturePacks.moveEnabled(pack.id, by: -1)
+                } label: {
+                    Image(systemName: "chevron.up")
+                }
+                .buttonStyle(.borderless)
+                .disabled(!canMoveUp)
+                .help("Move \(pack.name) up")
+                .accessibilityLabel("Move \(pack.name) up")
+
+                Button {
+                    texturePacks.moveEnabled(pack.id, by: 1)
+                } label: {
+                    Image(systemName: "chevron.down")
+                }
+                .buttonStyle(.borderless)
+                .disabled(!canMoveDown)
+                .help("Move \(pack.name) down")
+                .accessibilityLabel("Move \(pack.name) down")
+            }
+
+            Button(role: .destructive) {
+                packToRemove = pack
+            } label: {
+                Image(systemName: "trash")
+            }
+            .buttonStyle(.borderless)
+            .help("Remove \(pack.name)…")
+            .accessibilityLabel("Remove \(pack.name)")
+        }
+        .padding(.vertical, 1)
+    }
+
+    private func removalMessage(for pack: TexturePackLibrary.Pack) -> String {
+        texturePacks.isEnabled(pack.id)
+            ? "The saved copy will be removed. Previews will use the remaining texture packs over bundled vanilla. The original ZIP is kept."
+            : "The saved copy will be removed from LitematicaQL. The original ZIP is kept."
     }
 }

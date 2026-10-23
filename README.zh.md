@@ -55,6 +55,10 @@ brew install --cask arcadi4/tap/litematicaql
 
 打开 **LitematicaQL → Settings…**（`⌘ + ,`），选择 **Add Texture Packs…** 即可导入 Minecraft Java 版资源包 ZIP 文件。
 
+在内嵌列表中勾选要启用的资源包，拖动已启用的行或使用箭头按钮调整优先级，最上方的资源包优先。缺失的纹理、模型和方块状态依次从下方资源包及内置原版资源中获取。
+
+修改后，应用中打开的预览会重新加载，后续快速查看也会使用同一资源包顺序。原有的单资源包选择会保留。移除已保存的资源包不会删除原始 ZIP 文件。
+
 ## 预览限制
 
 超大原理图默认会被拒绝预览，并询问是否仍要渲染。若要跳过警告并始终渲染，请在 **LitematicaQL → Settings…**（`⌘ + ,`）中启用 **Render oversized schematics without asking**。该设置同时作用于应用和快速查看；超大预览可能耗时很久或耗尽内存。

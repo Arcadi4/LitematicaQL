@@ -56,6 +56,17 @@ final class NativeMeshBatch: @unchecked Sendable {
 /// Owns a parsed immutable resource pack. Any number of previews can reuse
 /// one instance. The native pack is immutable after `init` returns.
 final class NativeResourcePack: @unchecked Sendable {
+    /// One enabled library archive. Sources are lowest priority first.
+    struct Source: Sendable {
+        let name: String
+        let url: URL
+    }
+
+    struct Layer: Sendable {
+        let name: String
+        let data: Data
+    }
+
     private let handle: OpaquePointer
 
     // Parsing is expensive. Swift evaluates this constant once and serializes
@@ -67,17 +78,11 @@ final class NativeResourcePack: @unchecked Sendable {
         return try NativeResourcePack(Data(contentsOf: url, options: .mappedIfSafe))
     }
 
-    init(_ data: Data, overlaying basePack: NativeResourcePack? = nil) throws {
+    init(_ data: Data) throws {
         var handle: OpaquePointer?
         var failure = NQLError(message: nil, message_len: 0)
         let status = data.withUnsafeBytes { raw -> NQLStatus in
             guard let base = raw.baseAddress else { return NQL_ERR_NULL }
-            if let basePack {
-                return basePack.withHandle { pack in
-                    nql_resource_pack_overlay(pack, base.assumingMemoryBound(to: UInt8.self),
-                                              raw.count, &handle, &failure)
-                }
-            }
             return nql_resource_pack_open(
                 base.assumingMemoryBound(to: UInt8.self),
                 raw.count,
@@ -86,9 +91,57 @@ final class NativeResourcePack: @unchecked Sendable {
             )
         }
         guard status == NQL_OK, let handle else {
-            throw NativeSchematicRefusal(message: Self.packMessage(status, failure, overlaying: basePack != nil))
+            throw NativeSchematicRefusal(message: Self.packMessage(status, failure))
         }
         self.handle = handle
+    }
+
+    /// Composes all layers over the immutable base in one native pass. Layers
+    /// are lowest priority first.
+    init(layers: [Layer], over basePack: NativeResourcePack) throws {
+        var handle: OpaquePointer?
+        var failure = NQLError(message: nil, message_len: 0)
+        var pointers: [NQLPackLayer] = []
+        let status = Self.withLayerPointers(layers, at: 0, &pointers) { pointers in
+            basePack.withHandle { base in
+                pointers.withUnsafeBufferPointer { buffer in
+                    nql_resource_pack_compose(
+                        base,
+                        buffer.baseAddress,
+                        buffer.count,
+                        &handle,
+                        &failure
+                    )
+                }
+            }
+        }
+        guard status == NQL_OK, let handle else {
+            throw NativeSchematicRefusal(message: Self.packMessage(status, failure))
+        }
+        self.handle = handle
+    }
+
+    /// Reads and composes saved archives off the caller's thread. A missing or
+    /// unreadable archive fails the whole stack and names the pack.
+    static func composed(from sources: [Source],
+                         over basePack: NativeResourcePack) throws -> NativeResourcePack {
+        let layers = try sources.map { source -> Layer in
+            guard FileManager.default.fileExists(atPath: source.url.path) else {
+                throw NativeSchematicRefusal(
+                    message: "“\(source.name)” is missing from the texture pack library."
+                )
+            }
+            let data: Data
+            do {
+                data = try Data(contentsOf: source.url, options: .mappedIfSafe)
+            } catch {
+                throw NativeSchematicRefusal(
+                    message: "“\(source.name)” could not be read. \(error.localizedDescription)"
+                )
+            }
+            return Layer(name: source.name, data: data)
+        }
+        return try NativeResourcePack(layers: layers, over: basePack)
     }
 
     deinit {
@@ -99,16 +152,37 @@ final class NativeResourcePack: @unchecked Sendable {
         try body(handle)
     }
 
-    private static func packMessage(_ status: NQLStatus, _ failure: NQLError, overlaying: Bool) -> String {
+    private static func withLayerPointers<T>(
+        _ layers: [Layer],
+        at index: Int,
+        _ pointers: inout [NQLPackLayer],
+        _ body: ([NQLPackLayer]) -> T
+    ) -> T {
+        guard index < layers.count else { return body(pointers) }
+        let layer = layers[index]
+        let nameLength = layer.name.utf8.count
+        return layer.data.withUnsafeBytes { raw in
+            layer.name.withCString { name in
+                pointers.append(NQLPackLayer(
+                    data: raw.baseAddress?.assumingMemoryBound(to: UInt8.self),
+                    len: raw.count,
+                    name: name,
+                    name_len: nameLength
+                ))
+                defer { pointers.removeLast() }
+                return withLayerPointers(layers, at: index + 1, &pointers, body)
+            }
+        }
+    }
+
+    private static func packMessage(_ status: NQLStatus, _ failure: NQLError) -> String {
         defer { if let message = failure.message { nql_buffer_free(message, failure.message_len) } }
         if let message = failure.message, failure.message_len > 0 {
             let text = String(decoding: Data(bytes: message, count: failure.message_len), as: UTF8.self)
             if !text.isEmpty { return text }
         }
         return status == NQL_ERR_PACK
-            ? (overlaying
-                ? "This texture pack could not be read. Choose a Minecraft Java resource-pack ZIP."
-                : "The bundled block resources are invalid. Rebuild the app.")
+            ? "The bundled block resources are invalid. Rebuild the app."
             : "Something went wrong while reading the block resources."
     }
 }

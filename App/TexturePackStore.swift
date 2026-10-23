@@ -5,8 +5,11 @@ import SwiftUI
 final class TexturePackStore: ObservableObject {
     @Published private var library: TexturePackLibrary?
     @Published private(set) var resourcePack: NativeResourcePack?
-    @Published private(set) var loadingID: UUID?
+    @Published private(set) var isLoadingStack = false
     @Published private(set) var isImporting = false
+    /// The active problem with the configured stack, shown while previews use
+    /// the previous stack or the bundled base.
+    @Published private(set) var failureMessage: String?
     /// One presentation surface for every pack failure.
     struct Alert: Equatable {
         let title: String
@@ -15,23 +18,27 @@ final class TexturePackStore: ObservableObject {
 
     @Published private(set) var alert: Alert?
 
-    /// The pack whose textures are on screen, or the pack with a load in
-    /// progress. No load and no textures means no active pack, even while a
-    /// saved choice is pending.
-    var activeID: UUID? { loadingID ?? (resourcePack == nil ? nil : selectedID) }
-
-    /// A load that a newer selection supersedes is dropped, not applied late.
+    /// The enabled stack that a load in progress will apply. A newer selection
+    /// supersedes it, and the stale load is dropped instead of applied late.
     private var revision = UUID()
     private var packLoadTask: Task<Void, Never>?
+    /// The stack that `resourcePack` was built from, in priority order.
+    private var loadedEnabledIDs: [UUID] = []
 
     var packs: [TexturePackLibrary.Pack] { library?.packs ?? [] }
-    var selectedID: UUID? { library?.selectedID }
-    var isAvailable: Bool { library != nil }
+    var enabledPacks: [TexturePackLibrary.Pack] { library?.enabledPacks ?? [] }
+    var disabledPacks: [TexturePackLibrary.Pack] { library?.disabledPacks ?? [] }
+    private var enabledIDs: [UUID] { library?.enabledIDs ?? [] }
+    var isBusy: Bool { isImporting || isLoadingStack }
+
+    func isEnabled(_ id: UUID) -> Bool { library?.isEnabled(id) ?? false }
 
     init() {
         do {
             library = try TexturePackLibrary.openShared()
-            if let id = selectedID { selectPack(id) }
+            if !enabledIDs.isEmpty {
+                applyEnabledStack(enabledIDs, revertOnFailure: false, persistOnSuccess: false)
+            }
         } catch {
             alert = Alert(title: "Unable to Open the Texture Pack Library",
                           message: "The saved texture packs could not be restored. \(error.localizedDescription)")
@@ -47,100 +54,174 @@ final class TexturePackStore: ObservableObject {
 
     func dismissAlert() { alert = nil }
 
-    func selectPack(_ id: UUID?) {
-        guard let library, id == nil || library.packs.contains(where: { $0.id == id }) else { return }
-        // A re-pick of the pack already on screen rebuilds identical
-        // geometry, so this guard stops it.
-        guard id != selectedID || loadingID != nil || resourcePack == nil else { return }
-        revision = UUID()
-        alert = nil
-        packLoadTask?.cancel()
+    /// Adds at highest priority or removes from the enabled stack. The change
+    /// persists only after the complete stack loads.
+    func setEnabled(_ id: UUID, _ enabled: Bool) {
+        guard var updated = library, updated.packs.contains(where: { $0.id == id }) else { return }
+        if enabled {
+            updated.enable(id)
+        } else {
+            updated.disable(id)
+        }
+        guard updated.enabledIDs != library?.enabledIDs else { return }
+        library = updated
+        applyEnabledStack(updated.enabledIDs, revertOnFailure: true, persistOnSuccess: true)
+    }
 
-        guard let id else {
-            saveSelection(nil)
+    func moveEnabled(fromOffsets source: IndexSet, toOffset destination: Int) {
+        mutateEnabled { $0.moveEnabled(fromOffsets: source, toOffset: destination) }
+    }
+
+    func moveEnabled(_ id: UUID, by offset: Int) {
+        mutateEnabled { $0.moveEnabled(id, by: offset) }
+    }
+
+    private func mutateEnabled(_ mutation: (inout TexturePackLibrary) -> Void) {
+        guard var updated = library else { return }
+        let previous = updated.enabledIDs
+        mutation(&updated)
+        guard updated.enabledIDs != previous else { return }
+        library = updated
+        applyEnabledStack(updated.enabledIDs, revertOnFailure: true, persistOnSuccess: true)
+    }
+
+    private func applyEnabledStack(_ ids: [UUID], revertOnFailure: Bool,
+                                   persistOnSuccess: Bool) {
+        revision = UUID()
+        let revision = self.revision
+        packLoadTask?.cancel()
+        alert = nil
+
+        guard !ids.isEmpty else {
+            isLoadingStack = false
             resourcePack = nil
-            loadingID = nil
+            loadedEnabledIDs = []
+            failureMessage = nil
+            if persistOnSuccess { commitSelection() }
             return
         }
 
-        loadingID = id
-        let snapshot = revision
-        packLoadTask = Task { [weak self] in await self?.load(id, revision: snapshot) }
-    }
+        guard let library = self.library else { return }
+        let packsByID = Dictionary(uniqueKeysWithValues: library.packs.map { ($0.id, $0) })
+        let ordered = ids.compactMap { packsByID[$0] }
+        guard ordered.count == ids.count else {
+            failComposition(message: "A saved texture pack is missing from the library.",
+                            revertOnFailure: revertOnFailure)
+            return
+        }
+        let sources = ordered.reversed().map {
+            NativeResourcePack.Source(name: $0.name, url: library.fileURL(for: $0.id))
+        }
 
-    /// Parses one saved archive off the main thread while it is the newest
-    /// choice.
-    private func load(_ id: UUID, revision: UUID) async {
-        guard let entry = library?.packs.first(where: { $0.id == id }),
-              let url = library?.fileURL(for: id) else { return }
-        do {
-            let pack = try await Task.detached(priority: .userInitiated) {
-                let data = try Data(contentsOf: url, options: .mappedIfSafe)
-                return try NativeResourcePack(data, overlaying: NativeResourcePack.bundled.get())
-            }.value
-            guard revision == self.revision else { return }
-            saveSelection(id)
-            resourcePack = pack
-            loadingID = nil
-        } catch is CancellationError {
-            // A newer choice owns the selection and its progress state.
-        } catch {
-            guard revision == self.revision else { return }
-            loadingID = nil
-            alert = Alert(title: "Unable to Load Texture Pack",
-                          message: "\(entry.name) could not be loaded. \(error.localizedDescription)")
+        isLoadingStack = true
+        packLoadTask = Task { [weak self] in
+            do {
+                let pack = try await Task.detached(priority: .userInitiated) {
+                    let base = try NativeResourcePack.bundled.get()
+                    return try NativeResourcePack.composed(from: sources, over: base)
+                }.value
+                guard let self, revision == self.revision else { return }
+                if persistOnSuccess { self.commitSelection() }
+                self.resourcePack = pack
+                self.loadedEnabledIDs = ids
+                self.isLoadingStack = false
+                self.failureMessage = nil
+                self.packLoadTask = nil
+            } catch {
+                guard let self, revision == self.revision else { return }
+                self.failComposition(message: error.localizedDescription,
+                                     revertOnFailure: revertOnFailure)
+            }
         }
     }
 
-    /// A failed write still shows the pack, but the choice is not remembered.
-    private func saveSelection(_ id: UUID?) {
-        do { try self.library?.select(id) } catch {
-            alert = Alert(title: "Unable to Change Texture Pack", message: error.localizedDescription)
+    private func failComposition(message: String, revertOnFailure: Bool) {
+        isLoadingStack = false
+        packLoadTask = nil
+        if revertOnFailure {
+            library?.revertEnabled()
+            if resourcePack != nil,
+               let reverted = self.library?.enabledIDs,
+               reverted == loadedEnabledIDs {
+                failureMessage = "The previous texture pack stack is still active. \(message)"
+            } else {
+                resourcePack = nil
+                loadedEnabledIDs = []
+                failureMessage = "Previews use bundled vanilla resources. \(message)"
+            }
+        } else {
+            resourcePack = nil
+            loadedEnabledIDs = []
+            failureMessage = "Previews use bundled vanilla resources. \(message)"
+        }
+        alert = Alert(title: "Unable to Apply Texture Pack Stack",
+                      message: failureMessage ?? message)
+    }
+
+    private func commitSelection() {
+        do {
+            try library?.commit()
+        } catch {
+            alert = Alert(title: "Unable to Save Texture Packs",
+                          message: error.localizedDescription)
         }
     }
 
     func importPacks(from urls: [URL]) async {
-        guard !isImporting, ensureLibrary(), let library else { return }
+        guard !isImporting, ensureLibrary(), let library = self.library else { return }
         isImporting = true
         alert = nil
         defer { isImporting = false }
         let snapshot = revision
         var failures: [String] = []
-        var lastImported: (TexturePackLibrary.Pack, NativeResourcePack)?
+        var imported: [TexturePackLibrary.Pack] = []
 
         for url in urls {
-            let entry = TexturePackLibrary.Pack(id: UUID(), name: url.deletingPathExtension().lastPathComponent)
+            let entry = TexturePackLibrary.Pack(
+                id: UUID(),
+                name: url.deletingPathExtension().lastPathComponent
+            )
             let destination = library.fileURL(for: entry.id)
             do {
-                let pack = try await Task.detached(priority: .userInitiated) {
+                try await Task.detached(priority: .userInitiated) {
                     let access = url.startAccessingSecurityScopedResource()
                     defer { if access { url.stopAccessingSecurityScopedResource() } }
-                    // The native loader rejects oversized, empty, and
+                    // The native layer rejects oversized, empty, and
                     // non-resource-pack archives with the text the user sees.
                     let data = try Data(contentsOf: url, options: .mappedIfSafe)
-                    let pack = try NativeResourcePack(data, overlaying: NativeResourcePack.bundled.get())
-                    try FileManager.default.createDirectory(at: destination.deletingLastPathComponent(),
-                                                            withIntermediateDirectories: true)
+                    let base = try NativeResourcePack.bundled.get()
+                    _ = try NativeResourcePack(
+                        layers: [NativeResourcePack.Layer(name: entry.name, data: data)],
+                        over: base
+                    )
+                    try FileManager.default.createDirectory(
+                        at: destination.deletingLastPathComponent(),
+                        withIntermediateDirectories: true
+                    )
                     try data.write(to: destination, options: .atomic)
-                    return pack
                 }.value
                 if let added = try self.library?.add(entry) {
-                    lastImported = (added, pack)
+                    imported.append(added)
                 }
             } catch {
                 try? FileManager.default.removeItem(at: destination)
-                failures.append("\(entry.name): \(error.localizedDescription)")
+                if let refusal = error as? NativeSchematicRefusal {
+                    failures.append(refusal.message)
+                } else {
+                    failures.append("\(entry.name): \(error.localizedDescription)")
+                }
             }
         }
 
         // A pack choice or removal during import takes precedence over
-        // auto-selection.
-        if snapshot == self.revision, let (entry, pack) = lastImported {
-            saveSelection(entry.id)
-            packLoadTask?.cancel()
-            self.revision = UUID()
-            loadingID = nil
-            resourcePack = pack
+        // auto-enabling the imported packs.
+        if snapshot == revision, !imported.isEmpty {
+            guard var updated = self.library else { return }
+            for entry in imported {
+                updated.enable(entry.id)
+            }
+            self.library = updated
+            applyEnabledStack(updated.enabledIDs, revertOnFailure: true, persistOnSuccess: true)
         }
         if !failures.isEmpty {
             alert = Alert(title: "Some Texture Packs Could Not Be Added",
@@ -149,19 +230,19 @@ final class TexturePackStore: ObservableObject {
     }
 
     func removePack(_ id: UUID) {
-        let removesShownPack = selectedID == id
-        guard let url = library?.fileURL(for: id) else { return }
+        guard let library = self.library,
+              library.packs.contains(where: { $0.id == id }) else { return }
+        let url = library.fileURL(for: id)
+        let wasEnabled = library.isEnabled(id)
         do {
-            try library?.removeEntry(id)
-            revision = UUID()
-            if removesShownPack || loadingID == id {
-                packLoadTask?.cancel()
-                loadingID = nil
-            }
-            if removesShownPack { resourcePack = nil }
+            try self.library?.removeEntry(id)
         } catch {
             alert = Alert(title: "Unable to Remove Texture Pack", message: error.localizedDescription)
             return
+        }
+        if wasEnabled {
+            applyEnabledStack(self.library?.enabledIDs ?? [], revertOnFailure: false,
+                              persistOnSuccess: true)
         }
         // Deleting the archive can block. The index is updated on the main
         // actor first, so the file removal runs detached.
