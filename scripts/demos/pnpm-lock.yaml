@@ -170,8 +170,8 @@ importers:
         specifier: 0.8.3
         version: 0.8.3
       nucleation:
-        specifier: 0.10.24
-        version: 0.10.24
+        specifier: 0.12.0
+        version: 0.12.0
       tsx:
         specifier: 4.23.15
         version: 4.23.15
@@ -347,8 +347,8 @@ packages:
     engines: {node: ^8.16.0 || ^10.6.0 || >=11.0.0}
     os: [darwin]
 
-  nucleation@0.10.24:
-    resolution: {integrity: sha512-3qhrJabXDDr1tuduawO5LT9r0zW8MBOjFTSsMbaOmf++q223iPVSatx7ds0bgN19mG7t0/hzgypiuo6T4nFgSQ==}
+  nucleation@0.12.0:
+    resolution: {integrity: sha512-6tIf3T/ez/O2RqCYsJrZLhvmEFE0eJNOKtgso5hUldDwdugJ68KRMuav3jXjR+JBA6x3VAW5a0ElNx7wqmv8hw==}
     engines: {node: '>=18'}
 
   tsx@4.23.15:
@@ -470,7 +470,7 @@ snapshots:
   fsevents@2.3.3:
     optional: true
 
-  nucleation@0.10.24: {}
+  nucleation@0.12.0: {}
 
   tsx@4.23.15:
     dependencies:
