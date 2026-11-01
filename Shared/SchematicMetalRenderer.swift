@@ -233,7 +233,6 @@ final class SchematicMetalRenderer: NSObject, MTKViewDelegate {
         for alpha in 0...2 {
             encoder.setRenderPipelineState(pipelines[alpha])
             encoder.setDepthStencilState(alpha == 2 ? depthRead : depthWrite)
-            encoder.setCullMode(alpha == 0 ? .back : .none)
             if alpha == 2 {
                 for chunk in visible.reversed() {
                     encode(chunk, alpha: alpha, with: encoder, planes: planes)
@@ -274,6 +273,10 @@ final class SchematicMetalRenderer: NSObject, MTKViewDelegate {
         // it, so each part passes its own frustum test.
         for part in chunk.parts where part.alphaMode == alpha
             && boxVisible(planes, center: part.center, half: part.halfExtent) {
+            // Every face is wound outward and two-sided sprites are emitted as
+            // reversed duplicates, so culling draws each surface once and a
+            // translucent part cannot blend its far side through its near side.
+            encoder.setCullMode(alpha == 1 ? .none : .back)
             encoder.setVertexBuffer(chunk.buffer, offset: part.vertexOffset, index: 0)
             encoder.setFragmentTexture(part.texture, index: 0)
             encoder.setFragmentSamplerState(part.repeats ? repeatSampler : clampSampler, index: 0)
