@@ -591,7 +591,6 @@ checksum = "3eaf3ede3fee6db1a4c2ee091bf8a8b4dccdc6d17f656fb07896ee72867612f2"
 [[package]]
 name = "litematica-preview-core"
 version = "0.1.5"
-source = "git+https://github.com/Arcadi4/litematica-preview-core?rev=87838a6dcca60010f2af63dd6c733a5010ec6a27#87838a6dcca60010f2af63dd6c733a5010ec6a27"
 dependencies = [
  "flate2",
  "image",

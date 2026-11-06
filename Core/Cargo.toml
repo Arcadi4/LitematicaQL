@@ -27,7 +27,7 @@ lto = "fat"
 codegen-units = 1
 
 [dependencies]
-litematica-preview-core = { git = "https://github.com/Arcadi4/litematica-preview-core", rev = "87838a6dcca60010f2af63dd6c733a5010ec6a27" }
+litematica-preview-core = { git = "https://github.com/Arcadi4/litematica-preview-core", rev = "0e43f7b213302e5b93312b439dcd000982ac678d" }
 nucleation = { version = "=0.11.0", default-features = false, features = [
   "meshing",
 ] }
