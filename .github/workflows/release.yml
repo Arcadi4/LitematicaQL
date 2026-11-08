@@ -15,8 +15,9 @@ permissions:
   contents: read
 
 concurrency:
-  group: release-${{ github.ref }}
+  group: release
   cancel-in-progress: false
+  queue: max
 
 jobs:
   validate:
@@ -184,9 +185,149 @@ jobs:
             build/release/*.sha256
           if-no-files-found: error
 
+  distribute:
+    name: Publish Cloudflare downloads and update feeds
+    needs: sign
+    if: github.event_name != 'workflow_dispatch' || !inputs.dry_run
+    runs-on: macos-26
+    env:
+      CLOUDFLARE_ACCOUNT_ID: f4e323f273bab9cb104cbe7b945c58d3
+      VERSION: ${{ github.ref_name }}
+    steps:
+      - name: Check out release configuration
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
+        with:
+          persist-credentials: false
+
+      - name: Download signed archives
+        uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8
+        with:
+          pattern: signed-LitematicaQL-${{ github.ref_name }}-*
+          path: build/release
+          merge-multiple: true
+
+      - name: Set up Node.js
+        uses: actions/setup-node@249970729cb0ef3589644e2896645e5dc5ba9c38 # v6.5.0
+        with:
+          node-version: 24
+
+      - name: Install Cloudflare CLI
+        working-directory: cloudflare
+        run: npm ci --ignore-scripts
+
+      - name: Reject older or already published releases
+        env:
+          GH_TOKEN: ${{ github.token }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          gh api --paginate --slurp "repos/$GITHUB_REPOSITORY/releases" > "$RUNNER_TEMP/releases.json"
+          curl -fsS --retry 3 -H 'Cache-Control: no-cache' \
+            "https://update.arcadia.moe/litematicaql/arm64/appcast.xml?run=$GITHUB_RUN_ID-$GITHUB_RUN_ATTEMPT" > "$RUNNER_TEMP/current-appcast.xml"
+          python3 - "$VERSION" "$GITHUB_RUN_NUMBER" "$RUNNER_TEMP/releases.json" "$RUNNER_TEMP/current-appcast.xml" <<'PY'
+          import json
+          import re
+          import sys
+          import xml.etree.ElementTree as ET
+
+          tag, build_number, releases_path, feed_path = sys.argv[1:]
+          current = tuple(map(int, tag[1:].split(".")))
+          with open(releases_path) as f:
+              releases = [release for page in json.load(f) for release in page]
+          for release in releases:
+              previous = release["tag_name"]
+              if not release["draft"] and not release["prerelease"] and re.fullmatch(r"v\d+\.\d+\.\d+", previous):
+                  if tuple(map(int, previous[1:].split("."))) >= current:
+                      sys.exit(f"Release {previous} is already published and is not older than {tag}.")
+          namespace = {"sparkle": "http://www.andymatuschak.org/xml-namespaces/sparkle"}
+          for item in ET.parse(feed_path).findall("./channel/item"):
+              version = item.findtext("sparkle:shortVersionString", namespaces=namespace)
+              if not version or not re.fullmatch(r"\d+\.\d+\.\d+", version):
+                  sys.exit("The current appcast has an invalid version.")
+              if tuple(map(int, version.split("."))) > current:
+                  sys.exit(f"The current appcast version {version} is newer than {tag}.")
+              old_build = item.findtext("sparkle:version", namespaces=namespace)
+              if not old_build or not old_build.isdecimal() or int(old_build) >= int(build_number):
+                  sys.exit(f"Build number {build_number} must exceed the current appcast build number {old_build}.")
+          PY
+
+      - name: Check existing package objects
+        shell: bash
+        run: |
+          set -euo pipefail
+          version="${VERSION#v}"
+          for arch in arm64 x86_64; do
+            archive="LitematicaQL-$version-$arch.zip"
+            url="https://download.arcadia.moe/litematicaql/$archive"
+            status="$(curl -sSL --retry 3 -H 'Cache-Control: no-cache' -o "$RUNNER_TEMP/existing-$arch" -w '%{http_code}' "$url?run=$GITHUB_RUN_ID-$GITHUB_RUN_ATTEMPT")"
+            case "$status" in
+              404) ;;
+              200) cmp -s "build/release/$archive" "$RUNNER_TEMP/existing-$arch" || {
+                echo "Existing package $url differs; refusing to overwrite it." >&2
+                exit 1
+              } ;;
+              *) echo "Cannot check $url (HTTP $status)." >&2; exit 1 ;;
+            esac
+          done
+
+      - name: Generate signed update feeds
+        env:
+          GH_TOKEN: ${{ github.token }}
+          SPARKLE_PRIVATE_KEY: ${{ secrets.SPARKLE_PRIVATE_KEY }}
+          CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          : "${SPARKLE_PRIVATE_KEY:?SPARKLE_PRIVATE_KEY is required}"
+          : "${CLOUDFLARE_API_TOKEN:?CLOUDFLARE_API_TOKEN is required}"
+          version="${VERSION#v}"
+          (cd build/release && shasum -a 256 -c "LitematicaQL-$version-arm64.zip.sha256" "LitematicaQL-$version-x86_64.zip.sha256")
+          mkdir -p "$RUNNER_TEMP/sparkle"
+          gh release download 2.9.0 --repo sparkle-project/Sparkle --pattern Sparkle-2.9.0.tar.xz --dir "$RUNNER_TEMP/sparkle"
+          echo "01e0f0ebf6614061ea816d414de50f937d64ffa6822ad572243031ca3676fe19  $RUNNER_TEMP/sparkle/Sparkle-2.9.0.tar.xz" | shasum -a 256 -c
+          tar -xJf "$RUNNER_TEMP/sparkle/Sparkle-2.9.0.tar.xz" -C "$RUNNER_TEMP/sparkle"
+          for arch in arm64 x86_64; do
+            archive="LitematicaQL-$version-$arch.zip"
+            mkdir -p "$RUNNER_TEMP/appcast/$arch" "build/update-assets/litematicaql/$arch"
+            cp "build/release/$archive" "$RUNNER_TEMP/appcast/$arch/$archive"
+            printf '%s' "$SPARKLE_PRIVATE_KEY" | "$RUNNER_TEMP/sparkle/bin/generate_appcast" \
+              --ed-key-file - --maximum-deltas 0 \
+              --download-url-prefix "https://download.arcadia.moe/litematicaql/" \
+              -o "$RUNNER_TEMP/appcast/$arch/appcast.xml" "$RUNNER_TEMP/appcast/$arch"
+            signature="$(python3 - "$RUNNER_TEMP/appcast/$arch/appcast.xml" <<'PY'
+          import sys
+          import xml.etree.ElementTree as ET
+          ns = "{http://www.andymatuschak.org/xml-namespaces/sparkle}"
+          enclosures = ET.parse(sys.argv[1]).findall("./channel/item/enclosure")
+          if len(enclosures) != 1 or not enclosures[0].get(ns + "edSignature"):
+              sys.exit("Generated appcast does not contain a signed update.")
+          print(enclosures[0].get(ns + "edSignature"))
+          PY
+            )"
+            printf '%s' "$SPARKLE_PRIVATE_KEY" | "$RUNNER_TEMP/sparkle/bin/sign_update" \
+              --verify --ed-key-file - "$RUNNER_TEMP/appcast/$arch/$archive" "$signature"
+            cp "$RUNNER_TEMP/appcast/$arch/appcast.xml" "build/update-assets/litematicaql/$arch/appcast.xml"
+          done
+          printf '/litematicaql/*\n  Cache-Control: public, max-age=300, must-revalidate\n' > build/update-assets/_headers
+
+      - name: Upload packages and deploy feeds
+        env:
+          CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+        shell: bash
+        working-directory: cloudflare
+        run: |
+          set -euo pipefail
+          version="${VERSION#v}"
+          for arch in arm64 x86_64; do
+            archive="LitematicaQL-$version-$arch.zip"
+            npx --no-install cf r2 objects put "litematicaql/$archive" \
+              --bucket-name apps-download --file "../build/release/$archive" --content-type application/zip
+          done
+          npx --no-install cf deploy
+
   release:
     name: Publish GitHub release
-    needs: sign
+    needs: distribute
     if: github.event_name != 'workflow_dispatch' || !inputs.dry_run
     runs-on: ubuntu-latest
     permissions:

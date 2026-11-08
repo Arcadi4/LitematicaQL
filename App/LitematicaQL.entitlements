@@ -10,5 +10,12 @@
 	</array>
 	<key>com.apple.security.files.user-selected.read-only</key>
 	<true/>
+	<key>com.apple.security.network.client</key>
+	<true/>
+	<key>com.apple.security.temporary-exception.mach-lookup.global-name</key>
+	<array>
+		<string>moe.arcadia.LitematicaQL-spks</string>
+		<string>moe.arcadia.LitematicaQL-spki</string>
+	</array>
 </dict>
 </plist>

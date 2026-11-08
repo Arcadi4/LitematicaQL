@@ -52,6 +52,13 @@ check_bundle "$extension" moe.arcadia.LitematicaQL.PreviewExtension LitematicaQL
 test "$(/usr/libexec/PlistBuddy -c 'Print :CFBundleVersion' "$app/Contents/Info.plist")" = \
   "$(/usr/libexec/PlistBuddy -c 'Print :CFBundleVersion' "$extension/Contents/Info.plist")"
 
+sparkle="$app/Contents/Frameworks/Sparkle.framework"
+sparkle_current="$sparkle/Versions/Current"
+test -d "$sparkle_current"
+for helper in Autoupdate Updater.app XPCServices/Downloader.xpc XPCServices/Installer.xpc; do
+  test -e "$sparkle_current/$helper"
+done
+
 # The script selects exactly one Developer ID Application identity for the
 # intended team. It must not use a development certificate or an identity
 # from another team.
@@ -62,13 +69,27 @@ if [[ -z "$identities" || "$(printf '%s\n' "$identities" | wc -l | tr -d ' ')" !
   exit 1
 fi
 
+# Xcode signs the framework for the archive and leaves its helpers and XPC
+# services ad-hoc signed. Sign the inner code first, then the framework. The
+# Installer Launcher service is required for a sandboxed app. Downloader keeps
+# its entitlements.
+codesign --force --sign "$identities" --options runtime --timestamp \
+  --preserve-metadata=entitlements "$sparkle_current/XPCServices/Downloader.xpc"
+codesign --force --sign "$identities" --options runtime --timestamp \
+  "$sparkle_current/XPCServices/Installer.xpc"
+codesign --force --sign "$identities" --options runtime --timestamp \
+  "$sparkle_current/Autoupdate"
+codesign --force --sign "$identities" --options runtime --timestamp \
+  "$sparkle_current/Updater.app"
+codesign --force --sign "$identities" --options runtime --timestamp "$sparkle"
+
 # The Rust bridge is statically linked into these two executables. If you add
 # new nested code, extend this signing order before a release.
 codesign --force --sign "$identities" --options runtime --timestamp \
   --entitlements PreviewExtension/LitematicaQLPreview.entitlements "$extension"
 codesign --force --sign "$identities" --options runtime --timestamp \
   --entitlements App/LitematicaQL.entitlements "$app"
-for bundle in "$extension" "$app"; do
+for bundle in "$sparkle" "$extension" "$app"; do
   codesign --verify --deep --strict --verbose=2 "$bundle"
   details=$(codesign --display --verbose=4 "$bundle" 2>&1)
   grep -q "^TeamIdentifier=$APPLE_TEAM_ID$" <<<"$details"

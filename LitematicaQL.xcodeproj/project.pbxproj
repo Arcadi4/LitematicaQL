@@ -27,7 +27,9 @@
 		9E9EE298E19227930760D4A2 /* SchematicMetalRenderer.swift in Sources */ = {isa = PBXBuildFile; fileRef = 3249334344F94472F29878AD /* SchematicMetalRenderer.swift */; };
 		CB71FE2A92F71E6B6BE40912 /* TexturePackLibrary.swift in Sources */ = {isa = PBXBuildFile; fileRef = 646DD41871FD7ABED867E4DA /* TexturePackLibrary.swift */; };
 		CBA3EDB8A0319A2AC740DACC /* MetalKit.framework in Frameworks */ = {isa = PBXBuildFile; fileRef = 1CC0DAA0F8A7FB16B7CE88D0 /* MetalKit.framework */; };
+		CD18B2B7A40127C5E632E148 /* Sparkle in Frameworks */ = {isa = PBXBuildFile; productRef = 079A4C63E105AA189F6AEEAC /* Sparkle */; };
 		CD94D49BF943C5BD005563F0 /* NativeSchematic.swift in Sources */ = {isa = PBXBuildFile; fileRef = 1731D039E39C96CBA090B26A /* NativeSchematic.swift */; };
+		CEBF78F775B57A8453FAEDEC /* Updater.swift in Sources */ = {isa = PBXBuildFile; fileRef = C1A93443EE6FF1350F934015 /* Updater.swift */; };
 		D4DB61D9A64F80304E7B25BD /* LitematicaQL.icon in Resources */ = {isa = PBXBuildFile; fileRef = F74465552D8FB63AFA213C81 /* LitematicaQL.icon */; };
 		D5D90087572EE64C50B2311C /* LitematicaQLApp.swift in Sources */ = {isa = PBXBuildFile; fileRef = 47F2DA4055F7517863368E23 /* LitematicaQLApp.swift */; };
 		D7B68800837F2583EF63544B /* SchematicShaders.metal in Sources */ = {isa = PBXBuildFile; fileRef = F11E0E0ADB5F965E8AE67CE6 /* SchematicShaders.metal */; };
@@ -85,6 +87,7 @@
 		B1A1925EDAA8DE5EC973D716 /* LitematicFile.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = LitematicFile.swift; sourceTree = "<group>"; };
 		B3EF49CEC2317E2BF0AC874A /* SchematicMetalViewController.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SchematicMetalViewController.swift; sourceTree = "<group>"; };
 		C19A1BA9A77D9F6F545EEBA7 /* Quartz.framework */ = {isa = PBXFileReference; lastKnownFileType = wrapper.framework; name = Quartz.framework; path = System/Library/Frameworks/Quartz.framework; sourceTree = SDKROOT; };
+		C1A93443EE6FF1350F934015 /* Updater.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Updater.swift; sourceTree = "<group>"; };
 		D28BABB57DAE08167DFAF8C2 /* Demos */ = {isa = PBXFileReference; lastKnownFileType = folder; name = Demos; path = Fixtures/Demos; sourceTree = SOURCE_ROOT; };
 		DA17F55FCEA9A62E5785DFBD /* LitematicaQLPreview.appex */ = {isa = PBXFileReference; explicitFileType = "wrapper.app-extension"; includeInIndex = 0; path = LitematicaQLPreview.appex; sourceTree = BUILT_PRODUCTS_DIR; };
 		E14C5FB26180DE50071E305A /* RenderLimits.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = RenderLimits.swift; sourceTree = "<group>"; };
@@ -95,6 +98,14 @@
 /* End PBXFileReference section */
 
 /* Begin PBXFrameworksBuildPhase section */
+		5D1F39996A9FF803FD6847AB /* Frameworks */ = {
+			isa = PBXFrameworksBuildPhase;
+			buildActionMask = 2147483647;
+			files = (
+				CD18B2B7A40127C5E632E148 /* Sparkle in Frameworks */,
+			);
+			runOnlyForDeploymentPostprocessing = 0;
+		};
 		B172F89B91AE2D8FCE8A1CB7 /* Frameworks */ = {
 			isa = PBXFrameworksBuildPhase;
 			buildActionMask = 2147483647;
@@ -184,6 +195,7 @@
 				27F2060D9EE2DAD828BF1F66 /* SchematicMetalPreview.swift */,
 				FFBDDCF2B2566FC1BBE5E06A /* TexturePackSettings.swift */,
 				492CE10135C50CD7DF982BCA /* TexturePackStore.swift */,
+				C1A93443EE6FF1350F934015 /* Updater.swift */,
 			);
 			path = App;
 			sourceTree = "<group>";
@@ -205,6 +217,7 @@
 			buildPhases = (
 				E2F8D72B7C91D591743C92A5 /* Sources */,
 				5BC37A6E0988D1333A206C17 /* Resources */,
+				5D1F39996A9FF803FD6847AB /* Frameworks */,
 				C9102C653B1AE32D6DCCCDED /* Embed Foundation Extensions */,
 			);
 			buildRules = (
@@ -214,6 +227,7 @@
 			);
 			name = LitematicaQL;
 			packageProductDependencies = (
+				079A4C63E105AA189F6AEEAC /* Sparkle */,
 			);
 			productName = LitematicaQL;
 			productReference = 6E3511B97FBAA1018D96F48B /* LitematicaQL.app */;
@@ -265,6 +279,9 @@
 			);
 			mainGroup = 87298A61D74416A655F5FF9E;
 			minimizedProjectReferenceProxies = 1;
+			packageReferences = (
+				066480A7678B32E9D1BB7829 /* XCRemoteSwiftPackageReference "Sparkle" */,
+			);
 			preferredProjectObjectVersion = 77;
 			productRefGroup = 7836F723A024AD82CBA0D580 /* Products */;
 			projectDirPath = "";
@@ -357,6 +374,7 @@
 				CB71FE2A92F71E6B6BE40912 /* TexturePackLibrary.swift in Sources */,
 				692E8B90D5C87D9F2D105186 /* TexturePackSettings.swift in Sources */,
 				1D6F89161BDBEACBC7E0EECF /* TexturePackStore.swift in Sources */,
+				CEBF78F775B57A8453FAEDEC /* Updater.swift in Sources */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};
@@ -620,6 +638,25 @@
 			defaultConfigurationName = Debug;
 		};
 /* End XCConfigurationList section */
+
+/* Begin XCRemoteSwiftPackageReference section */
+		066480A7678B32E9D1BB7829 /* XCRemoteSwiftPackageReference "Sparkle" */ = {
+			isa = XCRemoteSwiftPackageReference;
+			repositoryURL = "https://github.com/sparkle-project/Sparkle";
+			requirement = {
+				kind = exactVersion;
+				version = 2.9.0;
+			};
+		};
+/* End XCRemoteSwiftPackageReference section */
+
+/* Begin XCSwiftPackageProductDependency section */
+		079A4C63E105AA189F6AEEAC /* Sparkle */ = {
+			isa = XCSwiftPackageProductDependency;
+			package = 066480A7678B32E9D1BB7829 /* XCRemoteSwiftPackageReference "Sparkle" */;
+			productName = Sparkle;
+		};
+/* End XCSwiftPackageProductDependency section */
 	};
 	rootObject = 7F3B766AEAE9711BBBA1CD97 /* Project object */;
 }
