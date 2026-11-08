@@ -1,7 +1,0 @@
-{
-  "name": "litematicaql-release",
-  "private": true,
-  "devDependencies": {
-    "wrangler": "4.157.0"
-  }
-}

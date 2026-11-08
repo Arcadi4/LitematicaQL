@@ -206,7 +206,13 @@ jobs:
           path: build/release
           merge-multiple: true
 
-      - name: Install worker deployment tool
+      - name: Set up Node.js
+        uses: actions/setup-node@249970729cb0ef3589644e2896645e5dc5ba9c38 # v6.5.0
+        with:
+          node-version: 24
+
+      - name: Install Cloudflare CLI
+        working-directory: cloudflare
         run: npm ci --ignore-scripts
 
       - name: Reject older or already published releases
@@ -308,15 +314,16 @@ jobs:
         env:
           CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
         shell: bash
+        working-directory: cloudflare
         run: |
           set -euo pipefail
           version="${VERSION#v}"
           for arch in arm64 x86_64; do
             archive="LitematicaQL-$version-$arch.zip"
-            npx --no-install wrangler r2 object put "apps-download/litematicaql/$archive" \
-              --remote --file "build/release/$archive" --content-type application/zip
+            npx --no-install cf r2 objects put "litematicaql/$archive" \
+              --bucket-name apps-download --file "../build/release/$archive" --content-type application/zip
           done
-          npx --no-install wrangler deploy
+          npx --no-install cf deploy
 
   release:
     name: Publish GitHub release

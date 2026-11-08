@@ -74,6 +74,7 @@ build/
 
 # Dependencies and old generated web artifacts
 **/node_modules/
+.cloudflare/
 Renderer/coverage/
 Resources/Renderer/
 

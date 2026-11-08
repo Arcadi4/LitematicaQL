@@ -1,8 +1,0 @@
-{
-  "name": "apps-update",
-  "account_id": "f4e323f273bab9cb104cbe7b945c58d3",
-  "compatibility_date": "2026-11-07",
-  "workers_dev": false,
-  "routes": [{ "pattern": "update.arcadia.moe", "custom_domain": true }],
-  "assets": { "directory": "./build/update-assets" }
-}
