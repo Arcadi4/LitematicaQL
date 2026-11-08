@@ -41,8 +41,7 @@ Or install manually:
 
 This app requires macOS 13 Ventura or later and a Metal-capable GPU.
 
-The app can check for updates through **LitematicaQL → Check for Updates…**.
-The Quick Look extension does not access the network.
+You can check for updates through **LitematicaQL → Check for Updates…**.
 
 Previews use native Metal with streamed chunk meshing, compact GPU buffers,
 and on-demand drawing. The shared [LitematicaPreview Core](https://github.com/Arcadi4/litematica-preview-core)
@@ -95,7 +94,7 @@ just
 | `just build`               | Build the ad-hoc signed app for Apple silicon and Intel                                       |
 | `just run`                 | Build the app and open it                                                                     |
 | `just test`                | Run the Swift file-validation tests and the Rust bridge tests                                 |
-| `just test-metal`           | Check real Metal uploads and native-memory lifetimes (requires a Metal-capable Mac)           |
+| `just test-metal`          | Check real Metal uploads and native-memory lifetimes (requires a Metal-capable Mac)           |
 | `just check`               | Type-check the Rust bridge                                                                    |
 | `just clean`               | Delete every generated build artifact                                                         |
 | `just ci`                  | Reproduce the CI pipeline locally                                                             |

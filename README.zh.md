@@ -41,7 +41,7 @@ brew install --cask arcadi4/tap/litematicaql
 
 需要 macOS 13 Ventura 或更高版本，以及支持 Metal 的 GPU。
 
-应用可通过 **LitematicaQL → Check for Updates…** 检查更新。Quick Look 扩展不访问网络。
+你可以通过 **LitematicaQL → Check for Updates…** 来检查更新。
 
 预览采用原生 Metal、分块流式网格生成、压缩顶点缓冲区和按需绘制。
 共享的 [LitematicaPreview Core](https://github.com/Arcadi4/litematica-preview-core)
@@ -92,7 +92,7 @@ just
 | `just build`               | 构建临时签名（ad-hoc）的 Apple 芯片与 Intel 版本                                    |
 | `just run`                 | 构建并打开应用                                                                      |
 | `just test`                | 运行 Swift 文件校验测试与 Rust 桥接测试                                             |
-| `just test-metal`          | 检查实际 Metal 上传与原生内存生命周期（需要支持 Metal 的 Mac）                       |
+| `just test-metal`          | 检查实际 Metal 上传与原生内存生命周期（需要支持 Metal 的 Mac）                      |
 | `just check`               | 对 Rust 桥接层做类型检查                                                            |
 | `just clean`               | 删除全部构建产物                                                                    |
 | `just ci`                  | 在本地复现 CI 流程                                                                  |
