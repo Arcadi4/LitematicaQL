@@ -43,12 +43,7 @@ brew install --cask arcadi4/tap/litematicaql
 
 你可以通过 **LitematicaQL → Check for Updates…** 来检查更新。
 
-预览采用原生 Metal、分块流式网格生成、压缩顶点缓冲区和按需绘制。
-共享的 [LitematicaPreview Core](https://github.com/Arcadi4/litematica-preview-core)
-负责生成经过校验的顶点与索引缓冲区，并在纹理首次使用时提供 RGBA 像素；
-原生宿主将这些数据上传到 Metal 的 GPU 专用缓冲区。几何数据上传时直接借用原生内存中
-完整对齐的页，只暂存首尾不足一页的部分。原生批次会保留到 Metal 读取完成，
-同时最多有两个上传任务在执行。
+预览采用原生 Metal、分块流式网格生成、压缩顶点缓冲区和按需绘制。共享的 [LitematicaPreview Core](https://github.com/Arcadi4/litematica-preview-core) 负责生成经过校验的顶点与索引缓冲区，并在纹理首次使用时提供 RGBA 像素；原生宿主将这些数据上传到 Metal 的 GPU 专用缓冲区。几何数据上传时直接借用原生内存中完整对齐的页，只暂存首尾不足一页的部分。原生批次会保留到 Metal 读取完成，同时最多有两个上传任务在执行。
 
 > [!NOTE]
 > 如果预览没有出现，请在 **系统设置 → 通用 → 登录项与扩展 → 快速查看** 中启用 LitematicaQL。
@@ -101,8 +96,7 @@ just
 | `just release 1.2.6 arm64` | 归档、校验并打包单一架构                                                            |
 | `just demos`               | 重新生成内置演示原理图                                                              |
 
-`just` 会读取环境变量 `CONFIGURATION`、`ARCHS` 与 `CURRENT_PROJECT_VERSION`，
-CI 与发布矩阵正是通过它们驱动同一批配方。
+`just` 会读取环境变量 `CONFIGURATION`、`ARCHS` 与 `CURRENT_PROJECT_VERSION`，CI 与发布矩阵正是通过它们驱动同一批配方。
 
 ### 构建
 

@@ -43,13 +43,7 @@ This app requires macOS 13 Ventura or later and a Metal-capable GPU.
 
 You can check for updates through **LitematicaQL → Check for Updates…**.
 
-Previews use native Metal with streamed chunk meshing, compact GPU buffers,
-and on-demand drawing. The shared [LitematicaPreview Core](https://github.com/Arcadi4/litematica-preview-core)
-prepares validated vertex/index buffers and first-use RGBA textures; the native
-hosts upload them to GPU-private Metal buffers. Geometry uploads borrow the
-native allocation's whole pages without a staging copy; only partial boundary
-pages are copied. Native batches remain alive until Metal finishes reading them,
-and at most two uploads are in flight.
+Previews use native Metal with streamed chunk meshing, compact GPU buffers, and on-demand drawing. The shared [LitematicaPreview Core](https://github.com/Arcadi4/litematica-preview-core) prepares validated vertex/index buffers and first-use RGBA textures; the native hosts upload them to GPU-private Metal buffers. Geometry uploads borrow the native allocation's whole pages without a staging copy; only partial boundary pages are copied. Native batches remain alive until Metal finishes reading them, and at most two uploads are in flight.
 
 > [!NOTE]
 > If the preview doesn't show up, enable LitematicaQL under **System Settings → General → Login Items & Extensions → Quick Look**.
@@ -81,8 +75,7 @@ Very large schematics are refused with an offer to render them anyway. To skip t
 
 ## Development
 
-Everything is driven by [just](https://github.com/casey/just). Run it with no
-arguments to list every recipe:
+Everything is driven by [just](https://github.com/casey/just). Run it with no arguments to list every recipe:
 
 ```sh
 just
@@ -103,19 +96,11 @@ just
 | `just release 1.2.6 arm64` | Archive, verify, and package one architecture                                                 |
 | `just demos`               | Regenerate the bundled demo schematics                                                        |
 
-`just` honors `CONFIGURATION`, `ARCHS`, and `CURRENT_PROJECT_VERSION` from the
-environment, which is how CI and the release matrix drive these same recipes.
+`just` honors `CONFIGURATION`, `ARCHS`, and `CURRENT_PROJECT_VERSION` from the environment, which is how CI and the release matrix drive these same recipes.
 
-Release tags use `cf` and `cloudflare/cloudflare.config.ts` to publish archives
-to the `apps-download` R2 bucket and architecture-specific Sparkle feeds to the
-`apps-update` Worker. The release workflow requires `SPARKLE_PRIVATE_KEY` and
-`CLOUDFLARE_API_TOKEN` repository secrets. The Cloudflare token needs access to
-upload bucket objects and deploy the Worker and its custom domain. Keep a secure
-backup of the Sparkle private key: installed apps use its public key to
-authenticate updates.
+Release tags use `cf` and `cloudflare/cloudflare.config.ts` to publish archives to the `apps-download` R2 bucket and architecture-specific Sparkle feeds to the `apps-update` Worker. The release workflow requires `SPARKLE_PRIVATE_KEY` and `CLOUDFLARE_API_TOKEN` repository secrets. The Cloudflare token needs access to upload bucket objects and deploy the Worker and its custom domain. Keep a secure backup of the Sparkle private key: installed apps use its public key to authenticate updates.
 
-The Worker deployment replaces its entire static asset set. Add feeds for other
-apps to the same deployment before sharing `apps-update` with another project.
+The Worker deployment replaces its entire static asset set. Add feeds for other apps to the same deployment before sharing `apps-update` with another project.
 
 ### Build
 
