@@ -221,6 +221,8 @@ jobs:
         run: bash scripts/release-guard.sh "$VERSION"
 
       - name: Check existing package objects
+        env:
+          CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
         run: bash scripts/release-check-packages.sh "$VERSION"
 
       - name: Generate signed update feeds
