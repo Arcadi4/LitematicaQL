@@ -41,6 +41,9 @@ Or install manually:
 
 This app requires macOS 13 Ventura or later and a Metal-capable GPU.
 
+The app can check for updates through **LitematicaQL → Check for Updates…**.
+The Quick Look extension does not access the network.
+
 Previews use native Metal with streamed chunk meshing, compact GPU buffers,
 and on-demand drawing. The shared [LitematicaPreview Core](https://github.com/Arcadi4/litematica-preview-core)
 prepares validated vertex/index buffers and first-use RGBA textures; the native
@@ -103,6 +106,16 @@ just
 
 `just` honors `CONFIGURATION`, `ARCHS`, and `CURRENT_PROJECT_VERSION` from the
 environment, which is how CI and the release matrix drive these same recipes.
+
+Release tags publish notarized archives to the `apps-download` R2 bucket and
+architecture-specific Sparkle feeds to the `apps-update` Worker. The release
+workflow requires `SPARKLE_PRIVATE_KEY` and `CLOUDFLARE_API_TOKEN` repository
+secrets. The Cloudflare token needs access to upload bucket objects and deploy
+the Worker and its custom domain. Keep a secure backup of the Sparkle private
+key: installed apps use its public key to authenticate updates.
+
+The Worker deployment replaces its entire static asset set. Add feeds for other
+apps to the same deployment before sharing `apps-update` with another project.
 
 ### Build
 

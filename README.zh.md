@@ -41,6 +41,8 @@ brew install --cask arcadi4/tap/litematicaql
 
 需要 macOS 13 Ventura 或更高版本，以及支持 Metal 的 GPU。
 
+应用可通过 **LitematicaQL → Check for Updates…** 检查更新。Quick Look 扩展不访问网络。
+
 预览采用原生 Metal、分块流式网格生成、压缩顶点缓冲区和按需绘制。
 共享的 [LitematicaPreview Core](https://github.com/Arcadi4/litematica-preview-core)
 负责生成经过校验的顶点与索引缓冲区，并在纹理首次使用时提供 RGBA 像素；

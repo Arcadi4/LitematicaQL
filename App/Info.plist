@@ -77,6 +77,14 @@
 	<true/>
 	<key>NSHumanReadableCopyright</key>
 	<string>Copyright © 2026 4rcadia</string>
+	<key>SUEnableAutomaticChecks</key>
+	<true/>
+	<key>SUEnableInstallerLauncherService</key>
+	<true/>
+	<key>SUFeedURL</key>
+	<string>https://update.arcadia.moe/litematicaql/arm64/appcast.xml</string>
+	<key>SUPublicEDKey</key>
+	<string>Wy+jwR9nLQfUE2EW/P/PG18pzwvJfD8Y6Y3iiIyNRPM=</string>
 	<key>UTImportedTypeDeclarations</key>
 	<array>
 		<dict>
