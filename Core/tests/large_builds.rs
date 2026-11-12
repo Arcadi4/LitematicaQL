@@ -143,7 +143,7 @@ const BASELINES: &[Baseline] = &[
         content: [97, 97, 97],
         batches: 8,
         greedy_textures: 458,
-        atlas: [2048, 2048],
+        atlas: [1024, 1024],
         introduces_later_textures: false,
         triangles: 28_667_554,
         // Payload recorded under the current 24-byte vertex layout.
