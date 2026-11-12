@@ -27,18 +27,10 @@ lto = "fat"
 codegen-units = 1
 
 [dependencies]
-litematica-preview-core = { git = "https://github.com/Arcadi4/litematica-preview-core", rev = "0e43f7b213302e5b93312b439dcd000982ac678d" }
-nucleation = { version = "=0.11.0", default-features = false, features = [
-  "meshing",
-] }
+litematica-preview-core = "0.1.6"
+nucleation = { version = "0.12.1", features = ["meshing"] }
 
 [dev-dependencies]
 quartz_nbt = { version = "0.2.9", features = ["preserve_order"] }
-nucleation = { version = "=0.11.0", default-features = false, features = [
-  "meshing",
-] }
 flate2 = { version = "1", default-features = false, features = ["zlib-rs"] }
 lz4_flex = { version = "0.14", default-features = false, features = ["std"] }
-
-[patch.crates-io]
-schematic-mesher = { git = "https://github.com/Schem-at/Schematic-Mesher.git", rev = "286323e472cd8a5363b66a035a3be02ecdd4f164" }
