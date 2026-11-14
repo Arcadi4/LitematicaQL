@@ -27,7 +27,7 @@ lto = "fat"
 codegen-units = 1
 
 [dependencies]
-litematica-preview-core = "0.1.8"
+litematica-preview-core = "0.1.10"
 nucleation = { version = "0.12.1", features = ["meshing"] }
 
 [dev-dependencies]
