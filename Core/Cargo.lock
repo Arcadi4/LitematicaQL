@@ -613,9 +613,9 @@ checksum = "65cd87c9a6d60536580b316ad985726104730a5151c99845f2490428ef91240a"
 
 [[package]]
 name = "litematica-preview-core"
-version = "0.1.10"
+version = "0.1.11"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "9f75a44099b9e073d88b919b7d4c082c1a61b260446d976199cacc61431f0621"
+checksum = "a2cc923b0e1ae499ddc388e556e54fcdc757a8090304d0ef2bdac78275c0043d"
 dependencies = [
  "flate2",
  "image",

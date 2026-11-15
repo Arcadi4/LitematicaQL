@@ -27,8 +27,8 @@ lto = "fat"
 codegen-units = 1
 
 [dependencies]
-litematica-preview-core = "0.1.10"
-nucleation = { version = "0.12.1", features = ["meshing"] }
+litematica-preview-core = "0.1.11"
+nucleation = { version = "0.12", features = ["meshing"] }
 
 [dev-dependencies]
 quartz_nbt = { version = "0.2.9", features = ["preserve_order"] }
