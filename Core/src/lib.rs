@@ -286,11 +286,11 @@ impl MeshTier {
 /// bounds the geometry in memory. A deeper cap gave no measurable streaming
 /// gain, and `Core/tests/large_builds.rs` pins that.
 fn worker_count() -> usize {
-    std::thread::available_parallelism().map_or(2, |count| count.get().min(2).max(1))
+    std::thread::available_parallelism().map_or(2, |count| count.get().clamp(1, 2))
 }
 
 fn decode_worker_count() -> usize {
-    std::thread::available_parallelism().map_or(2, |count| count.get().min(2).max(1))
+    std::thread::available_parallelism().map_or(2, |count| count.get().clamp(1, 2))
 }
 
 #[derive(Debug)]
@@ -413,6 +413,9 @@ unsafe fn open_schematic_entry(
     unsafe { open_schematic(input_bytes(data, len), out.as_mut(), limits, &mut error) }
 }
 
+/// # Safety
+/// `data` is null, or points to `len` readable bytes for the whole call.
+/// `out` and `err_out` are null, or point to writable storage for the whole call.
 #[unsafe(no_mangle)]
 pub unsafe extern "C" fn nql_schematic_open(
     data: *const u8,
@@ -426,6 +429,10 @@ pub unsafe extern "C" fn nql_schematic_open(
 /// Reads a schematic with no preview quotas. The host shows the limit hit to
 /// the user, with an offer to render anyway, before it calls this function.
 /// The host then owns every admission decision.
+///
+/// # Safety
+/// `data` is null, or points to `len` readable bytes for the whole call.
+/// `out` and `err_out` are null, or point to writable storage for the whole call.
 #[unsafe(no_mangle)]
 pub unsafe extern "C" fn nql_schematic_open_override(
     data: *const u8,
@@ -436,6 +443,9 @@ pub unsafe extern "C" fn nql_schematic_open_override(
     unsafe { open_schematic_entry(data, len, out, err_out, &override_limits()) }
 }
 
+/// # Safety
+/// `schematic` is null, or points to a handle that this call consumes.
+/// The caller must not use the handle after this call.
 #[unsafe(no_mangle)]
 pub unsafe extern "C" fn nql_schematic_free(schematic: *mut NQLSchematic) {
     if !schematic.is_null() {
@@ -445,6 +455,9 @@ pub unsafe extern "C" fn nql_schematic_free(schematic: *mut NQLSchematic) {
 
 /// Cancels meshing for this schematic and keeps the handle valid. Cancellation
 /// is monotonic. A cancelled handle cannot publish later geometry.
+///
+/// # Safety
+/// `schematic` is null, or points to a valid handle for the whole call.
 #[unsafe(no_mangle)]
 pub unsafe extern "C" fn nql_schematic_cancel(schematic: *const NQLSchematic) -> i32 {
     let Some(schematic) = (unsafe { schematic.as_ref() }) else {
@@ -454,6 +467,10 @@ pub unsafe extern "C" fn nql_schematic_cancel(schematic: *const NQLSchematic) ->
     status::OK
 }
 
+/// # Safety
+/// `schematic` is null, or points to a valid handle for the whole call.
+/// `out` and `out_len` are null, or point to writable storage for the whole call.
+/// The caller frees each returned buffer with `nql_buffer_free`.
 #[unsafe(no_mangle)]
 pub unsafe extern "C" fn nql_schematic_warnings(
     schematic: *const NQLSchematic,
@@ -473,6 +490,9 @@ pub unsafe extern "C" fn nql_schematic_warnings(
     status::OK
 }
 
+/// # Safety
+/// `schematic` is null, or points to a valid handle for the whole call.
+/// `out` is null, or points to writable `NQLSchematicInfo` storage for the call.
 #[unsafe(no_mangle)]
 pub unsafe extern "C" fn nql_schematic_info(
     schematic: *const NQLSchematic,
@@ -524,6 +544,9 @@ fn open_resource_pack(
     }
 }
 
+/// # Safety
+/// `data` is null, or points to `len` readable bytes for the whole call.
+/// `out` and `err_out` are null, or point to writable storage for the whole call.
 #[unsafe(no_mangle)]
 pub unsafe extern "C" fn nql_resource_pack_open(
     data: *const u8,
@@ -536,6 +559,9 @@ pub unsafe extern "C" fn nql_resource_pack_open(
     unsafe { open_resource_pack(input_bytes(data, len), out.as_mut(), &mut error) }
 }
 
+/// # Safety
+/// `pack` is null, or points to a pack that this call consumes.
+/// The caller must not use the pack after this call.
 #[unsafe(no_mangle)]
 pub unsafe extern "C" fn nql_resource_pack_free(pack: *mut NQLResourcePack) {
     if !pack.is_null() {
@@ -590,6 +616,10 @@ unsafe fn compose_resource_packs_entry(
     }
 }
 
+/// # Safety
+/// `base` is null, or points to a pack that outlives the call.
+/// `layers` is null, or points to `layer_count` readable layers for the call.
+/// `out` and `err_out` are null, or point to writable storage for the whole call.
 #[unsafe(no_mangle)]
 pub unsafe extern "C" fn nql_resource_pack_compose(
     base: *const NQLResourcePack,
@@ -601,6 +631,8 @@ pub unsafe extern "C" fn nql_resource_pack_compose(
     unsafe { compose_resource_packs_entry(base, layers, layer_count, out, err_out) }
 }
 
+// The C entry point fixes this parameter count.
+#[allow(clippy::too_many_arguments)]
 fn start_mesh_stream<'a>(
     schematic: &'a NQLSchematic,
     pack: &'a NQLResourcePack,
@@ -686,6 +718,8 @@ fn start_mesh_stream<'a>(
     status::OK
 }
 
+// The C entry point fixes this parameter count.
+#[allow(clippy::too_many_arguments)]
 /// # Safety
 /// Every pointer is null, or points to valid storage for the whole call.
 /// `schematic` and `pack` outlive the returned stream.
@@ -728,6 +762,9 @@ unsafe fn open_mesh_stream_entry(
     )
 }
 
+/// # Safety
+/// Every pointer is null, or points to valid storage for the whole call.
+/// `schematic` and `pack` outlive the returned stream.
 #[unsafe(no_mangle)]
 pub unsafe extern "C" fn nql_mesh_stream_open(
     schematic: *const NQLSchematic,
@@ -757,6 +794,10 @@ pub unsafe extern "C" fn nql_mesh_stream_open(
 /// Lifts the render-stage block budget and the shared texture atlas ceiling
 /// for the override tier, under the precondition at
 /// [`nql_schematic_open_override`].
+///
+/// # Safety
+/// Every pointer is null, or points to valid storage for the whole call.
+/// `schematic` and `pack` outlive the returned stream.
 #[unsafe(no_mangle)]
 pub unsafe extern "C" fn nql_mesh_stream_open_override(
     schematic: *const NQLSchematic,
@@ -815,6 +856,11 @@ fn next_batch(
 
 /// The stream borrows the schematic and the pack, and both must outlive it. A
 /// returned batch owns its storage and is valid until [`nql_mesh_batch_free`].
+///
+/// # Safety
+/// `stream` and `batch_out` are null, or point to valid storage for the call.
+/// `info_out` and `err_out` are null, or point to writable storage.
+/// The caller frees each returned batch with `nql_mesh_batch_free`.
 #[unsafe(no_mangle)]
 pub unsafe extern "C" fn nql_mesh_stream_next(
     stream: *mut stream::NQLMeshStream<'_>,
@@ -834,6 +880,10 @@ pub unsafe extern "C" fn nql_mesh_stream_next(
 }
 
 /// All pointers in this view borrow the batch, and are read-only.
+///
+/// # Safety
+/// `batch` points to a valid batch for the whole call.
+/// Every pointer in the view borrows the batch until `nql_mesh_batch_free`.
 #[unsafe(no_mangle)]
 pub unsafe extern "C" fn nql_mesh_batch_view(
     batch: *const stream::NQLMeshBatch,
@@ -841,6 +891,9 @@ pub unsafe extern "C" fn nql_mesh_batch_view(
     unsafe { (*batch).view() }
 }
 
+/// # Safety
+/// `batch` is null, or points to a batch that this call consumes.
+/// The caller must not use the batch after this call.
 #[unsafe(no_mangle)]
 pub unsafe extern "C" fn nql_mesh_batch_free(batch: *mut stream::NQLMeshBatch) {
     if !batch.is_null() {
@@ -848,6 +901,9 @@ pub unsafe extern "C" fn nql_mesh_batch_free(batch: *mut stream::NQLMeshBatch) {
     }
 }
 
+/// # Safety
+/// `stream` is null, or points to a stream that this call consumes.
+/// The caller must not use the stream after this call.
 #[unsafe(no_mangle)]
 pub unsafe extern "C" fn nql_mesh_stream_free(stream: *mut stream::NQLMeshStream<'_>) {
     if !stream.is_null() {
@@ -860,7 +916,7 @@ pub(crate) fn grouped(value: u64) -> String {
     let digits = value.to_string();
     let mut out = String::with_capacity(digits.len() + digits.len() / 3);
     for (index, digit) in digits.chars().enumerate() {
-        if index > 0 && (digits.len() - index) % 3 == 0 {
+        if index > 0 && (digits.len() - index).is_multiple_of(3) {
             out.push(',');
         }
         out.push(digit);
@@ -945,6 +1001,9 @@ fn mesh_failure(error_slot: &mut ErrorSlot<'_>, failure: MeshFailure) -> i32 {
     }
 }
 
+/// # Safety
+/// `buffer` is null, or points to `len` bytes from an error or atlas.
+/// The caller must not use the buffer after this call.
 #[unsafe(no_mangle)]
 pub unsafe extern "C" fn nql_buffer_free(buffer: *mut u8, len: usize) {
     if !buffer.is_null() {
