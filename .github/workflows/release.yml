@@ -25,7 +25,7 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - name: Check out source
-        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
+        uses: actions/checkout@v7
         with:
           fetch-depth: 0
           persist-credentials: false
@@ -61,18 +61,18 @@ jobs:
 
     steps:
       - name: Check out source
-        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
+        uses: actions/checkout@v7
         with:
           fetch-depth: 0
           persist-credentials: false
 
       - name: Set up Rust
-        uses: dtolnay/rust-toolchain@89b12181fb390509a0842a86cc55eeb8eb928c1d # stable
+        uses: dtolnay/rust-toolchain@stable
         with:
           targets: aarch64-apple-darwin,x86_64-apple-darwin
 
       - name: Cache Rust build
-        uses: Swatinem/rust-cache@6323deb102c322ba6fcbdcafc7e3dddab59af2b6 # v2.9.2
+        uses: Swatinem/rust-cache@v2.9.2
         with:
           workspaces: Core
           shared-key: native-bridge
@@ -94,7 +94,7 @@ jobs:
         run: just release "$VERSION" "$ARCH"
 
       - name: Upload per-arch artifact
-        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7
+        uses: actions/upload-artifact@v7
         with:
           name: candidate-${{ env.APP_NAME }}-${{ github.ref_name }}-${{ matrix.arch }}
           path: |
@@ -115,12 +115,12 @@ jobs:
       APP_NAME: LitematicaQL
     steps:
       - name: Check out signing recipes
-        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
+        uses: actions/checkout@v7
         with:
           persist-credentials: false
 
       - name: Download candidate
-        uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8
+        uses: actions/download-artifact@v8
         with:
           name: candidate-${{ env.APP_NAME }}-${{ github.ref_name }}-${{ matrix.arch }}
           path: build/release
@@ -155,7 +155,7 @@ jobs:
           printf '%s' "$DISTRIBUTION_CERTIFICATE" | base64 --decode > "$RUNNER_TEMP/litematicaql-signing.p12"
 
       - name: Import signing certificate
-        uses: Apple-Actions/import-codesign-certs@288b8ec97b82c66b6f2a6baaf7acc8dfbcbe331c # v7.2.0
+        uses: Apple-Actions/import-codesign-certs@v7
         with:
           p12-filepath: ${{ runner.temp }}/litematicaql-signing.p12
           p12-password: ${{ secrets.DISTRIBUTION_CERTIFICATE_PASSWORD }}
@@ -177,7 +177,7 @@ jobs:
         run: bash scripts/sign-release.sh "$VERSION" "$ARCH" "$DRY_RUN"
 
       - name: Upload signed artifact
-        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7
+        uses: actions/upload-artifact@v7
         with:
           name: signed-${{ env.APP_NAME }}-${{ github.ref_name }}-${{ matrix.arch }}
           path: |
@@ -195,19 +195,19 @@ jobs:
       VERSION: ${{ github.ref_name }}
     steps:
       - name: Check out release configuration
-        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
+        uses: actions/checkout@v7
         with:
           persist-credentials: false
 
       - name: Download signed archives
-        uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8
+        uses: actions/download-artifact@v8
         with:
           pattern: signed-LitematicaQL-${{ github.ref_name }}-*
           path: build/release
           merge-multiple: true
 
       - name: Set up Node.js
-        uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7.1.0
+        uses: actions/setup-node@v7
         with:
           node-version: 24
 
@@ -243,12 +243,12 @@ jobs:
       VERSION: ${{ github.ref_name }}
     steps:
       - name: Check out release configuration
-        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
+        uses: actions/checkout@v7
         with:
           persist-credentials: false
 
       - name: Download per-arch artifacts
-        uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8
+        uses: actions/download-artifact@v8
         with:
           pattern: signed-${{ env.APP_NAME }}-${{ github.ref_name }}-*
           path: build/release
