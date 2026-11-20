@@ -1,7 +1,8 @@
 [package]
 name = "litematicaql-core"
 version = "0.1.0"
-edition = "2021"
+edition = "2024"
+rust-version = "1.100"
 publish = false
 
 [lib]
@@ -31,6 +32,6 @@ litematica-preview-core = "0.1.11"
 nucleation = { version = "0.12", features = ["meshing"] }
 
 [dev-dependencies]
-quartz_nbt = { version = "0.2.9", features = ["preserve_order"] }
+quartz_nbt = { version = "0.2", features = ["preserve_order"] }
 flate2 = { version = "1", default-features = false, features = ["zlib-rs"] }
 lz4_flex = { version = "0.14", default-features = false, features = ["std"] }
