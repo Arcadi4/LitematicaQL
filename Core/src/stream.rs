@@ -6,8 +6,8 @@
 //! time. Packing, quantization, bounds, and texture identity belong to
 //! litematica-preview-core, so nothing here meshes or assigns texture indices.
 use std::sync::{
-    atomic::{AtomicBool, Ordering},
     Arc,
+    atomic::{AtomicBool, Ordering},
 };
 
 use crate::{MeshFailure, NQLAtlasInfo, NQLBatchInfo, NQLMeshInfo};

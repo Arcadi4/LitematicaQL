@@ -3,7 +3,7 @@ mod support;
 use support::AllocationMeter;
 
 use litematicaql_native::{
-    nql_schematic_free, nql_schematic_info, nql_schematic_open, status, NQLError, NQLSchematicInfo,
+    NQLError, NQLSchematicInfo, nql_schematic_free, nql_schematic_info, nql_schematic_open, status,
 };
 use quartz_nbt::{NbtCompound, NbtList, NbtTag};
 

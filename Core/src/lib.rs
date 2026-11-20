@@ -2,10 +2,10 @@
 use litematica_preview_core::{DecodeFailure, DecodedSchematic, PreviewOptions};
 use nucleation::formats::limits::DecodeLimits;
 use nucleation::meshing::{MeshConfig, ResourcePackSource};
-use std::panic::{catch_unwind, AssertUnwindSafe};
+use std::panic::{AssertUnwindSafe, catch_unwind};
 use std::slice;
-use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::Arc;
+use std::sync::atomic::{AtomicBool, Ordering};
 
 pub mod stream;
 
@@ -61,6 +61,28 @@ pub struct NQLPackLayer {
     pub name_len: usize,
 }
 
+impl NQLPackLayer {
+    /// # Safety
+    /// `name` is null, or points to `name_len` readable bytes.
+    unsafe fn display_name(&self) -> String {
+        if self.name.is_null() || self.name_len == 0 {
+            return String::from("Texture pack");
+        }
+        let bytes = unsafe { slice::from_raw_parts(self.name, self.name_len) };
+        String::from_utf8_lossy(bytes).into_owned()
+    }
+
+    /// # Safety
+    /// `data` is null, or points to `len` readable bytes.
+    unsafe fn payload(&self) -> Option<&[u8]> {
+        if self.data.is_null() {
+            None
+        } else {
+            Some(unsafe { slice::from_raw_parts(self.data, self.len) })
+        }
+    }
+}
+
 #[repr(C)]
 pub struct NQLSchematicInfo {
     pub block_count: i64,
@@ -88,7 +110,7 @@ pub struct NQLAtlasInfo {
 }
 
 #[repr(C)]
-#[derive(Clone, Debug, PartialEq)]
+#[derive(Clone, Debug, Default, PartialEq)]
 pub struct NQLBatchInfo {
     pub batch_index: u32,
     pub part_count: u32,
@@ -105,6 +127,74 @@ pub struct NQLBatchInfo {
 pub struct NQLError {
     pub message: *mut u8,
     pub message_len: usize,
+}
+
+const NULL_BUFFER: &str = "The caller passed a null buffer.";
+
+/// The caller's message slot for one call. A null slot discards messages.
+struct ErrorSlot<'a>(Option<&'a mut NQLError>);
+
+impl<'a> ErrorSlot<'a> {
+    /// # Safety
+    /// `err_out` is null, or points to aligned writable `NQLError` storage that
+    /// stays valid for the whole call.
+    unsafe fn new(err_out: *mut NQLError) -> Self {
+        Self(unsafe { err_out.as_mut() })
+    }
+
+    /// Clears the slot, so a message from an earlier call cannot read as this
+    /// call's failure.
+    fn clear(&mut self) {
+        if let Some(slot) = self.0.as_mut() {
+            **slot = NQLError {
+                message: std::ptr::null_mut(),
+                message_len: 0,
+            };
+        }
+    }
+
+    /// Stores the message and returns `code`, so an entry point returns a
+    /// failure in one expression.
+    fn fail(&mut self, code: i32, message: &str) -> i32 {
+        if let Some(slot) = self.0.as_mut() {
+            let (message, message_len) = export_bytes(message.as_bytes().to_vec());
+            **slot = NQLError {
+                message,
+                message_len,
+            };
+        }
+        code
+    }
+}
+
+/// Borrows the caller's input bytes.
+///
+/// # Safety
+/// `data` is null, or points to `len` readable bytes for the whole call.
+unsafe fn input_bytes<'a>(data: *const u8, len: usize) -> Option<&'a [u8]> {
+    if data.is_null() {
+        None
+    } else {
+        Some(unsafe { slice::from_raw_parts(data, len) })
+    }
+}
+
+/// Borrows the caller's pack layers. An empty layer list needs no pointer.
+///
+/// # Safety
+/// `layers` is null, or points to `count` readable `NQLPackLayer` values for
+/// the whole call.
+unsafe fn input_layers<'a>(
+    layers: *const NQLPackLayer,
+    count: usize,
+) -> Option<&'a [NQLPackLayer]> {
+    if count == 0 {
+        return Some(&[]);
+    }
+    if layers.is_null() {
+        return None;
+    }
+    Some(unsafe { slice::from_raw_parts(layers, count) })
 }
 
 fn preview_limits() -> DecodeLimits {
@@ -240,13 +330,6 @@ fn resource_pack(bytes: &[u8]) -> Result<NQLResourcePack, MeshFailure> {
         .map_err(|error| MeshFailure::Pack(error.to_string()))
 }
 
-unsafe fn pack_layer_name(layer: &NQLPackLayer) -> String {
-    if layer.name.is_null() || layer.name_len == 0 {
-        return String::from("Texture pack");
-    }
-    String::from_utf8_lossy(slice::from_raw_parts(layer.name, layer.name_len)).into_owned()
-}
-
 /// Clones the base once, then moves each validated custom pack into it. Each
 /// layer parses against an empty pack through the published core validator, so
 /// the limits have one home and the accumulated stack is never cloned.
@@ -257,16 +340,15 @@ fn resource_pack_stack(
     let empty = ResourcePackSource::from_resource_pack(Default::default());
     let mut merged = base.0.pack().clone();
     for layer in layers {
-        let name = unsafe { pack_layer_name(layer) };
+        let name = unsafe { layer.display_name() };
         if layer.len == 0 {
             return Err(MeshFailure::Pack(format!(
                 "“{name}” is empty. Choose a Minecraft Java resource-pack ZIP."
             )));
         }
-        if layer.data.is_null() {
+        let Some(bytes) = (unsafe { layer.payload() }) else {
             return Err(MeshFailure::Pack(format!("“{name}” has no readable data.")));
-        }
-        let bytes = unsafe { slice::from_raw_parts(layer.data, layer.len) };
+        };
         let mut custom =
             litematica_preview_core::resource_pack_overlay(&empty, bytes).map_err(|message| {
                 MeshFailure::Pack(format!("“{name}” could not be loaded. {message}"))
@@ -286,125 +368,121 @@ fn export_bytes(bytes: Vec<u8>) -> (*mut u8, usize) {
     (Box::into_raw(boxed) as *mut u8, len)
 }
 
-unsafe fn fail(err_out: *mut NQLError, code: i32, message: &str) -> i32 {
-    if !err_out.is_null() {
-        let (message, message_len) = export_bytes(message.as_bytes().to_vec());
-        *err_out = NQLError {
-            message,
-            message_len,
-        };
-    }
-    code
-}
-
-unsafe fn init_error(err_out: *mut NQLError) {
-    if !err_out.is_null() {
-        *err_out = NQLError {
-            message: std::ptr::null_mut(),
-            message_len: 0,
-        };
-    }
-}
-
-unsafe fn open_schematic(
-    data: *const u8,
-    len: usize,
-    out: *mut *mut NQLSchematic,
-    err_out: *mut NQLError,
+/// Decodes one schematic into `out`, or writes the refusal to `error`.
+fn open_schematic(
+    bytes: Option<&[u8]>,
+    out: Option<&mut *mut NQLSchematic>,
     limits: &DecodeLimits,
+    error: &mut ErrorSlot<'_>,
 ) -> i32 {
-    init_error(err_out);
-    if data.is_null() || out.is_null() {
-        return fail(
-            err_out,
-            status::ERR_NULL,
-            "The caller passed a null buffer.",
-        );
-    }
+    let (Some(bytes), Some(out)) = (bytes, out) else {
+        return error.fail(status::ERR_NULL, NULL_BUFFER);
+    };
     *out = std::ptr::null_mut();
-    let bytes = slice::from_raw_parts(data, len);
     match catch_unwind(AssertUnwindSafe(|| decode(bytes, limits))) {
         Ok(Ok(schematic)) => {
             *out = Box::into_raw(Box::new(schematic));
             status::OK
         }
-        Ok(Err(DecodeFailure::Format(message))) => fail(err_out, status::ERR_FORMAT, &message),
+        Ok(Err(DecodeFailure::Format(message))) => error.fail(status::ERR_FORMAT, &message),
         Ok(Err(DecodeFailure::Limit(message))) => {
-            fail(err_out, status::ERR_LIMIT, &describe_limit(&message))
+            error.fail(status::ERR_LIMIT, &describe_limit(&message))
         }
-        Err(_) => fail(
-            err_out,
+        Err(_) => error.fail(
             status::ERR_INTERNAL,
             "Something went wrong while reading this schematic.",
         ),
     }
 }
 
-#[no_mangle]
+/// Converts the C arguments of a schematic open and decodes it. The two public
+/// entry points differ only in their limits.
+///
+/// # Safety
+/// `data` is null, or points to `len` readable bytes for the whole call. `out`
+/// and `err_out` are null, or point to writable storage for the whole call.
+unsafe fn open_schematic_entry(
+    data: *const u8,
+    len: usize,
+    out: *mut *mut NQLSchematic,
+    err_out: *mut NQLError,
+    limits: &DecodeLimits,
+) -> i32 {
+    let mut error = unsafe { ErrorSlot::new(err_out) };
+    error.clear();
+    unsafe { open_schematic(input_bytes(data, len), out.as_mut(), limits, &mut error) }
+}
+
+#[unsafe(no_mangle)]
 pub unsafe extern "C" fn nql_schematic_open(
     data: *const u8,
     len: usize,
     out: *mut *mut NQLSchematic,
     err_out: *mut NQLError,
 ) -> i32 {
-    open_schematic(data, len, out, err_out, &preview_limits())
+    unsafe { open_schematic_entry(data, len, out, err_out, &preview_limits()) }
 }
 
 /// Reads a schematic with no preview quotas. The host shows the limit hit to
 /// the user, with an offer to render anyway, before it calls this function.
 /// The host then owns every admission decision.
-#[no_mangle]
+#[unsafe(no_mangle)]
 pub unsafe extern "C" fn nql_schematic_open_override(
     data: *const u8,
     len: usize,
     out: *mut *mut NQLSchematic,
     err_out: *mut NQLError,
 ) -> i32 {
-    open_schematic(data, len, out, err_out, &override_limits())
+    unsafe { open_schematic_entry(data, len, out, err_out, &override_limits()) }
 }
 
-#[no_mangle]
+#[unsafe(no_mangle)]
 pub unsafe extern "C" fn nql_schematic_free(schematic: *mut NQLSchematic) {
     if !schematic.is_null() {
-        drop(Box::from_raw(schematic));
+        unsafe { drop(Box::from_raw(schematic)) };
     }
 }
 
 /// Cancels meshing for this schematic and keeps the handle valid. Cancellation
 /// is monotonic. A cancelled handle cannot publish later geometry.
-#[no_mangle]
+#[unsafe(no_mangle)]
 pub unsafe extern "C" fn nql_schematic_cancel(schematic: *const NQLSchematic) -> i32 {
-    if schematic.is_null() {
+    let Some(schematic) = (unsafe { schematic.as_ref() }) else {
         return status::ERR_NULL;
-    }
-    (*schematic).cancelled.store(true, Ordering::Relaxed);
+    };
+    schematic.cancelled.store(true, Ordering::Relaxed);
     status::OK
 }
 
-#[no_mangle]
+#[unsafe(no_mangle)]
 pub unsafe extern "C" fn nql_schematic_warnings(
     schematic: *const NQLSchematic,
     out: *mut *mut u8,
     out_len: *mut usize,
 ) -> i32 {
-    if schematic.is_null() || out.is_null() || out_len.is_null() {
+    let (Some(schematic), Some(out), Some(out_len)) = (
+        unsafe { schematic.as_ref() },
+        unsafe { out.as_mut() },
+        unsafe { out_len.as_mut() },
+    ) else {
         return status::ERR_NULL;
-    }
-    let (buffer, len) = export_bytes((*schematic).source.warnings().join("\n").into_bytes());
+    };
+    let (buffer, len) = export_bytes(schematic.source.warnings().join("\n").into_bytes());
     *out = buffer;
     *out_len = len;
     status::OK
 }
 
-#[no_mangle]
+#[unsafe(no_mangle)]
 pub unsafe extern "C" fn nql_schematic_info(
     schematic: *const NQLSchematic,
     out: *mut NQLSchematicInfo,
 ) -> i32 {
-    if schematic.is_null() || out.is_null() {
+    let (Some(schematic), Some(out)) = (unsafe { schematic.as_ref() }, unsafe { out.as_mut() })
+    else {
         return status::ERR_NULL;
-    }
-    let source = &(*schematic).source;
+    };
+    let source = &schematic.source;
     let content = source.content_dimensions();
     let origin = source.content_origin();
     *out = NQLSchematicInfo {
@@ -420,54 +498,99 @@ pub unsafe extern "C" fn nql_schematic_info(
     status::OK
 }
 
-#[no_mangle]
+/// Parses the bundled resource pack, or writes the refusal to `error`.
+fn open_resource_pack(
+    bytes: Option<&[u8]>,
+    out: Option<&mut *mut NQLResourcePack>,
+    error: &mut ErrorSlot<'_>,
+) -> i32 {
+    let (Some(bytes), Some(out)) = (bytes, out) else {
+        return error.fail(status::ERR_NULL, NULL_BUFFER);
+    };
+    *out = std::ptr::null_mut();
+    match catch_unwind(AssertUnwindSafe(|| resource_pack(bytes))) {
+        Ok(Ok(pack)) => {
+            *out = Box::into_raw(Box::new(pack));
+            status::OK
+        }
+        Ok(Err(MeshFailure::Pack(message))) => error.fail(
+            status::ERR_PACK,
+            &format!("The bundled block resources are invalid: {message}"),
+        ),
+        Ok(Err(_)) | Err(_) => error.fail(
+            status::ERR_INTERNAL,
+            "Something went wrong while reading the bundled block resources.",
+        ),
+    }
+}
+
+#[unsafe(no_mangle)]
 pub unsafe extern "C" fn nql_resource_pack_open(
     data: *const u8,
     len: usize,
     out: *mut *mut NQLResourcePack,
     err_out: *mut NQLError,
 ) -> i32 {
-    init_error(err_out);
-    if data.is_null() || out.is_null() {
-        return fail(
-            err_out,
-            status::ERR_NULL,
-            "The caller passed a null buffer.",
-        );
+    let mut error = unsafe { ErrorSlot::new(err_out) };
+    error.clear();
+    unsafe { open_resource_pack(input_bytes(data, len), out.as_mut(), &mut error) }
+}
+
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn nql_resource_pack_free(pack: *mut NQLResourcePack) {
+    if !pack.is_null() {
+        unsafe { drop(Box::from_raw(pack)) };
     }
+}
+
+/// Parses the layer stack, or writes the refusal to `error`.
+fn compose_resource_packs(
+    base: Option<&NQLResourcePack>,
+    layers: Option<&[NQLPackLayer]>,
+    out: Option<&mut *mut NQLResourcePack>,
+    error: &mut ErrorSlot<'_>,
+) -> i32 {
+    let (Some(base), Some(layers), Some(out)) = (base, layers, out) else {
+        return error.fail(status::ERR_NULL, NULL_BUFFER);
+    };
     *out = std::ptr::null_mut();
-    let bytes = slice::from_raw_parts(data, len);
-    match catch_unwind(AssertUnwindSafe(|| resource_pack(bytes))) {
+    match catch_unwind(AssertUnwindSafe(|| resource_pack_stack(base, layers))) {
         Ok(Ok(pack)) => {
             *out = Box::into_raw(Box::new(pack));
             status::OK
         }
-        Ok(Err(MeshFailure::Pack(error))) => fail(
-            err_out,
-            status::ERR_PACK,
-            &format!("The bundled block resources are invalid: {error}"),
-        ),
-        Ok(Err(_)) => fail(
-            err_out,
+        Ok(Err(MeshFailure::Pack(message))) => error.fail(status::ERR_PACK, &message),
+        _ => error.fail(
             status::ERR_INTERNAL,
-            "Something went wrong while reading the bundled block resources.",
-        ),
-        Err(_) => fail(
-            err_out,
-            status::ERR_INTERNAL,
-            "Something went wrong while reading the bundled block resources.",
+            "Something went wrong while composing the texture packs.",
         ),
     }
 }
 
-#[no_mangle]
-pub unsafe extern "C" fn nql_resource_pack_free(pack: *mut NQLResourcePack) {
-    if !pack.is_null() {
-        drop(Box::from_raw(pack));
+/// # Safety
+/// `base` is null, or points to a pack that outlives the call. `layers` is
+/// null, or points to `layer_count` readable layers. `out` and `err_out` are
+/// null, or point to writable storage for the whole call.
+unsafe fn compose_resource_packs_entry(
+    base: *const NQLResourcePack,
+    layers: *const NQLPackLayer,
+    layer_count: usize,
+    out: *mut *mut NQLResourcePack,
+    err_out: *mut NQLError,
+) -> i32 {
+    let mut error = unsafe { ErrorSlot::new(err_out) };
+    error.clear();
+    unsafe {
+        compose_resource_packs(
+            base.as_ref(),
+            input_layers(layers, layer_count),
+            out.as_mut(),
+            &mut error,
+        )
     }
 }
 
-#[no_mangle]
+#[unsafe(no_mangle)]
 pub unsafe extern "C" fn nql_resource_pack_compose(
     base: *const NQLResourcePack,
     layers: *const NQLPackLayer,
@@ -475,62 +598,24 @@ pub unsafe extern "C" fn nql_resource_pack_compose(
     out: *mut *mut NQLResourcePack,
     err_out: *mut NQLError,
 ) -> i32 {
-    init_error(err_out);
-    if base.is_null() || out.is_null() || (layer_count > 0 && layers.is_null()) {
-        return fail(
-            err_out,
-            status::ERR_NULL,
-            "The caller passed a null buffer.",
-        );
-    }
-    *out = std::ptr::null_mut();
-    let layers = if layer_count == 0 {
-        &[]
-    } else {
-        slice::from_raw_parts(layers, layer_count)
-    };
-    match catch_unwind(AssertUnwindSafe(|| resource_pack_stack(&*base, layers))) {
-        Ok(Ok(pack)) => {
-            *out = Box::into_raw(Box::new(pack));
-            status::OK
-        }
-        Ok(Err(MeshFailure::Pack(error))) => fail(err_out, status::ERR_PACK, &error),
-        _ => fail(
-            err_out,
-            status::ERR_INTERNAL,
-            "Something went wrong while composing the texture packs.",
-        ),
-    }
+    unsafe { compose_resource_packs_entry(base, layers, layer_count, out, err_out) }
 }
 
-unsafe fn start_mesh_stream(
-    schematic: *const NQLSchematic,
-    pack: *const NQLResourcePack,
-    atlas_rgba_out: *mut *mut u8,
-    atlas_rgba_len: *mut usize,
-    atlas_info_out: *mut NQLAtlasInfo,
-    info_out: *mut NQLMeshInfo,
-    stream_out: *mut *mut stream::NQLMeshStream<'_>,
-    err_out: *mut NQLError,
+fn start_mesh_stream<'a>(
+    schematic: &'a NQLSchematic,
+    pack: &'a NQLResourcePack,
+    atlas_rgba_out: &mut *mut u8,
+    atlas_rgba_len: &mut usize,
+    atlas_info_out: Option<&mut NQLAtlasInfo>,
+    info_out: Option<&mut NQLMeshInfo>,
+    stream_out: &mut *mut stream::NQLMeshStream<'a>,
+    error: &mut ErrorSlot<'_>,
     tier: MeshTier,
 ) -> i32 {
-    init_error(err_out);
-    if schematic.is_null()
-        || pack.is_null()
-        || atlas_rgba_out.is_null()
-        || atlas_rgba_len.is_null()
-        || stream_out.is_null()
-    {
-        return fail(
-            err_out,
-            status::ERR_NULL,
-            "The caller passed a null buffer.",
-        );
-    }
     *atlas_rgba_out = std::ptr::null_mut();
     *atlas_rgba_len = 0;
     *stream_out = std::ptr::null_mut();
-    let cancelled = (*schematic).cancelled.clone();
+    let cancelled = schematic.cancelled.clone();
     let current = || {
         if cancelled.load(Ordering::Relaxed) {
             Err("Preview cancelled.".to_string())
@@ -539,12 +624,12 @@ unsafe fn start_mesh_stream(
         }
     };
     let opened = match catch_unwind(AssertUnwindSafe(|| {
-        stream::NQLMeshStream::open(&*schematic, &*pack, &current, tier.quotas())
+        stream::NQLMeshStream::open(schematic, pack, &current, tier.quotas())
     })) {
         Ok(Ok(opened)) => opened,
-        Ok(Err(error)) => {
+        Ok(Err(failure)) => {
             if tier != MeshTier::Preview {
-                return mesh_failure(err_out, error);
+                return mesh_failure(error, failure);
             }
             // The probe lifts only the atlas side, to OVERRIDE_ATLAS_SIDE, and
             // keeps the preview block budget. If the probe opens a stream, the
@@ -558,13 +643,12 @@ unsafe fn start_mesh_stream(
                 atlas_max_side: OVERRIDE_ATLAS_SIDE,
             };
             let probe = catch_unwind(AssertUnwindSafe(|| {
-                stream::NQLMeshStream::open(&*schematic, &*pack, &current, atlas_probe)
+                stream::NQLMeshStream::open(schematic, pack, &current, atlas_probe)
             }));
             return match probe {
                 Ok(Ok((_, _, probe_info, _))) => {
                     let cost = u64::from(probe_info.width) * u64::from(probe_info.height) * 4;
-                    fail(
-                        err_out,
+                    error.fail(
                         status::ERR_LIMIT,
                         &format!(
                             "This schematic's blocks need a {} × {} texture atlas of \
@@ -578,32 +662,73 @@ unsafe fn start_mesh_stream(
                         ),
                     )
                 }
-                _ => mesh_failure(err_out, error),
+                _ => mesh_failure(error, failure),
             };
         }
         Err(_) => {
-            return fail(
-                err_out,
+            return error.fail(
                 status::ERR_MESH,
                 "This schematic has too much visible surface to preview. Its block geometry exceeds what the renderer can build.",
-            )
+            );
         }
     };
     let (stream, atlas, atlas_info, info) = opened;
     let (data, len) = export_bytes(atlas);
     *atlas_rgba_out = data;
     *atlas_rgba_len = len;
-    if !atlas_info_out.is_null() {
+    if let Some(atlas_info_out) = atlas_info_out {
         *atlas_info_out = atlas_info;
     }
-    if !info_out.is_null() {
+    if let Some(info_out) = info_out {
         *info_out = info;
     }
     *stream_out = Box::into_raw(Box::new(stream));
     status::OK
 }
 
-#[no_mangle]
+/// # Safety
+/// Every pointer is null, or points to valid storage for the whole call.
+/// `schematic` and `pack` outlive the returned stream.
+unsafe fn open_mesh_stream_entry(
+    schematic: *const NQLSchematic,
+    pack: *const NQLResourcePack,
+    atlas_rgba_out: *mut *mut u8,
+    atlas_rgba_len: *mut usize,
+    atlas_info_out: *mut NQLAtlasInfo,
+    info_out: *mut NQLMeshInfo,
+    stream_out: *mut *mut stream::NQLMeshStream<'_>,
+    err_out: *mut NQLError,
+    tier: MeshTier,
+) -> i32 {
+    let mut error = unsafe { ErrorSlot::new(err_out) };
+    error.clear();
+    let (Some(schematic), Some(pack)) = (unsafe { (schematic.as_ref(), pack.as_ref()) }) else {
+        return error.fail(status::ERR_NULL, NULL_BUFFER);
+    };
+    let (Some(atlas_rgba_out), Some(atlas_rgba_len), Some(stream_out)) = (unsafe {
+        (
+            atlas_rgba_out.as_mut(),
+            atlas_rgba_len.as_mut(),
+            stream_out.as_mut(),
+        )
+    }) else {
+        return error.fail(status::ERR_NULL, NULL_BUFFER);
+    };
+    let (atlas_info_out, info_out) = unsafe { (atlas_info_out.as_mut(), info_out.as_mut()) };
+    start_mesh_stream(
+        schematic,
+        pack,
+        atlas_rgba_out,
+        atlas_rgba_len,
+        atlas_info_out,
+        info_out,
+        stream_out,
+        &mut error,
+        tier,
+    )
+}
+
+#[unsafe(no_mangle)]
 pub unsafe extern "C" fn nql_mesh_stream_open(
     schematic: *const NQLSchematic,
     pack: *const NQLResourcePack,
@@ -614,23 +739,25 @@ pub unsafe extern "C" fn nql_mesh_stream_open(
     stream_out: *mut *mut stream::NQLMeshStream<'_>,
     err_out: *mut NQLError,
 ) -> i32 {
-    start_mesh_stream(
-        schematic,
-        pack,
-        atlas_rgba_out,
-        atlas_rgba_len,
-        atlas_info_out,
-        info_out,
-        stream_out,
-        err_out,
-        MeshTier::Preview,
-    )
+    unsafe {
+        open_mesh_stream_entry(
+            schematic,
+            pack,
+            atlas_rgba_out,
+            atlas_rgba_len,
+            atlas_info_out,
+            info_out,
+            stream_out,
+            err_out,
+            MeshTier::Preview,
+        )
+    }
 }
 
 /// Lifts the render-stage block budget and the shared texture atlas ceiling
 /// for the override tier, under the precondition at
 /// [`nql_schematic_open_override`].
-#[no_mangle]
+#[unsafe(no_mangle)]
 pub unsafe extern "C" fn nql_mesh_stream_open_override(
     schematic: *const NQLSchematic,
     pack: *const NQLResourcePack,
@@ -641,53 +768,44 @@ pub unsafe extern "C" fn nql_mesh_stream_open_override(
     stream_out: *mut *mut stream::NQLMeshStream<'_>,
     err_out: *mut NQLError,
 ) -> i32 {
-    start_mesh_stream(
-        schematic,
-        pack,
-        atlas_rgba_out,
-        atlas_rgba_len,
-        atlas_info_out,
-        info_out,
-        stream_out,
-        err_out,
-        MeshTier::Override,
-    )
+    unsafe {
+        open_mesh_stream_entry(
+            schematic,
+            pack,
+            atlas_rgba_out,
+            atlas_rgba_len,
+            atlas_info_out,
+            info_out,
+            stream_out,
+            err_out,
+            MeshTier::Override,
+        )
+    }
 }
 
-/// The stream borrows the schematic and the pack, and both must outlive it. A
-/// returned batch owns its storage and is valid until [`nql_mesh_batch_free`].
-#[no_mangle]
-pub unsafe extern "C" fn nql_mesh_stream_next(
-    stream: *mut stream::NQLMeshStream<'_>,
+/// Pulls one batch, or writes the refusal to `error`.
+fn next_batch(
+    stream: &mut stream::NQLMeshStream<'_>,
     expected_batch: u32,
-    batch_out: *mut *mut stream::NQLMeshBatch,
-    info_out: *mut NQLBatchInfo,
-    err_out: *mut NQLError,
+    batch_out: &mut *mut stream::NQLMeshBatch,
+    mut info_out: Option<&mut NQLBatchInfo>,
+    error: &mut ErrorSlot<'_>,
 ) -> i32 {
-    init_error(err_out);
-    if stream.is_null() || batch_out.is_null() {
-        return fail(
-            err_out,
-            status::ERR_NULL,
-            "The caller passed a null buffer.",
-        );
-    }
     *batch_out = std::ptr::null_mut();
-    if !info_out.is_null() {
-        std::ptr::write_bytes(info_out, 0, 1);
+    if let Some(info) = info_out.as_mut() {
+        **info = NQLBatchInfo::default();
     }
-    let outcome = catch_unwind(AssertUnwindSafe(|| (*stream).next(expected_batch)));
+    let outcome = catch_unwind(AssertUnwindSafe(|| stream.next(expected_batch)));
     match outcome {
-        Err(_) => fail(
-            err_out,
+        Err(_) => error.fail(
             status::ERR_MESH,
             "This schematic is too detailed to preview.",
         ),
-        Ok(Err(error)) => mesh_failure(err_out, error),
+        Ok(Err(failure)) => mesh_failure(error, failure),
         Ok(Ok(None)) => status::DONE,
         Ok(Ok(Some(batch))) => {
-            if !info_out.is_null() {
-                *info_out = batch.info.clone();
+            if let Some(info) = info_out {
+                *info = batch.info.clone();
             }
             *batch_out = Box::into_raw(Box::new(batch));
             status::OK
@@ -695,25 +813,45 @@ pub unsafe extern "C" fn nql_mesh_stream_next(
     }
 }
 
+/// The stream borrows the schematic and the pack, and both must outlive it. A
+/// returned batch owns its storage and is valid until [`nql_mesh_batch_free`].
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn nql_mesh_stream_next(
+    stream: *mut stream::NQLMeshStream<'_>,
+    expected_batch: u32,
+    batch_out: *mut *mut stream::NQLMeshBatch,
+    info_out: *mut NQLBatchInfo,
+    err_out: *mut NQLError,
+) -> i32 {
+    let mut error = unsafe { ErrorSlot::new(err_out) };
+    error.clear();
+    let (Some(stream), Some(batch_out), info_out) =
+        (unsafe { (stream.as_mut(), batch_out.as_mut(), info_out.as_mut()) })
+    else {
+        return error.fail(status::ERR_NULL, NULL_BUFFER);
+    };
+    next_batch(stream, expected_batch, batch_out, info_out, &mut error)
+}
+
 /// All pointers in this view borrow the batch, and are read-only.
-#[no_mangle]
+#[unsafe(no_mangle)]
 pub unsafe extern "C" fn nql_mesh_batch_view(
     batch: *const stream::NQLMeshBatch,
 ) -> stream::NQLBatchView {
-    (*batch).view()
+    unsafe { (*batch).view() }
 }
 
-#[no_mangle]
+#[unsafe(no_mangle)]
 pub unsafe extern "C" fn nql_mesh_batch_free(batch: *mut stream::NQLMeshBatch) {
     if !batch.is_null() {
-        drop(Box::from_raw(batch));
+        unsafe { drop(Box::from_raw(batch)) };
     }
 }
 
-#[no_mangle]
+#[unsafe(no_mangle)]
 pub unsafe extern "C" fn nql_mesh_stream_free(stream: *mut stream::NQLMeshStream<'_>) {
     if !stream.is_null() {
-        drop(Box::from_raw(stream));
+        unsafe { drop(Box::from_raw(stream)) };
     }
 }
 
@@ -758,7 +896,10 @@ impl std::fmt::Display for ByteCount {
 /// passes through unchanged.
 fn describe_limit(message: &str) -> String {
     let quota = if message.contains("palette") || message.contains("block-entry") {
-        format!("block-state entries, up to {}", grouped(MAX_PALETTE_ENTRIES as u64))
+        format!(
+            "block-state entries, up to {}",
+            grouped(MAX_PALETTE_ENTRIES as u64)
+        )
     } else if message.contains("NBT node") {
         format!("NBT nodes, up to {}", grouped(MAX_NBT_NODES as u64))
     } else if message.contains("depth") {
@@ -770,39 +911,44 @@ fn describe_limit(message: &str) -> String {
     } else if message.contains("volume") {
         format!("total block cells, up to {}", grouped(MAX_VOLUME as u64))
     } else if message.contains("decompressed") {
-        format!("decompressed bytes, up to {}", grouped(MAX_DECOMPRESSED_BYTES as u64))
+        format!(
+            "decompressed bytes, up to {}",
+            grouped(MAX_DECOMPRESSED_BYTES as u64)
+        )
     } else {
         return message.to_string();
     };
     format!("Preview limit reached: {quota}.")
 }
 
-unsafe fn mesh_failure(err_out: *mut NQLError, error: MeshFailure) -> i32 {
-    match error {
-        MeshFailure::Pack(error) => fail(
-            err_out,
+/// Writes a mesh refusal to `error` and returns its status code.
+fn mesh_failure(error_slot: &mut ErrorSlot<'_>, failure: MeshFailure) -> i32 {
+    match failure {
+        MeshFailure::Pack(message) => error_slot.fail(
             status::ERR_PACK,
-            &format!("The bundled block resources are invalid: {error}"),
+            &format!("The bundled block resources are invalid: {message}"),
         ),
-        MeshFailure::NoBlocks => fail(
-            err_out,
+        MeshFailure::NoBlocks => error_slot.fail(
             status::ERR_NO_BLOCKS,
             "This schematic contains no blocks to render.",
         ),
-        MeshFailure::Limit(message) => fail(err_out, status::ERR_LIMIT, &describe_limit(&message)),
-        MeshFailure::Cancelled => fail(err_out, status::ERR_CANCELLED, "Preview cancelled."),
-        MeshFailure::Mesh(_) => fail(
-            err_out,
+        MeshFailure::Limit(message) => {
+            error_slot.fail(status::ERR_LIMIT, &describe_limit(&message))
+        }
+        MeshFailure::Cancelled => {
+            error_slot.fail(status::ERR_CANCELLED, "Preview cancelled.")
+        }
+        MeshFailure::Mesh(_) => error_slot.fail(
             status::ERR_MESH,
             "This schematic has too much visible surface to preview. Its block geometry exceeds what the renderer can build.",
         ),
     }
 }
 
-#[no_mangle]
+#[unsafe(no_mangle)]
 pub unsafe extern "C" fn nql_buffer_free(buffer: *mut u8, len: usize) {
     if !buffer.is_null() {
-        drop(Vec::from_raw_parts(buffer, len, len));
+        unsafe { drop(Vec::from_raw_parts(buffer, len, len)) };
     }
 }
 

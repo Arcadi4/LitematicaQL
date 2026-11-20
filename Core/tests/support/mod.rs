@@ -89,7 +89,7 @@ impl AllocationMeter {
 
 unsafe impl GlobalAlloc for AllocationMeter {
     unsafe fn alloc(&self, layout: Layout) -> *mut u8 {
-        let pointer = System.alloc(layout);
+        let pointer = unsafe { System.alloc(layout) };
         if !pointer.is_null() {
             let pending = pending_fold(layout.size() as isize);
             if pending != 0 {
@@ -100,7 +100,7 @@ unsafe impl GlobalAlloc for AllocationMeter {
     }
 
     unsafe fn alloc_zeroed(&self, layout: Layout) -> *mut u8 {
-        let pointer = System.alloc_zeroed(layout);
+        let pointer = unsafe { System.alloc_zeroed(layout) };
         if !pointer.is_null() {
             let pending = pending_fold(layout.size() as isize);
             if pending != 0 {
@@ -111,7 +111,7 @@ unsafe impl GlobalAlloc for AllocationMeter {
     }
 
     unsafe fn dealloc(&self, pointer: *mut u8, layout: Layout) {
-        System.dealloc(pointer, layout);
+        unsafe { System.dealloc(pointer, layout) };
         let pending = pending_fold(-(layout.size() as isize));
         if pending != 0 {
             fold(pending);
@@ -119,7 +119,7 @@ unsafe impl GlobalAlloc for AllocationMeter {
     }
 
     unsafe fn realloc(&self, pointer: *mut u8, layout: Layout, size: usize) -> *mut u8 {
-        let next = System.realloc(pointer, layout, size);
+        let next = unsafe { System.realloc(pointer, layout, size) };
         if !next.is_null() {
             let pending = pending_fold(size as isize - layout.size() as isize);
             if pending != 0 {
