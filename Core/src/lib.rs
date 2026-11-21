@@ -913,7 +913,8 @@ pub unsafe extern "C" fn nql_mesh_stream_free(stream: *mut stream::NQLMeshStream
 
 /// Thousands separators for the numbers in the user-facing limit messages.
 pub(crate) fn grouped(value: u64) -> String {
-    let digits = value.to_string();
+    let mut buffer = std::fmt::NumBuffer::new();
+    let digits = value.format_into(&mut buffer);
     let mut out = String::with_capacity(digits.len() + digits.len() / 3);
     for (index, digit) in digits.chars().enumerate() {
         if index > 0 && (digits.len() - index).is_multiple_of(3) {
@@ -938,12 +939,14 @@ impl std::fmt::Display for ByteCount {
             value /= 1024.0;
             unit += 1;
         }
-        let text = if value >= 100.0 || unit == 0 {
-            format!("{}", value as u64)
-        } else {
-            format!("{value:.1}")
-        };
-        write!(formatter, "{text} {}", UNITS[unit])
+        let number = std::fmt::from_fn(|f| {
+            if value >= 100.0 || unit == 0 {
+                write!(f, "{}", value as u64)
+            } else {
+                write!(f, "{value:.1}")
+            }
+        });
+        write!(formatter, "{number} {}", UNITS[unit])
     }
 }
 
