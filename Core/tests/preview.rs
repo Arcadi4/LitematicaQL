@@ -7,8 +7,9 @@ use litematicaql_native::{
     nql_buffer_free, nql_mesh_batch_free, nql_mesh_stream_free, nql_mesh_stream_next,
     nql_mesh_stream_open, nql_resource_pack_compose, nql_resource_pack_free,
     nql_resource_pack_open, nql_schematic_cancel, nql_schematic_free, nql_schematic_info,
-    nql_schematic_open, nql_schematic_warnings, status,
+    nql_schematic_open, nql_schematic_open_override, nql_schematic_warnings, status,
 };
+use quartz_nbt::{NbtCompound, NbtList, NbtTag};
 
 fn repo_root() -> PathBuf {
     PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("..")
@@ -317,6 +318,84 @@ fn assert_shared_atlas(result: &MeshResult) {
 
 fn deterministic_fixture() -> Vec<u8> {
     fs::read(repo_root().join("Fixtures/Demos/Cottage.litematic")).expect("litematic demo")
+}
+
+fn litematic(palette: Vec<NbtTag>, packed: Vec<i64>) -> Vec<u8> {
+    let mut size = NbtCompound::new();
+    size.insert("x", 8i32);
+    size.insert("y", 8i32);
+    size.insert("z", 8i32);
+    let mut position = NbtCompound::new();
+    for axis in ["x", "y", "z"] {
+        position.insert(axis, 0i32);
+    }
+    let mut region = NbtCompound::new();
+    region.insert("Size", size);
+    region.insert("Position", position);
+    region.insert("BlockStatePalette", NbtList::from(palette));
+    region.insert("BlockStates", NbtTag::LongArray(packed));
+    let mut regions = NbtCompound::new();
+    regions.insert("Main", region);
+    let mut root = NbtCompound::new();
+    root.insert("Version", 6i32);
+    root.insert("Metadata", NbtCompound::new());
+    root.insert("Regions", regions);
+    let mut bytes = Vec::new();
+    quartz_nbt::io::write_nbt(
+        &mut bytes,
+        None,
+        &root,
+        quartz_nbt::io::Flavor::GzCompressed,
+    )
+    .unwrap();
+    bytes
+}
+
+fn states(count: usize) -> Vec<NbtTag> {
+    (0..count)
+        .map(|index| {
+            let mut state = NbtCompound::new();
+            state.insert("Name", format!("minecraft:state{index}"));
+            NbtTag::Compound(state)
+        })
+        .collect()
+}
+
+fn open_code(bytes: &[u8], override_limits: bool) -> (i32, String) {
+    let mut handle = std::ptr::null_mut();
+    let mut failure = error();
+    let code = unsafe {
+        if override_limits {
+            nql_schematic_open_override(bytes.as_ptr(), bytes.len(), &mut handle, &mut failure)
+        } else {
+            nql_schematic_open(bytes.as_ptr(), bytes.len(), &mut handle, &mut failure)
+        }
+    };
+    let message = take_error(&mut failure);
+    if !handle.is_null() {
+        unsafe { nql_schematic_free(handle) };
+    }
+    (code, message)
+}
+
+#[test]
+fn mismatched_block_states_are_not_a_preview_quota() {
+    let bytes = litematic(states(2), vec![0]);
+    for override_limits in [false, true] {
+        let (code, message) = open_code(&bytes, override_limits);
+        assert_eq!(code, status::ERR_FORMAT, "{message}");
+        assert!(message.contains("packed state length"), "{message}");
+    }
+}
+
+#[test]
+fn palette_quota_still_reports_a_preview_limit() {
+    let bytes = litematic(states(32_769), vec![0; 128]);
+    let (code, message) = open_code(&bytes, false);
+    assert_eq!(code, status::ERR_LIMIT, "{message}");
+    assert!(message.contains("block-state entries"), "{message}");
+    let (code, message) = open_code(&bytes, true);
+    assert_eq!(code, status::OK, "{message}");
 }
 
 /// The C header `Core/include/LitematicaQLNative.h` mirrors the engine
