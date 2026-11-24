@@ -258,22 +258,21 @@ pub(crate) struct MeshQuotas {
     pub(crate) atlas_max_side: u32,
 }
 
-/// The quota set that a mesh stream open uses: the preview tier, or the
-/// override tier that the `*_override` entry points select.
+/// The preview or override tier. Both the decode and mesh stages use it.
 #[derive(Clone, Copy, PartialEq, Eq)]
-pub(crate) enum MeshTier {
+pub(crate) enum Tier {
     Preview,
     Override,
 }
 
-impl MeshTier {
+impl Tier {
     fn quotas(self) -> MeshQuotas {
         match self {
-            MeshTier::Preview => MeshQuotas {
+            Tier::Preview => MeshQuotas {
                 block_budget: MAX_MESH_BLOCKS,
                 atlas_max_side: MAX_ATLAS_SIDE,
             },
-            MeshTier::Override => MeshQuotas {
+            Tier::Override => MeshQuotas {
                 block_budget: i64::MAX,
                 atlas_max_side: OVERRIDE_ATLAS_SIDE,
             },
@@ -373,6 +372,7 @@ fn open_schematic(
     bytes: Option<&[u8]>,
     out: Option<&mut *mut NQLSchematic>,
     limits: &DecodeLimits,
+    tier: Tier,
     error: &mut ErrorSlot<'_>,
 ) -> i32 {
     let (Some(bytes), Some(out)) = (bytes, out) else {
@@ -386,7 +386,15 @@ fn open_schematic(
         }
         Ok(Err(DecodeFailure::Format(message))) => error.fail(status::ERR_FORMAT, &message),
         Ok(Err(DecodeFailure::Limit(message))) => {
-            error.fail(status::ERR_LIMIT, &describe_limit(&message))
+            if tier == Tier::Preview {
+                if let Some(text) = quota_text(&message) {
+                    return error.fail(status::ERR_LIMIT, &text);
+                }
+            }
+            // The override tier has no preview quota. Upstream's limit
+            // classification therefore reports content damage, not a quota
+            // that the host can lift.
+            error.fail(status::ERR_FORMAT, decode_failure_text(&message))
         }
         Err(_) => error.fail(
             status::ERR_INTERNAL,
@@ -396,7 +404,7 @@ fn open_schematic(
 }
 
 /// Converts the C arguments of a schematic open and decodes it. The two public
-/// entry points differ only in their limits.
+/// entry points differ only in their limits and tier.
 ///
 /// # Safety
 /// `data` is null, or points to `len` readable bytes for the whole call. `out`
@@ -407,10 +415,19 @@ unsafe fn open_schematic_entry(
     out: *mut *mut NQLSchematic,
     err_out: *mut NQLError,
     limits: &DecodeLimits,
+    tier: Tier,
 ) -> i32 {
     let mut error = unsafe { ErrorSlot::new(err_out) };
     error.clear();
-    unsafe { open_schematic(input_bytes(data, len), out.as_mut(), limits, &mut error) }
+    unsafe {
+        open_schematic(
+            input_bytes(data, len),
+            out.as_mut(),
+            limits,
+            tier,
+            &mut error,
+        )
+    }
 }
 
 /// # Safety
@@ -423,7 +440,7 @@ pub unsafe extern "C" fn nql_schematic_open(
     out: *mut *mut NQLSchematic,
     err_out: *mut NQLError,
 ) -> i32 {
-    unsafe { open_schematic_entry(data, len, out, err_out, &preview_limits()) }
+    unsafe { open_schematic_entry(data, len, out, err_out, &preview_limits(), Tier::Preview) }
 }
 
 /// Reads a schematic with no preview quotas. The host shows the limit hit to
@@ -440,7 +457,7 @@ pub unsafe extern "C" fn nql_schematic_open_override(
     out: *mut *mut NQLSchematic,
     err_out: *mut NQLError,
 ) -> i32 {
-    unsafe { open_schematic_entry(data, len, out, err_out, &override_limits()) }
+    unsafe { open_schematic_entry(data, len, out, err_out, &override_limits(), Tier::Override) }
 }
 
 /// # Safety
@@ -642,7 +659,7 @@ fn start_mesh_stream<'a>(
     info_out: Option<&mut NQLMeshInfo>,
     stream_out: &mut *mut stream::NQLMeshStream<'a>,
     error: &mut ErrorSlot<'_>,
-    tier: MeshTier,
+    tier: Tier,
 ) -> i32 {
     *atlas_rgba_out = std::ptr::null_mut();
     *atlas_rgba_len = 0;
@@ -660,7 +677,7 @@ fn start_mesh_stream<'a>(
     })) {
         Ok(Ok(opened)) => opened,
         Ok(Err(failure)) => {
-            if tier != MeshTier::Preview {
+            if tier != Tier::Preview {
                 return mesh_failure(error, failure);
             }
             // The probe lifts only the atlas side, to OVERRIDE_ATLAS_SIDE, and
@@ -732,7 +749,7 @@ unsafe fn open_mesh_stream_entry(
     info_out: *mut NQLMeshInfo,
     stream_out: *mut *mut stream::NQLMeshStream<'_>,
     err_out: *mut NQLError,
-    tier: MeshTier,
+    tier: Tier,
 ) -> i32 {
     let mut error = unsafe { ErrorSlot::new(err_out) };
     error.clear();
@@ -786,7 +803,7 @@ pub unsafe extern "C" fn nql_mesh_stream_open(
             info_out,
             stream_out,
             err_out,
-            MeshTier::Preview,
+            Tier::Preview,
         )
     }
 }
@@ -819,7 +836,7 @@ pub unsafe extern "C" fn nql_mesh_stream_open_override(
             info_out,
             stream_out,
             err_out,
-            MeshTier::Override,
+            Tier::Override,
         )
     }
 }
@@ -950,34 +967,49 @@ impl std::fmt::Display for ByteCount {
     }
 }
 
-/// Names the dimension that hit a limit and states its number, so the host can
-/// show figures instead of the engine's terse refusal. An unrecognized message
-/// passes through unchanged.
-fn describe_limit(message: &str) -> String {
-    let quota = if message.contains("palette") || message.contains("block-entry") {
+/// Removes the prefix that upstream adds to messages it classifies as limits.
+fn decode_failure_text(message: &str) -> &str {
+    const LIMIT_PREFIX: &str = "This schematic is too large to preview: ";
+    message.strip_prefix(LIMIT_PREFIX).unwrap_or(message)
+}
+
+/// Names the preview quota that a refusal exceeded, or `None` for content
+/// damage. Upstream classifies messages with "volume" or "dimension" as
+/// limits. Some malformed documents match those words. Map only stated quotas
+/// to an override offer.
+fn quota_text(message: &str) -> Option<String> {
+    let quota = if message.contains("palette limit exceeded")
+        || message.contains("block-entry limit exceeded")
+    {
         format!(
             "block-state entries, up to {}",
             grouped(MAX_PALETTE_ENTRIES as u64)
         )
-    } else if message.contains("NBT node") {
+    } else if message.contains("NBT node limit exceeded")
+        || message.contains("NBT depth or node limit exceeded")
+    {
         format!("NBT nodes, up to {}", grouped(MAX_NBT_NODES as u64))
-    } else if message.contains("depth") {
+    } else if message.contains("NBT depth limit exceeded") {
         format!("NBT nesting depth, up to {}", grouped(MAX_NBT_DEPTH as u64))
-    } else if message.contains("region") {
+    } else if message.contains("region limit exceeded")
+        || message.contains("region or volume limit exceeded")
+        || message.contains("default region exceeds region or volume limit")
+    {
         format!("regions per file, up to {}", grouped(MAX_REGIONS as u64))
-    } else if message.contains("dimension") {
+    } else if message.contains("dimension limit exceeded") {
         format!("blocks per axis, up to {}", grouped(MAX_AXIS_LENGTH as u64))
-    } else if message.contains("volume") {
+    } else if message.contains("volume limit exceeded") || message.contains("total volume overflow")
+    {
         format!("total block cells, up to {}", grouped(MAX_VOLUME as u64))
-    } else if message.contains("decompressed") {
+    } else if message.contains("decompressed byte limit exceeded") {
         format!(
             "decompressed bytes, up to {}",
             grouped(MAX_DECOMPRESSED_BYTES as u64)
         )
     } else {
-        return message.to_string();
+        return None;
     };
-    format!("Preview limit reached: {quota}.")
+    Some(format!("Preview limit reached: {quota}."))
 }
 
 /// Writes a mesh refusal to `error` and returns its status code.
@@ -992,7 +1024,8 @@ fn mesh_failure(error_slot: &mut ErrorSlot<'_>, failure: MeshFailure) -> i32 {
             "This schematic contains no blocks to render.",
         ),
         MeshFailure::Limit(message) => {
-            error_slot.fail(status::ERR_LIMIT, &describe_limit(&message))
+            let text = quota_text(&message).unwrap_or_else(|| message.to_string());
+            error_slot.fail(status::ERR_LIMIT, &text)
         }
         MeshFailure::Cancelled => {
             error_slot.fail(status::ERR_CANCELLED, "Preview cancelled.")
